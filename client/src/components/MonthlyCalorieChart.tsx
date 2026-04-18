@@ -193,6 +193,22 @@ export function MonthlyCalorieChart() {
     fetchData(trackerCalendarMonth);
   }, [trackerCalendarMonth, fetchData]);
 
+  // ── useMemo hooks MUST come before conditional early returns ─────────────
+  // Hooks must be called in the same order on every render regardless of
+  // loading state — moving them here prevents the "rendered more hooks"
+  // error that caused selectedMacro changes to silently have no effect.
+  const chartData = useMemo(() => {
+    if (!data) return [];
+    return data.dailyData.map(d => ({
+      ...d,
+      consumed: d[selectedMacro]?.consumed ?? 0,
+      target:   d[selectedMacro]?.target   ?? 0,
+      delta:    d[selectedMacro]?.delta    ?? 0,
+    }));
+  }, [data, selectedMacro]);
+
+  const TooltipContent = useMemo(() => makeTooltip(selectedMacro), [selectedMacro]);
+
   if (loading) return <Skeleton />;
   if (error || !data) return (
     <div className="bg-surface rounded-2xl border border-border p-4 card-glow">
@@ -204,16 +220,6 @@ export function MonthlyCalorieChart() {
   const cfg      = MACRO_CONFIG[selectedMacro];
   const macroTot = totals[selectedMacro];
   const noData   = planDaysElapsed === 0;
-
-  // Flatten selected macro values onto each daily point for recharts
-  const chartData = useMemo(() =>
-    dailyData.map(d => ({
-      ...d,
-      consumed: d[selectedMacro].consumed,
-      target:   d[selectedMacro].target,
-      delta:    d[selectedMacro].delta,
-    }))
-  , [dailyData, selectedMacro]);
 
   const pctConsumed = macroTot.target > 0
     ? Math.min((macroTot.consumed / macroTot.target) * 100, 100)
@@ -230,7 +236,6 @@ export function MonthlyCalorieChart() {
   const yDomain = [-Math.ceil(maxAbs / 10) * 10, Math.ceil(maxAbs / 10) * 10];
 
   const deficitZoneLine = -(targets[selectedMacro] * 0.1);
-  const TooltipContent  = useMemo(() => makeTooltip(selectedMacro), [selectedMacro]);
 
   const deltaSign = macroTot.delta > 0 ? '+' : '';
   const deltaStr  = `${deltaSign}${fmtAmount(macroTot.delta, cfg.unit)}${cfg.unit === 'g' ? 'g' : ' kcal'}`;
