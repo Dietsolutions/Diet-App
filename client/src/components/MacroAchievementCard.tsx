@@ -66,8 +66,7 @@ export function MacroAchievementCard({
 
   return (
     <div style={{
-      width: '80%',
-      margin: '0 auto',
+      width: '100%',
       background: '#0A0A0F',
       borderRadius: 18,
       padding: '16px 12px',
