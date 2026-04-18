@@ -1,6 +1,6 @@
 // ── MacroBand ─────────────────────────────────────────────────────────────
 // Warm horizontal macro summary: 5 equal columns with a thin progress bar,
-// value, and muted label. Intentionally warm-toned on both light and dark.
+// consumed value, label, and delta line.
 
 export interface MacroBandProps {
   calories:   { consumed: number; target: number }
@@ -13,31 +13,41 @@ export interface MacroBandProps {
   totalMeals: number
 }
 
-const MACRO_BAND_COLORS = {
-  calories: '#C4713A',  // terracotta
-  protein:  '#2D6A4F',  // dark green
-  carbs:    '#8D6A3F',  // warm brown
-  fat:      '#B07040',  // mid brown
-  fibre:    '#6AAB8A',  // sage green
-} as const;
-
-function getBarColor(consumed: number, target: number, base: string): string {
-  if (target <= 0) return base;
+// ── 1b colour thresholds (80 / 110) ───────────────────────────────────────
+function getBarColor(consumed: number, target: number): string {
+  if (target <= 0) return '#2D6A4F';
   const pct = consumed / target;
-  if (pct > 1.0)  return '#DC2626';  // red — over target
-  if (pct >= 0.8) return base;       // brand colour — on track
-  return '#F0B429';                   // amber — under 80%
+  if (pct > 1.10)  return '#DC2626'; // red    — above 110%
+  if (pct >= 0.80) return '#2D6A4F'; // green  — 80–110%
+  return '#F0B429';                   // amber  — below 80%
 }
 
+// ── 1a delta formatting ───────────────────────────────────────────────────
+function formatDelta(delta: number, unit: string): string {
+  if (Math.abs(delta) < 1) return 'on target';
+  const sign   = delta > 0 ? '+' : '−';
+  const amount = Math.abs(Math.round(delta)).toLocaleString();
+  const suffix = unit === 'kcal' ? ' kcal' : 'g';
+  return `${sign}${amount}${suffix}`;
+}
+
+function deltaColor(delta: number): string {
+  if (Math.abs(delta) < 1) return '#B09070'; // on target — muted
+  if (delta < 0) return '#2D6A4F';           // deficit   — green
+  return '#DC2626';                           // excess    — red
+}
+
+// ── MacroColumn ───────────────────────────────────────────────────────────
 function MacroColumn({
-  label, consumed, target, unit, baseColor,
+  label, consumed, target, unit,
 }: {
-  label: string; consumed: number; target: number;
-  unit: string; baseColor: string;
+  label: string; consumed: number; target: number; unit: string;
 }) {
-  const pct      = target > 0 ? Math.min(consumed / target, 1) : 0;
-  const barColor = getBarColor(consumed, target, baseColor);
+  // Visual bar capped at 100%; colour based on real (uncapped) ratio
+  const fillPct  = target > 0 ? Math.min(consumed / target, 1) : 0;
+  const barColor = getBarColor(consumed, target);
   const isOver   = consumed > target;
+  const delta    = consumed - target;
 
   const valueDisplay = unit === 'kcal'
     ? Math.round(consumed).toLocaleString()
@@ -51,16 +61,16 @@ function MacroColumn({
       alignItems: 'center',
       gap: '4px',
     }}>
-      {/* Progress bar */}
+      {/* Progress bar — 1c: track uses CSS var */}
       <div style={{
         width: '100%',
         height: '5px',
         borderRadius: '3px',
-        background: '#F0E8D8',
+        background: 'var(--color-background-tertiary, #2A2D3E)',
         overflow: 'hidden',
       }}>
         <div style={{
-          width: `${Math.round(pct * 100)}%`,
+          width: `${Math.round(fillPct * 100)}%`,
           height: '100%',
           borderRadius: '3px',
           background: barColor,
@@ -88,14 +98,32 @@ function MacroColumn({
       }}>
         {unit === 'kcal' ? 'kcal' : label}
       </span>
+
+      {/* 1a — delta line */}
+      <span style={{
+        fontSize: '9px',
+        color: deltaColor(delta),
+        fontFamily: 'DM Mono, monospace',
+        textAlign: 'center',
+        lineHeight: 1,
+      }}>
+        {formatDelta(delta, unit)}
+      </span>
     </div>
   );
 }
 
+// ── Divider ───────────────────────────────────────────────────────────────
+// 1c: uses CSS var for divider colour
 const DIVIDER = (
-  <div style={{ width: '0.5px', background: '#F0E8D8', alignSelf: 'stretch' }} />
+  <div style={{
+    width: '0.5px',
+    background: 'var(--color-border-tertiary, #2A2D3E)',
+    alignSelf: 'stretch',
+  }} />
 );
 
+// ── MacroBand ─────────────────────────────────────────────────────────────
 export function MacroBand({
   calories, protein, carbs, fat, fibre,
   mealsEaten, totalMeals,
@@ -104,10 +132,11 @@ export function MacroBand({
   const isOver        = remainingKcal < 0;
 
   return (
+    // 1c: outer card uses CSS vars for bg + border
     <div style={{
-      background: 'var(--color-background-primary, #FAF5EE)',
+      background: 'var(--color-background-secondary, #1A1D27)',
       borderRadius: '12px',
-      border: '0.5px solid #E8D8C0',
+      border: '0.5px solid var(--color-border-tertiary, #2A2D3E)',
       padding: '10px 12px',
       display: 'flex',
       flexDirection: 'column',
@@ -135,35 +164,15 @@ export function MacroBand({
 
       {/* 5-column band */}
       <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-        <MacroColumn
-          label="calories" consumed={calories.consumed}
-          target={calories.target} unit="kcal"
-          baseColor={MACRO_BAND_COLORS.calories}
-        />
+        <MacroColumn label="calories" consumed={calories.consumed} target={calories.target} unit="kcal" />
         {DIVIDER}
-        <MacroColumn
-          label="protein" consumed={protein.consumed}
-          target={protein.target} unit="g"
-          baseColor={MACRO_BAND_COLORS.protein}
-        />
+        <MacroColumn label="protein"  consumed={protein.consumed}  target={protein.target}  unit="g" />
         {DIVIDER}
-        <MacroColumn
-          label="carbs" consumed={carbs.consumed}
-          target={carbs.target} unit="g"
-          baseColor={MACRO_BAND_COLORS.carbs}
-        />
+        <MacroColumn label="carbs"    consumed={carbs.consumed}    target={carbs.target}    unit="g" />
         {DIVIDER}
-        <MacroColumn
-          label="fat" consumed={fat.consumed}
-          target={fat.target} unit="g"
-          baseColor={MACRO_BAND_COLORS.fat}
-        />
+        <MacroColumn label="fat"      consumed={fat.consumed}      target={fat.target}      unit="g" />
         {DIVIDER}
-        <MacroColumn
-          label="fibre" consumed={fibre.consumed}
-          target={fibre.target} unit="g"
-          baseColor={MACRO_BAND_COLORS.fibre}
-        />
+        <MacroColumn label="fibre"    consumed={fibre.consumed}    target={fibre.target}    unit="g" />
       </div>
     </div>
   );

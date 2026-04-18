@@ -379,6 +379,173 @@ router.get('/monthly-calories', requireAuth, async (req: AuthRequest, res: Respo
   }
 });
 
+// GET /api/tracker/monthly-macros?month=YYYY-MM
+// Returns consumed vs target for all 5 macros per calendar day.
+// monthly-calories remains unchanged as a backward-compat alias.
+router.get('/monthly-macros', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const today  = todayLocal();
+    const rawMonth = (req.query.month as string) || today.slice(0, 7);
+    const monthMatch = rawMonth.match(/^(\d{4})-(\d{2})$/);
+    if (!monthMatch) { res.status(400).json({ error: 'month must be YYYY-MM' }); return; }
+
+    const year = parseInt(monthMatch[1], 10);
+    const mon  = parseInt(monthMatch[2], 10); // 1-based
+
+    const profile = await prisma.userProfile.findUnique({ where: { userId } });
+    if (!profile) { res.status(404).json({ error: 'Profile not found' }); return; }
+
+    const planDuration = (profile as any).planDuration || 7;
+    const mealsPerDay  = profile.mealsPerDay || 4;
+
+    const targets = {
+      calories: profile.targetCalories,
+      protein:  (profile as any).proteinTarget || 0,
+      carbs:    (profile as any).carbTarget    || 0,
+      fat:      (profile as any).fatTarget     || 0,
+      fibre:    (profile as any).fibreTarget   || 0,
+    };
+
+    const mealPlan = await prisma.mealPlan.findFirst({
+      where: { userId, isActive: true },
+      include: { days: true },
+      orderBy: { generatedAt: 'desc' },
+    });
+
+    const emptyTotals = (target: number) => ({ consumed: 0, target, delta: 0, deltaPct: 0, dailyAvg: 0 });
+    const emptyResponse = {
+      month: rawMonth, planDaysElapsed: 0, totalPlanDaysInMonth: 0,
+      targets,
+      totals: {
+        calories: emptyTotals(targets.calories),
+        protein:  emptyTotals(targets.protein),
+        carbs:    emptyTotals(targets.carbs),
+        fat:      emptyTotals(targets.fat),
+        fibre:    emptyTotals(targets.fibre),
+      },
+      dailyData: [],
+    };
+    if (!mealPlan) { res.json(emptyResponse); return; }
+
+    const planStartLocal = localDateStr(new Date(mealPlan.weekStartDate));
+
+    // Build planDay meals lookup: dayIndex → Meal[]
+    const planDaysMap = new Map<number, any[]>();
+    for (const pd of mealPlan.days) {
+      try { planDaysMap.set(pd.dayIndex, JSON.parse(pd.meals || '[]')); } catch { planDaysMap.set(pd.dayIndex, []); }
+    }
+
+    const daysInMonth = new Date(year, mon, 0).getDate();
+    const allDates = Array.from({ length: daysInMonth }, (_, i) => localDateStr(new Date(year, mon - 1, i + 1)));
+
+    const totalPlanDaysInMonth = allDates.filter(d => d >= planStartLocal).length;
+    const validDates = allDates.filter(d => d >= planStartLocal && d <= today);
+
+    if (validDates.length === 0) { res.json({ ...emptyResponse, totalPlanDaysInMonth }); return; }
+
+    const [logs, replacements] = await Promise.all([
+      prisma.mealLog.findMany({ where: { userId, date: { in: validDates } } }),
+      prisma.mealReplacement.findMany({ where: { userId, date: { in: validDates } } }),
+    ]);
+
+    const logsByDate: Record<string, typeof logs> = {};
+    logs.forEach(l => { (logsByDate[l.date] ??= []).push(l); });
+    const repsByDate: Record<string, typeof replacements> = {};
+    replacements.forEach(r => { (repsByDate[r.date] ??= []).push(r); });
+
+    // Running totals for all 5 macros
+    const running = { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 };
+    const dailyData: any[] = [];
+
+    for (const date of validDates) {
+      const planStartMs    = new Date(planStartLocal + 'T00:00:00Z').getTime();
+      const dateMs         = new Date(date + 'T00:00:00Z').getTime();
+      const daysSinceStart = Math.max(0, Math.floor((dateMs - planStartMs) / 86400000));
+      const planDayIndex   = daysSinceStart % planDuration;
+
+      const planMeals = planDaysMap.get(planDayIndex) || [];
+      const dateLogs  = logsByDate[date] || [];
+      const dateReps  = repsByDate[date] || [];
+      const repByMeal = new Map(dateReps.map(r => [r.mealIndex, r]));
+
+      const dayConsumed = { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 };
+
+      for (let mealIdx = 0; mealIdx < mealsPerDay; mealIdx++) {
+        const rep = repByMeal.get(mealIdx);
+        if (rep) {
+          // Replacement — use replacement macro values
+          dayConsumed.calories += rep.calories;
+          dayConsumed.protein  += (rep as any).proteinG ?? 0;
+          dayConsumed.carbs    += (rep as any).carbsG   ?? 0;
+          dayConsumed.fat      += (rep as any).fatG     ?? 0;
+          dayConsumed.fibre    += (rep as any).fibreG   ?? 0;
+        } else {
+          const log = dateLogs.find(l => l.mealIndex === mealIdx && l.eaten);
+          if (log) {
+            const pm = planMeals[mealIdx];
+            dayConsumed.calories += pm?.calories ?? 0;
+            dayConsumed.protein  += pm?.protein  ?? 0;
+            dayConsumed.carbs    += pm?.carbs    ?? 0;
+            dayConsumed.fat      += pm?.fat      ?? 0;
+            dayConsumed.fibre    += pm?.fibre    ?? 0;
+          }
+        }
+      }
+
+      // Accumulate running totals
+      (Object.keys(running) as (keyof typeof running)[]).forEach(k => { running[k] += dayConsumed[k]; });
+
+      const hasData = dateLogs.some(l => l.eaten) || dateReps.length > 0;
+      const dayNum  = parseInt(date.slice(8), 10);
+
+      dailyData.push({
+        day: dayNum, date, hasData,
+        calories: { consumed: dayConsumed.calories, target: targets.calories, delta: dayConsumed.calories - targets.calories },
+        protein:  { consumed: dayConsumed.protein,  target: targets.protein,  delta: dayConsumed.protein  - targets.protein  },
+        carbs:    { consumed: dayConsumed.carbs,    target: targets.carbs,    delta: dayConsumed.carbs    - targets.carbs    },
+        fat:      { consumed: dayConsumed.fat,      target: targets.fat,      delta: dayConsumed.fat      - targets.fat      },
+        fibre:    { consumed: dayConsumed.fibre,    target: targets.fibre,    delta: dayConsumed.fibre    - targets.fibre    },
+      });
+    }
+
+    const planDaysElapsed = validDates.length;
+
+    function buildTotals(key: keyof typeof running) {
+      const consumed = running[key];
+      const target   = targets[key] * planDaysElapsed;
+      const delta    = consumed - target;
+      const deltaPct = target > 0 ? (delta / target) * 100 : 0;
+      const dailyAvg = planDaysElapsed > 0 ? consumed / planDaysElapsed : 0;
+      return {
+        consumed: Math.round(consumed),
+        target:   Math.round(target),
+        delta:    Math.round(delta),
+        deltaPct: Math.round(deltaPct * 10) / 10,
+        dailyAvg: Math.round(dailyAvg),
+      };
+    }
+
+    res.json({
+      month: rawMonth,
+      planDaysElapsed,
+      totalPlanDaysInMonth,
+      targets,
+      totals: {
+        calories: buildTotals('calories'),
+        protein:  buildTotals('protein'),
+        carbs:    buildTotals('carbs'),
+        fat:      buildTotals('fat'),
+        fibre:    buildTotals('fibre'),
+      },
+      dailyData,
+    });
+  } catch (err) {
+    console.error('Monthly macros error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 // GET /api/tracker/:date
 router.get('/:date', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
