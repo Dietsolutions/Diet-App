@@ -68,10 +68,10 @@ export function MacroAchievementCard({
   return (
     <div
       className="rounded-2xl border border-border card-glow"
-      style={{ backgroundColor: '#1A1D27', padding: '14px 16px' }}
+      style={{ backgroundColor: '#1A1D27', padding: '10px 12px' }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-semibold font-sans text-primary">{dayTitle}</span>
         <div className="flex items-center gap-1 text-right">
           <span className="text-[11px] font-sans text-secondary">
@@ -85,7 +85,7 @@ export function MacroAchievementCard({
         </div>
       </div>
 
-      {/* Row 1: Calories, Protein, Carbs */}
+      {/* Row 1: Calories, Protein, Carbs — size 56, stroke 5 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
         <CircularMacroRing
           label="Calories"
@@ -93,8 +93,8 @@ export function MacroAchievementCard({
           target={targets.calories}
           unit="kcal"
           color={MACRO_COLORS.calories}
-          size={88}
-          strokeWidth={8}
+          size={56}
+          strokeWidth={5}
         />
         <CircularMacroRing
           label="Protein"
@@ -102,8 +102,8 @@ export function MacroAchievementCard({
           target={targets.protein}
           unit="g"
           color={MACRO_COLORS.protein}
-          size={88}
-          strokeWidth={8}
+          size={56}
+          strokeWidth={5}
         />
         <CircularMacroRing
           label="Carbs"
@@ -111,18 +111,17 @@ export function MacroAchievementCard({
           target={targets.carbs}
           unit="g"
           color={MACRO_COLORS.carbs}
-          size={88}
-          strokeWidth={8}
+          size={56}
+          strokeWidth={5}
         />
       </div>
 
-      {/* Row 2: Fat, Fibre — centred, slightly larger */}
+      {/* Row 2: Fat, Fibre — size 64, stroke 5, flush with row 1 */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(2, 1fr)',
         gap: 8,
-        marginTop: 12,
-        padding: '0 20px',
+        marginTop: 6,
       }}>
         <CircularMacroRing
           label="Fat"
@@ -130,8 +129,8 @@ export function MacroAchievementCard({
           target={targets.fat}
           unit="g"
           color={MACRO_COLORS.fat}
-          size={96}
-          strokeWidth={8}
+          size={64}
+          strokeWidth={5}
         />
         <CircularMacroRing
           label="Fibre"
@@ -139,13 +138,13 @@ export function MacroAchievementCard({
           target={targets.fibre}
           unit="g"
           color={MACRO_COLORS.fibre}
-          size={96}
-          strokeWidth={8}
+          size={64}
+          strokeWidth={5}
         />
       </div>
 
       {noMealsEaten && (
-        <p className="text-[11px] text-dimmed font-sans text-center mt-3">
+        <p className="text-[11px] text-dimmed font-sans text-center mt-2">
           Log meals above to track your progress
         </p>
       )}

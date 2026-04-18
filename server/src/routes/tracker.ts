@@ -92,9 +92,24 @@ router.get('/summary', requireAuth, async (req: AuthRequest, res: Response): Pro
       const month = req.query.month as string; // "YYYY-MM"
       if (!month) { res.status(400).json({ error: 'month required' }); return; }
       const dates = getMonthDates(month);
-      // Get plan dates to know which days are plan days
-      const planDates = getPlanDates();
-      const planDatesInMonth = dates.filter(d => planDates.includes(d));
+      const todayStr = todayLocal();
+
+      // Get active plan start date to know which calendar days are plan days
+      const mealPlan = await prisma.mealPlan.findFirst({
+        where: { userId, isActive: true },
+        orderBy: { generatedAt: 'desc' },
+        select: { weekStartDate: true },
+      });
+
+      let planDatesInMonth: string[];
+      if (mealPlan) {
+        const planStartLocal = localDateStr(new Date(mealPlan.weekStartDate));
+        // Only count days that are: (a) on/after plan start, (b) not in the future
+        planDatesInMonth = dates.filter(d => d >= planStartLocal && d <= todayStr);
+      } else {
+        planDatesInMonth = [];
+      }
+
       const total = planDatesInMonth.length * mealsPerDay;
       const logs = await prisma.mealLog.findMany({
         where: { userId, date: { in: planDatesInMonth }, eaten: true }
@@ -278,7 +293,12 @@ router.get('/monthly-calories', requireAuth, async (req: AuthRequest, res: Respo
       return localDateStr(d);
     });
 
-    // Only consider dates in [planStart, today]
+    // All plan days in the month (planStart to end of month — not capped at today)
+    // Used as the denominator for "X of Y plan days progressed"
+    const allPlanDatesInMonth = allDates.filter(d => d >= planStartLocal);
+    const totalPlanDaysInMonth = allPlanDatesInMonth.length;
+
+    // Elapsed plan days (planStart to today, within month) — numerator
     const validDates = allDates.filter(d => d >= planStartLocal && d <= today);
 
     if (validDates.length === 0) { res.json(emptyResponse); return; }
@@ -344,7 +364,7 @@ router.get('/monthly-calories', requireAuth, async (req: AuthRequest, res: Respo
     res.json({
       month: rawMonth,
       planDaysElapsed,
-      totalPlanDaysInMonth: daysInMonth,
+      totalPlanDaysInMonth,
       targetCalories,
       totalTargetKcal,
       totalConsumedKcal: Math.round(totalConsumedKcal),

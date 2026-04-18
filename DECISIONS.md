@@ -511,3 +511,58 @@ const pct = target > 0 ? Math.min(consumed / target, 1) : 0;
 ## Monthly Chart ↔ Calendar Month Sync
 
 `MonthlyCalorieChart` reads `trackerCalendarMonth` directly from `useAppStore()`. When the user navigates the Tracker calendar with the `←`/`→` buttons, `setTrackerCalendarMonth` is called in `appStore`, which updates the Zustand state. The chart's `useEffect` depends on `trackerCalendarMonth` and re-fetches `GET /api/tracker/monthly-calories?month=YYYY-MM` whenever it changes. No prop-drilling or event bus needed — both components share the same atom of state.
+
+## 2026-04-18 — UI overhaul: macro rings, tracker summary, monthly totals fix
+
+### Files modified
+- `client/src/components/CircularMacroRing.tsx` — resized, label moved below, new colour logic
+- `client/src/components/MacroAchievementCard.tsx` — smaller ring sizes, tighter gaps, flush row 2
+- `client/src/components/TrackerTab.tsx` — removed radial weekly adherence card + large goal card; replaced 2-col adherence grid with 3-col summary (Week | Month | Goal)
+- `server/src/routes/tracker.ts` — fixed monthly plan-day count; fixed `totalPlanDaysInMonth` in monthly-calories endpoint
+
+### Change 1 — CircularMacroRing resize + new colour logic
+
+**Size reduction:** Row 1 rings 88px → 56px; Row 2 rings 96px → 64px; strokeWidth 8 → 5; card padding 14/16px → 10/12px; row gap 12px → 6px. Label moved from above the ring to below the consumed/target text.
+
+**New colour logic (replaces per-macro baseColor system):**
+```
+> 100% consumed → #DC2626 (red)
+80–100%          → #4CAF82 (green)
+< 80%            → #F0B429 (amber)
+```
+Applied to: SVG ring stroke, centre % text, consumed number.
+
+**Over-100% ring rendering:** `strokeDashoffset` is capped at 0 (full ring) when `pct >= 1`, but the text shows the real uncapped percentage (e.g. `124%` in red). No wrap-around animation.
+
+### Change 2 — Monthly total meals fix
+
+**Root cause:** The summary endpoint used `getPlanDates()` (current week only) to intersect with month dates, giving a maximum of 7 plan days regardless of month length. The monthly-calories endpoint set `totalPlanDaysInMonth = daysInMonth` (all 28–31 calendar days).
+
+**Fix:** Both endpoints now query the active `MealPlan.weekStartDate`, derive `planStartLocal`, then:
+- Denominator (`total`/`totalPlanDaysInMonth`): all dates in the month that are `>= planStartLocal` (no future cap, so it represents the full plan scope for that month)
+- Numerator (`eaten`/`planDaysElapsed`): dates that are `>= planStartLocal && <= today`
+
+**Edge cases handled:**
+- Plan starts mid-month: only days on/after plan start are counted
+- 14-day plan spanning two months: modulo arithmetic in monthly-calories already handles rolling plan days; the count fix just ensures the denominator reflects actual plan days not all calendar days
+- Future months: `validDates` will be empty → returns the empty response
+- No active plan: `planDatesInMonth = []`, total = 0, adherencePct = 0
+
+### Change 3 — Removed weekly adherence rectangular section
+
+Removed the large `bg-surface rounded-2xl` card that contained a `RadialBarChart` (recharts), weekly adherence %, streak count, and remaining meals count. Also removed:
+- `RadialBarChart, RadialBar, ResponsiveContainer` imports from recharts
+- `adherenceData` array variable (was only used in the radial chart)
+- `useCallback`, `endOfMonth`, `getYear`, `getMonth` unused imports
+
+The `stats?.streak` and `stats?.remaining` data is no longer shown. The adherence % is still surfaced via the "This Week" card in the 3-col summary.
+
+### Change 4 — 3-column summary row
+
+Replaced the 2-col adherence grid + large goal countdown card with a single `display: grid; grid-template-columns: repeat(3, 1fr)` row containing:
+- **AdherenceCard (This Week):** pct%, eaten/total meals, 4px green progress bar
+- **AdherenceCard (This Month):** same structure, uses corrected monthly totals from Change 2
+- **GoalCard:** big number (`Xwks` / `Xd` / `🎉`), target weight + date sub-label
+  - Colour: white (>4 weeks), amber (#F0B429, 1–4 weeks), red (#DC2626, <7 days), green (goal reached)
+
+All three cards share the same inline style: `background:#1A1D27, border:1px solid #2A2D3E, borderRadius:12px, padding:12px 10px, textAlign:center`.

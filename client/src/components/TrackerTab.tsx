@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
-import { format, parseISO, startOfMonth, endOfMonth, addMonths, subMonths, getDaysInMonth, getDay, addDays, startOfWeek, getYear, getMonth } from 'date-fns';
+import { useState, useEffect } from 'react';
+import { format, parseISO, startOfMonth, addMonths, subMonths, getDaysInMonth, getDay, addDays, startOfWeek } from 'date-fns';
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useTracker } from '../hooks/useTracker';
 import { TrackerSummary, GoalCountdown } from '../types';
-import { RadialBarChart, RadialBar, ResponsiveContainer } from 'recharts';
 import { ErrorBoundary } from './ErrorBoundary';
 import { MonthlyCalorieChart } from './MonthlyCalorieChart';
 
@@ -69,7 +68,6 @@ export function TrackerTab() {
   weekData.forEach(d => { weekDataByDate[d.date] = d; });
 
   const adherenceValue = typeof stats?.adherence === 'number' ? stats.adherence : 0;
-  const adherenceData = [{ name: 'adherence', value: adherenceValue, fill: '#E8845A' }];
 
   const selectedDayData = weekDataByDate[selectedDate] ?? null;
   const selectedDayIndex = selectedDayData?.dayIndex ?? weekData.findIndex(d => d.date === selectedDate);
@@ -94,12 +92,10 @@ export function TrackerTab() {
   // Month calendar
   const calendarMonthDate = parseISO(trackerCalendarMonth + '-01');
   const firstDayOfMonth = startOfMonth(calendarMonthDate);
-  const lastDayOfMonth = endOfMonth(calendarMonthDate);
   const daysInMonth = getDaysInMonth(calendarMonthDate);
   // day-of-week of first day (0=Sun → 6=Sat, we want Mon=0)
   const firstDayWeekday = (getDay(firstDayOfMonth) + 6) % 7; // 0=Mon, 6=Sun
   const totalCells = firstDayWeekday + daysInMonth;
-  const rows = Math.ceil(totalCells / 7);
 
   const calendarCells: Array<string | null> = [
     ...Array(firstDayWeekday).fill(null),
@@ -112,8 +108,8 @@ export function TrackerTab() {
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-      {/* ── Weekly & Monthly Adherence ─────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* ── Summary Row: Week | Month | Goal ─────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
         <AdherenceCard
           label="This Week"
           eaten={weeklySummary?.eaten ?? stats?.eaten ?? 0}
@@ -126,63 +122,8 @@ export function TrackerTab() {
           total={monthlySummary?.total ?? 0}
           pct={monthlySummary?.adherencePct ?? 0}
         />
+        <GoalCard goalCountdown={goalCountdown} />
       </div>
-
-      {/* ── Streak + Left + Radial ───────────────────────────────────── */}
-      <div className="bg-surface rounded-2xl p-4 flex items-center gap-4 border border-border card-glow">
-        <ErrorBoundary fallback={<div className="w-20 h-20" />}>
-          <div className="w-20 h-20 flex-shrink-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadialBarChart cx="50%" cy="50%" innerRadius="60%" outerRadius="100%" data={adherenceData} startAngle={90} endAngle={90 - 360 * (adherenceValue / 100)}>
-                <RadialBar dataKey="value" cornerRadius={4} background={{ fill: '#2A2D3E' }} />
-              </RadialBarChart>
-            </ResponsiveContainer>
-          </div>
-        </ErrorBoundary>
-        <div className="flex-1">
-          <p className="text-primary font-display font-bold text-3xl">{adherenceValue}<span className="text-lg text-secondary">%</span></p>
-          <p className="text-secondary text-sm font-sans">Weekly adherence</p>
-          <div className="flex gap-4 mt-1.5">
-            <span className="text-xs font-sans text-dimmed">
-              🔥 <span className="text-primary font-semibold">{stats?.streak ?? 0}d</span> streak
-            </span>
-            <span className="text-xs font-sans text-dimmed">
-              ⏳ <span className="text-primary font-semibold">{stats?.remaining ?? 0}</span> left
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Goal Countdown ──────────────────────────────────────────────── */}
-      {goalCountdown && (
-        <div className="bg-surface rounded-2xl p-4 border border-border card-glow">
-          <p className="text-dimmed text-xs font-sans uppercase tracking-wide mb-2">🎯 Goal Countdown</p>
-          <p className="text-secondary text-xs font-sans mb-2">
-            Target: {goalCountdown.targetWeight}kg by {format(parseISO(goalCountdown.goalDate), 'd MMMM yyyy')}
-          </p>
-          <div className={`rounded-xl px-4 py-2.5 text-center ${
-            goalCountdown.daysLeft <= 0
-              ? 'bg-success-fill'
-              : goalCountdown.isUrgent
-                ? 'bg-[#E8845A]/15 border border-[#E8845A]/30'
-                : 'bg-elevated border border-border'
-          }`}>
-            <p className={`font-display font-bold text-xl ${
-              goalCountdown.daysLeft <= 0 ? 'text-success' :
-              goalCountdown.isUrgent ? 'text-accent' : 'text-primary'
-            }`}>{goalCountdown.displayText}</p>
-          </div>
-          {goalCountdown.daysLeft > 0 && (
-            <p className="text-dimmed text-xs font-sans mt-2 text-center">
-              {goalCountdown.daysLeft > 0 && !goalCountdown.isUrgent
-                ? 'You are on track. Keep going.'
-                : goalCountdown.isUrgent
-                  ? 'Almost there!'
-                  : ''}
-            </p>
-          )}
-        </div>
-      )}
 
       {/* ── Monthly Calorie Chart ──────────────────────────────────────── */}
       <ErrorBoundary fallback={<div />}>
@@ -322,19 +263,111 @@ export function TrackerTab() {
   );
 }
 
-// ── AdherenceCard ──────────────────────────────────────────────────────────
+// ── AdherenceCard ─────────────────────────────────────────────────────────
+// Compact card used in the 3-column summary row
 function AdherenceCard({ label, eaten, total, pct }: { label: string; eaten: number; total: number; pct: number }) {
   return (
-    <div className="bg-surface rounded-2xl p-3.5 border border-border card-glow">
-      <p className="text-dimmed text-[10px] font-sans uppercase tracking-wide mb-1">{label}</p>
-      <p className="text-primary font-display font-bold text-xl">{pct}<span className="text-sm text-secondary">%</span></p>
-      <p className="text-secondary text-xs font-sans">{eaten} / {total} meals</p>
-      <div className="h-1.5 bg-border rounded-full overflow-hidden mt-2">
-        <div
-          className="h-full bg-accent rounded-full"
-          style={{ width: `${Math.min(pct, 100)}%` }}
-        />
+    <div style={{
+      background: '#1A1D27',
+      border: '1px solid #2A2D3E',
+      borderRadius: 12,
+      padding: '12px 10px',
+      textAlign: 'center',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: 4,
+    }}>
+      <p style={{ fontSize: 10, fontFamily: 'sans-serif', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>
+        {label}
+      </p>
+      <p style={{ fontSize: 22, fontFamily: 'Playfair Display, serif', fontWeight: 700, color: '#E2E8F0', lineHeight: 1, margin: 0 }}>
+        {pct}<span style={{ fontSize: 13, color: '#9CA3AF' }}>%</span>
+      </p>
+      <p style={{ fontSize: 11, fontFamily: 'sans-serif', color: '#9CA3AF', margin: 0 }}>
+        {eaten}/{total} meals
+      </p>
+      <div style={{ width: '100%', height: 4, background: '#2A2D3E', borderRadius: 9999, overflow: 'hidden', marginTop: 2 }}>
+        <div style={{ height: '100%', width: `${Math.min(pct, 100)}%`, background: '#4CAF82', borderRadius: 9999, transition: 'width 500ms ease' }} />
       </div>
+    </div>
+  );
+}
+
+// ── GoalCard ───────────────────────────────────────────────────────────────
+// Compact goal countdown card for the 3-column summary row
+function GoalCard({ goalCountdown }: { goalCountdown: GoalCountdown | null }) {
+  if (!goalCountdown) {
+    return (
+      <div style={{
+        background: '#1A1D27',
+        border: '1px solid #2A2D3E',
+        borderRadius: 12,
+        padding: '12px 10px',
+        textAlign: 'center',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 4,
+      }}>
+        <p style={{ fontSize: 10, fontFamily: 'sans-serif', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>
+          🎯 Goal
+        </p>
+        <p style={{ fontSize: 18, fontFamily: 'Playfair Display, serif', fontWeight: 700, color: '#6B7280', lineHeight: 1, margin: 0 }}>
+          —
+        </p>
+        <p style={{ fontSize: 10, fontFamily: 'sans-serif', color: '#6B7280', margin: 0 }}>
+          loading…
+        </p>
+      </div>
+    );
+  }
+
+  const { daysLeft, weeksLeft, goalDate, targetWeight } = goalCountdown;
+
+  // Display format
+  let bigText: string;
+  if (daysLeft <= 0) bigText = '🎉';
+  else if (daysLeft < 7) bigText = `${daysLeft}d`;
+  else bigText = `${Math.ceil(daysLeft / 7)}wks`;
+
+  // Colour thresholds
+  const bigColor = daysLeft <= 0
+    ? '#4CAF82'
+    : daysLeft < 7
+      ? '#DC2626'
+      : daysLeft <= 28
+        ? '#F0B429'
+        : '#E2E8F0';
+
+  const goalDateLabel = (() => {
+    try { return format(parseISO(goalDate), 'd MMM yy'); } catch { return goalDate; }
+  })();
+
+  return (
+    <div style={{
+      background: '#1A1D27',
+      border: '1px solid #2A2D3E',
+      borderRadius: 12,
+      padding: '12px 10px',
+      textAlign: 'center',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: 4,
+    }}>
+      <p style={{ fontSize: 10, fontFamily: 'sans-serif', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px', margin: 0 }}>
+        🎯 Goal
+      </p>
+      <p style={{ fontSize: 20, fontFamily: 'Playfair Display, serif', fontWeight: 700, color: bigColor, lineHeight: 1, margin: 0 }}>
+        {bigText}
+      </p>
+      <p style={{ fontSize: 10, fontFamily: 'sans-serif', color: '#9CA3AF', margin: 0 }}>
+        {targetWeight}kg · {goalDateLabel}
+      </p>
+      {daysLeft > 0 && (
+        <div style={{ width: '100%', height: 4, background: '#2A2D3E', borderRadius: 9999, overflow: 'hidden', marginTop: 2 }} />
+      )}
     </div>
   );
 }

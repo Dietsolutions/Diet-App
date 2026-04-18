@@ -8,19 +8,31 @@ interface CircularMacroRingProps {
   strokeWidth?: number;
 }
 
-export function CircularMacroRing({
-  label, consumed, target, unit, color,
-  size = 88, strokeWidth = 8,
-}: CircularMacroRingProps) {
-  const pct = target > 0 ? Math.min(consumed / target, 1) : 0;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference * (1 - pct);
+// Three-state colour logic:
+//   >100% → red, 80–100% → green, <80% → amber
+// baseColor is no longer used for the ring stroke — kept for API compatibility
+function getMacroColor(consumed: number, target: number): string {
+  if (target <= 0) return '#F0B429';
+  const pct = consumed / target;
+  if (pct > 1.0)  return '#DC2626'; // red  — over target
+  if (pct >= 0.8) return '#4CAF82'; // green — 80-100%
+  return '#F0B429';                  // amber — below 80%
+}
 
-  const isOver = consumed > target;
-  const isNearTarget = !isOver && consumed > target * 0.9;
-  const displayColor = isOver ? '#DC2626' : isNearTarget ? '#F0B429' : color;
-  const pctDisplay = Math.round(pct * 100);
+export function CircularMacroRing({
+  label, consumed, target, unit,
+  size = 56, strokeWidth = 5,
+}: CircularMacroRingProps) {
+  // Uncapped pct for text display; capped at 1 for ring fill
+  const rawPct    = target > 0 ? consumed / target : 0;
+  const fillPct   = Math.min(rawPct, 1);
+  const displayPct = Math.round(rawPct * 100); // can exceed 100
+
+  const radius       = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference * (1 - fillPct);
+
+  const displayColor = getMacroColor(consumed, target);
 
   const consumedDisplay = unit === 'kcal'
     ? Math.round(consumed).toLocaleString()
@@ -34,20 +46,8 @@ export function CircularMacroRing({
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      gap: 4,
+      gap: 2,
     }}>
-      {/* Label */}
-      <span style={{
-        fontSize: 10,
-        fontWeight: 700,
-        letterSpacing: '0.5px',
-        textTransform: 'uppercase',
-        color: 'var(--color-dimmed, #6B7280)',
-        fontFamily: 'sans-serif',
-      }}>
-        {label}
-      </span>
-
       {/* SVG ring */}
       <div style={{ position: 'relative', width: size, height: size }}>
         <svg
@@ -86,43 +86,54 @@ export function CircularMacroRing({
           position: 'absolute',
           inset: 0,
           display: 'flex',
-          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
         }}>
           <span style={{
-            fontSize: size >= 96 ? 15 : 13,
+            fontSize: 10,
             fontWeight: 700,
             color: displayColor,
             fontFamily: 'DM Mono, monospace',
             lineHeight: 1,
           }}>
-            {pctDisplay}%
+            {displayPct}%
           </span>
         </div>
       </div>
 
       {/* Consumed / Target */}
-      <div style={{ textAlign: 'center', lineHeight: 1.4 }}>
+      <div style={{ textAlign: 'center', lineHeight: 1.3 }}>
         <div>
           <span style={{
-            fontSize: 12,
+            fontSize: 10,
             fontWeight: 700,
             color: displayColor,
             fontFamily: 'DM Mono, monospace',
           }}>
             {consumedDisplay}
           </span>
-          <span style={{ fontSize: 10, color: '#6B7280' }}>
+          <span style={{ fontSize: 9, color: '#6B7280' }}>
             {unit === 'kcal' ? '' : 'g'}
           </span>
         </div>
         <div>
-          <span style={{ fontSize: 10, color: '#6B7280' }}>
-            /{targetDisplay}{unit === 'kcal' ? ' kcal' : 'g'}
+          <span style={{ fontSize: 9, color: '#6B7280' }}>
+            /{targetDisplay}{unit === 'kcal' ? 'kcal' : 'g'}
           </span>
         </div>
       </div>
+
+      {/* Label — below consumed/target */}
+      <span style={{
+        fontSize: 9,
+        fontWeight: 600,
+        letterSpacing: '0.3px',
+        textTransform: 'uppercase',
+        color: 'var(--color-dimmed, #6B7280)',
+        fontFamily: 'sans-serif',
+      }}>
+        {label}
+      </span>
     </div>
   );
 }
