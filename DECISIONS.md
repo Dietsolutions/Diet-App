@@ -594,3 +594,34 @@ Each `ArcGauge` embeds its own `<defs><filter id="glow-macro-LABEL">` inside its
 - CSS grid column `1.8fr` gives the centre column extra width
 - `isCenter` flag suppresses the label-above slot and renders a richer inner layout: "Calories" label + large 28px % + consumed/target line + "kcal" unit
 - Small gauges in rows 1 and 2 flank the large centre; an empty `<div>` in Row 2 Col 2 keeps Fat/Fibre aligned under Protein/Carbs
+
+## 2026-04-18 — Macro band delta lines + Monthly Macro Tracker with dropdown
+
+### Files modified
+- `client/src/components/MacroBand.tsx` — delta line, 80/110 thresholds, CSS vars
+- `client/src/components/MonthlyCalorieChart.tsx` — full rewrite to Monthly Macro Tracker
+- `server/src/routes/tracker.ts` — added `/monthly-macros` endpoint; `/monthly-calories` kept as-is
+
+### Deficit direction per macro
+- **Calories, Carbs, Fat** (`deficitGood: true`): being under target is good (fat-loss deficit). Delta shown green when under, red when over. Insight line uses "healthy deficit" language.
+- **Protein, Fibre** (`deficitGood: false`): being under target is bad. Delta shown red when under, amber when over (not critical). Insight line uses "prioritise protein-rich foods" language.
+
+The MacroBand always shows deficit as green (simplified for the daily view). The monthly tracker insight respects the per-macro direction.
+
+### Backend `/monthly-macros` per-day computation
+For each calendar day in [planStart, today]:
+1. Derive `planDayIndex = daysSinceStart % planDuration`
+2. Load plan meals JSON for that index
+3. For each meal slot 0..mealsPerDay-1:
+   - If `MealReplacement` exists for that slot → use `rep.calories / proteinG / carbsG / fatG / fibreG`
+   - Else if `MealLog.eaten = true` → use plan meal's `calories / protein / carbs / fat / fibre`
+   - Else → 0 for all macros
+4. Sum across slots → day's consumed for all 5 macros simultaneously
+
+`totals[macro].target = targets[macro] * planDaysElapsed` (elapsed days × daily target)
+
+### `monthly-calories` backward compatibility
+The old endpoint is untouched. `MonthlyCalorieChart.tsx` now calls `/monthly-macros` instead. Both endpoints coexist; no alias needed since the old one was only used by this component.
+
+### Transition on macro switch
+`useRef(true)` guards the first render so no fade fires on mount. Subsequent `selectedMacro` changes set `fading=true` (opacity 0, 150ms) then back to false (opacity 1). The entire content area (stats, chart, progress bar, insight) fades as a unit.
