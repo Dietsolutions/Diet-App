@@ -566,3 +566,31 @@ Replaced the 2-col adherence grid + large goal countdown card with a single `dis
   - Colour: white (>4 weeks), amber (#F0B429, 1–4 weeks), red (#DC2626, <7 days), green (goal reached)
 
 All three cards share the same inline style: `background:#1A1D27, border:1px solid #2A2D3E, borderRadius:12px, padding:12px 10px, textAlign:center`.
+
+## 2026-04-18 — Arc gauge instrument cluster (macro dashboard)
+
+### Files modified
+- `client/src/components/CircularMacroRing.tsx` — replaced entirely with `ArcGauge` component (270° SVG arc + glow filter); legacy `CircularMacroRing` re-exported as alias for safety
+- `client/src/components/MacroAchievementCard.tsx` — replaced circular ring grid with dark dashboard panel using `ArcGauge`
+- `client/src/components/MealsTab.tsx` — no changes required (same import/props interface)
+
+### Arc path geometry (270° speedometer arc)
+Using angle convention: 0° = top, 90° = right, 180° = bottom, 270° = left (clockwise).
+
+- **Start**: 225° → lower-left point `(cx − r·cos45°, cy + r·sin45°)`
+- **End**:   135° → lower-right point `(cx + r·cos45°, cy + r·sin45°)`
+- **SVG arc**: `M start A r r 0 1 1 end` — large-arc=1 (270°>180°), sweep=1 (clockwise)
+- **Gap**: 90° at the bottom — the remaining counterclockwise path from 135° to 225°
+
+Fill uses `strokeDasharray = arcLength` and `strokeDashoffset = arcLength * (1 − fillPct)`.
+`fillPct` is capped at 1 so the ring never over-shoots visually, but `displayPct` is uncapped for text (can show 124%).
+
+### Glow filter scoping
+Each `ArcGauge` embeds its own `<defs><filter id="glow-macro-LABEL">` inside its SVG element. The ID is derived from the label string (non-alphanumeric chars stripped). Since the five labels (PROTEIN, CALORIES, CARBS, FAT, FIBRE) are unique per page, there is no cross-gauge bleed. The filter is applied only to the progress arc path, not the track arc.
+
+### Centre Calories gauge prominence
+- `size={160}` vs `size={80}` for small gauges — 4× the area
+- `strokeWidth={14}` vs `strokeWidth={8}`
+- CSS grid column `1.8fr` gives the centre column extra width
+- `isCenter` flag suppresses the label-above slot and renders a richer inner layout: "Calories" label + large 28px % + consumed/target line + "kcal" unit
+- Small gauges in rows 1 and 2 flank the large centre; an empty `<div>` in Row 2 Col 2 keeps Fat/Fibre aligned under Protein/Carbs
