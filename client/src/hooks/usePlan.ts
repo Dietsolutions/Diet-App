@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAppStore } from '../store/appStore';
 
 export function usePlan() {
-  const { planDays, isGenerated, setPlanDays, setMealsPerDay } = useAppStore();
+  const { planDays, isGenerated, setPlanDays, setMealsPerDay, setPlanDuration } = useAppStore();
 
   const loadPlan = useCallback(async () => {
     try {
@@ -14,6 +14,10 @@ export function usePlan() {
         setPlanDays(days, res.data.isGenerated || false);
         if (days.length > 0 && days[0].meals) {
           setMealsPerDay(days[0].meals.length);
+        }
+        // Sync planDuration from API if the plan response includes it (AI-generated plans)
+        if (typeof res.data.planDuration === 'number') {
+          setPlanDuration(res.data.planDuration);
         }
       } else {
         setPlanDays([], false);

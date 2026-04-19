@@ -8,7 +8,8 @@ const router = Router();
 function getMondayOfCurrentWeek(): string {
   const now = new Date();
   const day = now.getDay();
-  const diff = day === 0 ? 1 : 1 - day;
+  // Sunday bug fix: day===0 must go back 6 to reach the previous Monday, not forward 1
+  const diff = day === 0 ? -6 : 1 - day;
   const monday = new Date(now);
   monday.setDate(now.getDate() + diff);
   return monday.toISOString().split('T')[0];
@@ -20,10 +21,30 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response): Promise<vo
     const userId = req.userId!;
 
     // Try to find active AI-generated plan
-    const activePlan = await prisma.mealPlan.findFirst({
+    let activePlan = await prisma.mealPlan.findFirst({
       where: { userId, isActive: true },
-      include: { days: { orderBy: { dayIndex: 'asc' } } }
+      include: { days: { orderBy: { dayIndex: 'asc' } } },
+      orderBy: { generatedAt: 'desc' }
     });
+
+    // Bug 1 fallback: if no active plan (e.g. generation failed mid-way and deactivated
+    // the previous plan before creating a new one), surface the most recently generated
+    // plan and re-activate it so future requests find it correctly.
+    if (!activePlan || activePlan.days.length === 0) {
+      const mostRecent = await prisma.mealPlan.findFirst({
+        where: { userId },
+        include: { days: { orderBy: { dayIndex: 'asc' } } },
+        orderBy: { generatedAt: 'desc' }
+      });
+
+      if (mostRecent && mostRecent.days.length > 0) {
+        await prisma.mealPlan.update({
+          where: { id: mostRecent.id },
+          data: { isActive: true }
+        });
+        activePlan = mostRecent;
+      }
+    }
 
     if (activePlan && activePlan.days.length > 0) {
       const days = activePlan.days.map(d => ({
@@ -34,14 +55,21 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response): Promise<vo
         totalCarbs: d.totalCarbs,
         totalFat: d.totalFat,
         totalFibre: d.totalFibre,
-        meals: JSON.parse(d.meals)
+        meals: (() => {
+          try { return JSON.parse(d.meals || '[]'); } catch { return []; }
+        })()
       }));
+
+      let weekSummary: any = {};
+      try { weekSummary = JSON.parse(activePlan.weekSummary || '{}'); } catch { weekSummary = {}; }
 
       res.json({
         days,
         isGenerated: true,
-        weekSummary: JSON.parse(activePlan.weekSummary),
-        mealPlanId: activePlan.id
+        weekSummary,
+        mealPlanId: activePlan.id,
+        weekStartDate: activePlan.weekStartDate.toISOString().split('T')[0],
+        planDuration: activePlan.planDuration ?? 7
       });
       return;
     }

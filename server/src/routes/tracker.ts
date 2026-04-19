@@ -19,7 +19,8 @@ const router = Router();
 function getMondayOfCurrentWeek(): Date {
   const now = new Date();
   const day = now.getDay();
-  const diff = day === 0 ? 1 : 1 - day;
+  // day===0 is Sunday: go back 6 days to reach the previous Monday (not forward 1)
+  const diff = day === 0 ? -6 : 1 - day;
   const monday = new Date(now);
   monday.setDate(now.getDate() + diff);
   monday.setHours(0, 0, 0, 0);

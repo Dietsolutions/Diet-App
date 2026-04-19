@@ -625,3 +625,90 @@ The old endpoint is untouched. `MonthlyCalorieChart.tsx` now calls `/monthly-mac
 
 ### Transition on macro switch
 `useRef(true)` guards the first render so no fade fires on mount. Subsequent `selectedMacro` changes set `fading=true` (opacity 0, 150ms) then back to false (opacity 1). The entire content area (stats, chart, progress bar, insight) fades as a unit.
+
+## 2026-04-19 — Meal plan visibility bugs (Bug 1 + Bug 2)
+
+### Files modified
+- `server/src/routes/tracker.ts` — fix Sunday bug in `getMondayOfCurrentWeek()`
+- `server/src/routes/ai.ts` — same Sunday bug fix for `weekStartDate` computation
+- `server/src/routes/plan.ts` — Sunday bug fix + Bug 1 fallback + null-safe JSON + return `weekStartDate`/`planDuration`
+- `client/src/hooks/usePlan.ts` — sync `planDuration` from plan API into store
+
+### Bug 1 — Old accounts cannot see AI-generated plans
+
+**Root cause**: `POST /api/ai/generate-meal-plan` deactivates ALL existing active plans
+(`mealPlan.updateMany({ isActive: false })`) BEFORE the new plan is created. If the AI
+call subsequently fails (max_tokens, JSON parse error, network timeout), the old plan is
+permanently deactivated and no new active plan exists. `GET /api/plan` had no fallback —
+it dropped straight to the hardcoded `MEAL_PLAN` (generic meals, not the user's plan).
+
+**Fix**: `GET /api/plan` now checks if `activePlan` is null or has zero days, and if so
+queries for the most recently generated plan regardless of `isActive`. If found, it calls
+`mealPlan.update({ isActive: true })` to re-activate it before returning it. This is
+idempotent and safe: the most-recent plan is always the user's intended plan.
+
+Also added try/catch null safety around `JSON.parse(d.meals)` and `JSON.parse(weekSummary)`
+so a corrupted JSON string in an old row cannot crash the response.
+
+### Bug 2 — Plan shows no meals on Sundays (plan activation from "next Monday")
+
+**Root cause**: `getMondayOfCurrentWeek()` in all three server files used:
+```typescript
+const diff = day === 0 ? 1 : 1 - day;  // BUG: Sunday gives diff=+1 → NEXT Monday
+```
+On Sunday (`day = 0`): `diff = 1` → `monday = next day (Monday)`. This is NEXT Monday.
+
+Consequences:
+1. `tracker.ts` `getPlanDates()` → returned NEXT week's dates on Sundays. Today (Sunday)
+   was not in the returned date array → `isPlanDate = false` → "No meal plan for this date".
+2. `ai.ts` `weekStartDate` → set to NEXT Monday when generating on Sunday. Monthly tracker
+   `planStartLocal` = next Monday, so Sunday was before plan start → excluded from charts.
+
+**Fix**: Change formula to `day === 0 ? -6 : 1 - day` in all three server files.
+- Sunday: `-6` → goes back to the PREVIOUS Monday (current week's Monday). ✓
+- Monday: `1-1 = 0` → stays today. ✓
+- Saturday: `1-6 = -5` → goes back 5 days to Monday. ✓ (unchanged)
+
+The client-side `getWeekStartStr()` in TrackerTab.tsx already uses `date-fns`
+`startOfWeek(today, { weekStartsOn: 1 })` which handles Sunday correctly. Only the server
+was broken. No frontend changes needed for this bug.
+
+### `planDuration` sync
+`GET /api/plan` now returns `planDuration` and `weekStartDate` in the JSON response.
+`usePlan.ts` calls `setPlanDuration(res.data.planDuration)` when this field is present,
+ensuring the frontend store has the authoritative value from the DB (not only from the
+tracker's stats response).
+
+### SQL patches — run in Neon SQL editor after deploying
+
+```sql
+-- 1. Ensure planDuration is set for any old plans that might have NULL
+UPDATE meal_plans
+SET "planDuration" = 7
+WHERE "planDuration" IS NULL;
+
+-- 2. For each user, mark only their MOST RECENT plan as active
+--    (deactivate all others to remove duplicates)
+UPDATE meal_plans
+SET "isActive" = false
+WHERE id NOT IN (
+  SELECT DISTINCT ON ("userId") id
+  FROM meal_plans
+  ORDER BY "userId", "generatedAt" DESC
+);
+
+-- 3. Ensure the remaining plan per user IS marked active
+UPDATE meal_plans
+SET "isActive" = true
+WHERE id IN (
+  SELECT DISTINCT ON ("userId") id
+  FROM meal_plans
+  ORDER BY "userId", "generatedAt" DESC
+);
+
+-- 4. Verification: check result (should show one active plan per user)
+SELECT "userId", id, "isActive", "weekStartDate", "generatedAt", "planDuration"
+FROM meal_plans
+ORDER BY "generatedAt" DESC
+LIMIT 20;
+```
