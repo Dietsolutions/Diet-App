@@ -1,6 +1,7 @@
 // ── MacroBand ─────────────────────────────────────────────────────────────
 // Warm horizontal macro summary: 5 equal columns with a thin progress bar,
 // consumed value, label, and delta line.
+// Dark-theme aware — uses app color palette.
 
 export interface MacroBandProps {
   calories:   { consumed: number; target: number }
@@ -13,6 +14,20 @@ export interface MacroBandProps {
   totalMeals: number
 }
 
+// App color palette (dark theme — matches tailwind.config.js)
+const C = {
+  primary:   '#F0EDE8',  // text-primary
+  secondary: '#9A95A0',  // text-secondary
+  dimmed:    '#5C5869',  // text-dimmed
+  surface:   '#1A1D27',  // surface
+  elevated:  '#22263A',  // elevated
+  border:    '#2A2D3E',  // border
+  success:   '#4CAF82',  // green
+  accent:    '#E8845A',  // orange
+  red:       '#DC2626',
+  amber:     '#F0B429',
+};
+
 // ── Per-macro deficit direction ────────────────────────────────────────────
 // true  = being under target is GOOD (fat loss: cal/carbs/fat)
 // false = being under target is BAD  (need more: protein/fibre)
@@ -24,19 +39,29 @@ const DEFICIT_GOOD: Record<string, boolean> = {
   fibre:    false,
 };
 
+// ── Null-safe helpers ─────────────────────────────────────────────────────
+function safe(n: number | undefined | null, fallback = 0): number {
+  return (typeof n === 'number' && !isNaN(n)) ? n : fallback;
+}
+
+function safeTarget(n: number | undefined | null): number {
+  const v = safe(n, 1);
+  return v > 0 ? v : 1;
+}
+
 // ── 5% buffer helpers ─────────────────────────────────────────────────────
 function getDeltaStatus(consumed: number, target: number): 'deficit' | 'on_target' | 'excess' {
-  if (target <= 0) return 'on_target';
-  const pct = consumed / target;
-  if (pct < 0.95)  return 'deficit';   // more than 5% under
-  if (pct <= 1.05) return 'on_target'; // within ±5%
-  return 'excess';                      // more than 5% over
+  const t = safeTarget(target);
+  const pct = safe(consumed) / t;
+  if (pct < 0.95)  return 'deficit';
+  if (pct <= 1.05) return 'on_target';
+  return 'excess';
 }
 
 function formatDelta(consumed: number, target: number, unit: string): string {
   const status = getDeltaStatus(consumed, target);
   if (status === 'on_target') return 'on target';
-  const delta  = consumed - target;
+  const delta  = safe(consumed) - safeTarget(target);
   const sign   = delta > 0 ? '+' : '−';
   const amount = Math.abs(Math.round(delta)).toLocaleString();
   const suffix = unit === 'kcal' ? ' kcal' : 'g';
@@ -45,23 +70,20 @@ function formatDelta(consumed: number, target: number, unit: string): string {
 
 function getDeltaColor(consumed: number, target: number, isDeficitGood: boolean): string {
   const status = getDeltaStatus(consumed, target);
-  if (status === 'on_target') return '#B09070'; // muted — neutral
+  if (status === 'on_target') return C.dimmed;
   if (isDeficitGood) {
-    // cal/carbs/fat: under = good (green), over = bad (red)
-    return status === 'deficit' ? '#2D6A4F' : '#DC2626';
+    return status === 'deficit' ? C.success : C.red;
   } else {
-    // protein/fibre: under = bad (red), over = not critical (amber)
-    return status === 'deficit' ? '#DC2626' : '#F0B429';
+    return status === 'deficit' ? C.red : C.amber;
   }
 }
 
-// ── Bar colour: 80/110 thresholds (unchanged from previous) ───────────────
 function getBarColor(consumed: number, target: number): string {
-  if (target <= 0) return '#2D6A4F';
-  const pct = consumed / target;
-  if (pct > 1.10)  return '#DC2626'; // red    — above 110%
-  if (pct >= 0.80) return '#2D6A4F'; // green  — 80–110% (includes 5% buffer)
-  return '#F0B429';                   // amber  — below 80%
+  const t = safeTarget(target);
+  const pct = safe(consumed) / t;
+  if (pct > 1.10)  return C.red;     // >110% — over budget
+  if (pct >= 0.80) return C.success; // 80–110% — on track
+  return C.amber;                     // <80% — under
 }
 
 // ── MacroColumn ───────────────────────────────────────────────────────────
@@ -71,20 +93,22 @@ function MacroColumn({
   label: string; consumed: number; target: number;
   unit: string; isDeficitGood: boolean;
 }) {
-  const fillPct  = target > 0 ? Math.min(consumed / target, 1) : 0;
-  const barColor = getBarColor(consumed, target);
-  const isOver   = consumed > target;
+  const c = safe(consumed);
+  const t = safeTarget(target);
+  const fillPct  = Math.min(c / t, 1);
+  const barColor = getBarColor(c, t);
+  const isOver   = c > t * 1.05;
 
   const valueDisplay = unit === 'kcal'
-    ? Math.round(consumed).toLocaleString()
-    : `${Math.round(consumed)}g`;
+    ? Math.round(c).toLocaleString()
+    : `${Math.round(c)}g`;
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
       {/* Progress bar */}
       <div style={{
         width: '100%', height: '5px', borderRadius: '3px',
-        background: 'var(--color-background-tertiary, #2A2D3E)', overflow: 'hidden',
+        background: C.border, overflow: 'hidden',
       }}>
         <div style={{
           width: `${Math.round(fillPct * 100)}%`, height: '100%', borderRadius: '3px',
@@ -94,15 +118,15 @@ function MacroColumn({
 
       {/* Consumed value */}
       <span style={{
-        fontSize: '12px', fontWeight: 500, lineHeight: 1,
-        color: isOver ? '#DC2626' : '#3D2B0F',
+        fontSize: '12px', fontWeight: 600, lineHeight: 1,
+        color: isOver ? C.red : C.primary,
         fontFamily: 'DM Mono, monospace',
       }}>
         {valueDisplay}
       </span>
 
       {/* Label */}
-      <span style={{ fontSize: '9px', color: '#B09070', textAlign: 'center', lineHeight: 1 }}>
+      <span style={{ fontSize: '9px', color: C.secondary, textAlign: 'center', lineHeight: 1 }}>
         {unit === 'kcal' ? 'kcal' : label}
       </span>
 
@@ -110,9 +134,9 @@ function MacroColumn({
       <span style={{
         fontSize: '9px', fontFamily: 'DM Mono, monospace',
         textAlign: 'center', lineHeight: 1,
-        color: getDeltaColor(consumed, target, isDeficitGood),
+        color: getDeltaColor(c, t, isDeficitGood),
       }}>
-        {formatDelta(consumed, target, unit)}
+        {formatDelta(c, t, unit)}
       </span>
     </div>
   );
@@ -122,7 +146,7 @@ function MacroColumn({
 const DIVIDER = (
   <div style={{
     width: '0.5px',
-    background: 'var(--color-border-tertiary, #2A2D3E)',
+    background: C.border,
     alignSelf: 'stretch',
   }} />
 );
@@ -131,10 +155,12 @@ const DIVIDER = (
 export function MacroBand({
   calories, protein, carbs, fat, fibre, mealsEaten, totalMeals,
 }: MacroBandProps) {
-  const calStatus = getDeltaStatus(calories.consumed, calories.target);
-  const remainingKcal = Math.round(Math.abs(calories.target - calories.consumed));
+  const c = safe(calories?.consumed);
+  const t = safeTarget(calories?.target);
+  const calStatus = getDeltaStatus(c, t);
+  const remainingKcal = Math.round(Math.abs(t - c));
 
-  const headerRightColor = calStatus === 'excess' ? '#DC2626' : '#2D6A4F';
+  const headerRightColor = calStatus === 'excess' ? C.red : C.success;
   const headerRightText = calStatus === 'on_target'
     ? 'on target'
     : calStatus === 'deficit'
@@ -143,19 +169,20 @@ export function MacroBand({
 
   return (
     <div style={{
-      background: 'var(--color-background-secondary, #1A1D27)',
+      background: C.surface,
       borderRadius: '12px',
-      border: '0.5px solid var(--color-border-tertiary, #2A2D3E)',
+      border: `0.5px solid ${C.border}`,
       padding: '10px 12px',
       display: 'flex', flexDirection: 'column', gap: '8px',
+      minHeight: '80px',
     }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '11px', fontWeight: 500, color: '#3D2B0F' }}>
+        <span style={{ fontSize: '11px', fontWeight: 600, color: C.primary, letterSpacing: '0.2px' }}>
           Today's Macros
         </span>
-        <span style={{ fontSize: '10px', color: '#B09070' }}>
-          {mealsEaten}/{totalMeals} meals
+        <span style={{ fontSize: '10px', color: C.secondary }}>
+          {safe(mealsEaten)}/{safe(totalMeals, 1)} meals
           {'\u00A0·\u00A0'}
           <span style={{ color: headerRightColor }}>{headerRightText}</span>
         </span>
@@ -163,15 +190,15 @@ export function MacroBand({
 
       {/* 5-column band */}
       <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
-        <MacroColumn label="calories" consumed={calories.consumed} target={calories.target} unit="kcal" isDeficitGood={DEFICIT_GOOD.calories} />
+        <MacroColumn label="calories" consumed={calories?.consumed} target={calories?.target} unit="kcal" isDeficitGood={DEFICIT_GOOD.calories} />
         {DIVIDER}
-        <MacroColumn label="protein"  consumed={protein.consumed}  target={protein.target}  unit="g"    isDeficitGood={DEFICIT_GOOD.protein} />
+        <MacroColumn label="protein"  consumed={protein?.consumed}  target={protein?.target}  unit="g"    isDeficitGood={DEFICIT_GOOD.protein} />
         {DIVIDER}
-        <MacroColumn label="carbs"    consumed={carbs.consumed}    target={carbs.target}    unit="g"    isDeficitGood={DEFICIT_GOOD.carbs} />
+        <MacroColumn label="carbs"    consumed={carbs?.consumed}    target={carbs?.target}    unit="g"    isDeficitGood={DEFICIT_GOOD.carbs} />
         {DIVIDER}
-        <MacroColumn label="fat"      consumed={fat.consumed}      target={fat.target}      unit="g"    isDeficitGood={DEFICIT_GOOD.fat} />
+        <MacroColumn label="fat"      consumed={fat?.consumed}      target={fat?.target}      unit="g"    isDeficitGood={DEFICIT_GOOD.fat} />
         {DIVIDER}
-        <MacroColumn label="fibre"    consumed={fibre.consumed}    target={fibre.target}    unit="g"    isDeficitGood={DEFICIT_GOOD.fibre} />
+        <MacroColumn label="fibre"    consumed={fibre?.consumed}    target={fibre?.target}    unit="g"    isDeficitGood={DEFICIT_GOOD.fibre} />
       </div>
     </div>
   );

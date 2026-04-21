@@ -12,6 +12,7 @@ import { WaterIntakeCard } from './WaterIntakeCard';
 import { MacroAchievementCard } from './MacroAchievementCard';
 import { AdditionalMealCard } from './AdditionalMealCard';
 import { AddMealButton } from './AddMealButton';
+import { ErrorBoundary } from './ErrorBoundary';
 
 const MEAL_ICONS = ['🌅', '☀️', '🍎', '🌙', '🥗'];
 
@@ -219,16 +220,18 @@ export function MealsTab() {
 
             {/* Macro achievement */}
             {profile && (
-              <MacroAchievementCard
-                meals={meals}
-                eatenMask={meals.map((_, i) => getMealEaten(i))}
-                replacements={replacements}
-                date={selectedDate}
-                profile={profile}
-                eatenCount={eatenCount}
-                mealsPerDay={mealsPerDay}
-                additionalMeals={additionalMeals}
-              />
+              <ErrorBoundary>
+                <MacroAchievementCard
+                  meals={meals}
+                  eatenMask={meals.map((_, i) => getMealEaten(i))}
+                  replacements={replacements}
+                  date={selectedDate}
+                  profile={profile}
+                  eatenCount={eatenCount}
+                  mealsPerDay={mealsPerDay}
+                  additionalMeals={additionalMeals}
+                />
+              </ErrorBoundary>
             )}
 
             {/* Meal cards */}
