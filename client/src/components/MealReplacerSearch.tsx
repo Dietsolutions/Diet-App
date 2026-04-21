@@ -17,8 +17,13 @@ interface Props {
   onAIMode: () => void;
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  breakfast: 'Breakfast', brunch: 'Brunch', lunch: 'Lunch',
+  evening_snack: 'Evening Snack', dinner: 'Dinner', other: 'Other',
+};
+
 export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Props) {
-  const { target, recentFoods, fetchRecentFoods, selectFood, setScreen, setSearchQuery } = useMealReplacerStore();
+  const { target, addMode, addModeDate, addModeCategory, recentFoods, fetchRecentFoods, selectFood, setScreen, setSearchQuery } = useMealReplacerStore();
 
   useEffect(() => {
     fetchRecentFoods();
@@ -64,11 +69,15 @@ export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Pro
     <div className="space-y-5 px-1">
       <div>
         <h3 className="font-display text-lg font-bold text-primary">What did you eat?</h3>
-        {target && (
+        {addMode && addModeDate ? (
+          <p className="text-xs text-secondary font-sans mt-0.5">
+            Adding to: <span className="text-violet font-medium">{CATEGORY_LABELS[addModeCategory || ''] || 'Other'}</span> &middot; {addModeDate}
+          </p>
+        ) : target ? (
           <p className="text-xs text-secondary font-sans mt-0.5">
             Replacing: {target.mealName} &middot; {target.date}
           </p>
-        )}
+        ) : null}
       </div>
 
       {/* Search box */}

@@ -1,8 +1,7 @@
 // MacroAchievementCard — data layer
-// Computes consumed macros from meals/replacements, maps to MacroBand props.
-// External interface unchanged — MealsTab.tsx needs no edits.
+// Computes consumed macros from meals/replacements + additional meals, maps to MacroBand props.
 
-import { Meal, MealReplacement, UserProfile } from '../types';
+import { AdditionalMealLog, Meal, MealReplacement, UserProfile } from '../types';
 import { MacroBand } from './MacroBand';
 
 interface Props {
@@ -13,15 +12,18 @@ interface Props {
   profile: UserProfile;
   eatenCount: number;
   mealsPerDay: number;
+  additionalMeals?: AdditionalMealLog[];
 }
 
 function computeConsumed(
   meals: Meal[],
   eatenMask: boolean[],
   replacements: Record<string, MealReplacement | undefined>,
-  date: string
+  date: string,
+  additionalMeals: AdditionalMealLog[]
 ) {
-  return meals.reduce(
+  // Calories from plan meals (eaten/replaced)
+  const planTotals = meals.reduce(
     (acc, meal, idx) => {
       if (!eatenMask[idx]) return acc;
       const rep = replacements[`${date}-${idx}`];
@@ -35,16 +37,29 @@ function computeConsumed(
     },
     { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 }
   );
+
+  // Stack additional meals on top (always included)
+  return additionalMeals.reduce(
+    (acc, extra) => ({
+      calories: acc.calories + extra.calories,
+      protein:  acc.protein  + extra.proteinG,
+      carbs:    acc.carbs    + extra.carbsG,
+      fat:      acc.fat      + extra.fatG,
+      fibre:    acc.fibre    + extra.fibreG,
+    }),
+    planTotals
+  );
 }
 
 export function MacroAchievementCard({
   meals, eatenMask, replacements, date, profile, eatenCount, mealsPerDay,
+  additionalMeals = [],
 }: Props) {
   // Don't render for future dates
   const today = new Date().toISOString().split('T')[0];
   if (date > today) return null;
 
-  const consumed = computeConsumed(meals, eatenMask, replacements, date);
+  const consumed = computeConsumed(meals, eatenMask, replacements, date, additionalMeals);
 
   return (
     <MacroBand

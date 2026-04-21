@@ -3,6 +3,7 @@ import { format, parseISO, startOfMonth, addMonths, subMonths, getDaysInMonth, g
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
+import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { useTracker } from '../hooks/useTracker';
 import { TrackerSummary, GoalCountdown } from '../types';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -33,6 +34,7 @@ export function TrackerTab() {
     navigateToMealsFromTracker, mealsPerDay, planDuration
   } = useAppStore();
   const { fetchReplacementsForWeek } = useMealReplacerStore();
+  const { fetchForDate, getForDate } = useAdditionalMealsStore();
 
   const [weeklySummary, setWeeklySummary] = useState<TrackerSummary | null>(null);
   const [monthlySummary, setMonthlySummary] = useState<TrackerSummary | null>(null);
@@ -46,6 +48,15 @@ export function TrackerTab() {
   useEffect(() => {
     fetchReplacementsForWeek();
   }, [fetchReplacementsForWeek]);
+
+  // Fetch additional meals for the selected date (non-future only)
+  useEffect(() => {
+    if (selectedDate && selectedDate <= today) {
+      fetchForDate(selectedDate);
+    }
+  }, [selectedDate, fetchForDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const additionalMeals = getForDate(selectedDate);
 
   // Fetch weekly + monthly summaries + goal countdown
   useEffect(() => {
@@ -255,6 +266,26 @@ export function TrackerTab() {
               {allEaten ? 'Unmark All' : 'Mark All Eaten'}
             </button>
           </div>
+
+          {/* Additional (extra) meals for this day */}
+          {additionalMeals.length > 0 && (
+            <div className="pt-2 border-t border-border/60 space-y-1.5">
+              <p className="text-[10px] text-dimmed font-sans uppercase tracking-wide">
+                ✦ Extra meals logged
+              </p>
+              {additionalMeals.map((extra) => (
+                <div key={extra.id} className="flex items-center gap-2 py-1">
+                  <span className="text-violet text-xs">✦</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-sans font-medium text-secondary truncate">{extra.foodName}</p>
+                    <p className="text-[10px] font-mono text-dimmed">
+                      {Math.round(extra.calories)} kcal · P:{extra.proteinG}g · C:{extra.carbsG}g · F:{extra.fatG}g
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

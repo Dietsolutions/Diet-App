@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { format, parseISO, addWeeks, startOfWeek, addDays } from 'date-fns';
 import { useAppStore } from '../store/appStore';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
+import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { useTracker } from '../hooks/useTracker';
 import { usePlan } from '../hooks/usePlan';
 import { Meal, MealTarget } from '../types';
@@ -9,6 +10,8 @@ import { ReplacedMealCard } from './ReplacedMealCard';
 import { MealReplacerSheet } from './MealReplacerSheet';
 import { WaterIntakeCard } from './WaterIntakeCard';
 import { MacroAchievementCard } from './MacroAchievementCard';
+import { AdditionalMealCard } from './AdditionalMealCard';
+import { AddMealButton } from './AddMealButton';
 
 const MEAL_ICONS = ['🌅', '☀️', '🍎', '🌙', '🥗'];
 
@@ -38,12 +41,22 @@ export function MealsTab() {
   const { weekData, toggleMeal } = useTracker();
   const { planDays: planDaysFromPlan } = usePlan();
   const { replacements, openReplacer, undoReplacement, fetchReplacementsForWeek } = useMealReplacerStore();
+  const { fetchForDate, getForDate } = useAdditionalMealsStore();
 
   const today = todayStr();
 
   useEffect(() => {
     fetchReplacementsForWeek();
   }, [fetchReplacementsForWeek]);
+
+  // Fetch additional meals whenever the selected date changes
+  useEffect(() => {
+    if (selectedDate && selectedDate <= today) {
+      fetchForDate(selectedDate);
+    }
+  }, [selectedDate, fetchForDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const additionalMeals = getForDate(selectedDate);
 
   // Show current week by default (offset 0)
   const calendarDates = getWeekDates(mealsCalendarOffset);
@@ -214,6 +227,7 @@ export function MealsTab() {
                 profile={profile}
                 eatenCount={eatenCount}
                 mealsPerDay={mealsPerDay}
+                additionalMeals={additionalMeals}
               />
             )}
 
@@ -257,6 +271,21 @@ export function MealsTab() {
                 </div>
               );
             })}
+
+            {/* Additional meals logged for this day */}
+            {additionalMeals.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-dimmed font-sans uppercase tracking-wide px-0.5">
+                  Extra meals logged
+                </p>
+                {additionalMeals.map((extra) => (
+                  <AdditionalMealCard key={extra.id} meal={extra} />
+                ))}
+              </div>
+            )}
+
+            {/* Add meal button */}
+            <AddMealButton date={selectedDate} />
           </>
         )}
 

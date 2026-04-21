@@ -16,6 +16,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
     setNote,
     note,
     submitReplacement,
+    addMode,
   } = useMealReplacerStore();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -160,7 +161,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
         disabled={isSubmitting}
         className="w-full bg-accent text-white font-semibold font-sans py-3.5 rounded-[14px] text-base active:scale-95 transition-all disabled:opacity-50"
       >
-        {isSubmitting ? 'Logging...' : 'Log This Meal'}
+        {isSubmitting ? 'Logging...' : addMode ? 'Add to My Day' : 'Log This Meal'}
       </button>
     </div>
   );

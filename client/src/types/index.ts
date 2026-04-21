@@ -164,6 +164,29 @@ export interface FoodResult {
   isAiEstimate: boolean;
 }
 
+export interface AdditionalMealLog {
+  id: string;
+  userId?: string;
+  date: string;
+  mealCategory: string;
+  mealTime?: string | null;
+  foodName: string;
+  foodSource: string;
+  foodExternalId?: string | null;
+  servingSize: string;
+  servingQty: number;
+  servingGrams?: number | null;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fibreG: number;
+  note?: string | null;
+  isAiEstimate: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface MealReplacement {
   id: string;
   userId: string;

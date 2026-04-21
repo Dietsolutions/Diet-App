@@ -445,15 +445,18 @@ router.get('/monthly-macros', requireAuth, async (req: AuthRequest, res: Respons
 
     if (validDates.length === 0) { res.json({ ...emptyResponse, totalPlanDaysInMonth }); return; }
 
-    const [logs, replacements] = await Promise.all([
+    const [logs, replacements, additionalLogs] = await Promise.all([
       prisma.mealLog.findMany({ where: { userId, date: { in: validDates } } }),
       prisma.mealReplacement.findMany({ where: { userId, date: { in: validDates } } }),
+      prisma.additionalMealLog.findMany({ where: { userId, date: { in: validDates } } }),
     ]);
 
     const logsByDate: Record<string, typeof logs> = {};
     logs.forEach(l => { (logsByDate[l.date] ??= []).push(l); });
     const repsByDate: Record<string, typeof replacements> = {};
     replacements.forEach(r => { (repsByDate[r.date] ??= []).push(r); });
+    const additionalByDate: Record<string, typeof additionalLogs> = {};
+    additionalLogs.forEach(a => { (additionalByDate[a.date] ??= []).push(a); });
 
     // Running totals for all 5 macros
     const running = { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 };
@@ -468,14 +471,15 @@ router.get('/monthly-macros', requireAuth, async (req: AuthRequest, res: Respons
       const planMeals = planDaysMap.get(planDayIndex) || [];
       const dateLogs  = logsByDate[date] || [];
       const dateReps  = repsByDate[date] || [];
+      const dateAdditional = additionalByDate[date] || [];
       const repByMeal = new Map(dateReps.map(r => [r.mealIndex, r]));
 
       const dayConsumed = { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0 };
 
+      // Plan meals (with replacements)
       for (let mealIdx = 0; mealIdx < mealsPerDay; mealIdx++) {
         const rep = repByMeal.get(mealIdx);
         if (rep) {
-          // Replacement — use replacement macro values
           dayConsumed.calories += rep.calories;
           dayConsumed.protein  += (rep as any).proteinG ?? 0;
           dayConsumed.carbs    += (rep as any).carbsG   ?? 0;
@@ -494,10 +498,19 @@ router.get('/monthly-macros', requireAuth, async (req: AuthRequest, res: Respons
         }
       }
 
+      // Additional meals stack on top of plan meals
+      for (const extra of dateAdditional) {
+        dayConsumed.calories += extra.calories;
+        dayConsumed.protein  += extra.proteinG;
+        dayConsumed.carbs    += extra.carbsG;
+        dayConsumed.fat      += extra.fatG;
+        dayConsumed.fibre    += extra.fibreG;
+      }
+
       // Accumulate running totals
       (Object.keys(running) as (keyof typeof running)[]).forEach(k => { running[k] += dayConsumed[k]; });
 
-      const hasData = dateLogs.some(l => l.eaten) || dateReps.length > 0;
+      const hasData = dateLogs.some(l => l.eaten) || dateReps.length > 0 || dateAdditional.length > 0;
       const dayNum  = parseInt(date.slice(8), 10);
 
       dailyData.push({

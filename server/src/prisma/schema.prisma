@@ -34,6 +34,7 @@ model User {
   mealReplacements MealReplacement[]
   recentFoodLogs   RecentFoodLog[]
   waterLogs        WaterLog[]
+  additionalMealLogs AdditionalMealLog[]
 }
 
 model WeightLog {
@@ -226,6 +227,40 @@ model RecentFoodLog {
 
   @@index([userId, usedAt])
   @@map("recent_food_logs")
+}
+
+model AdditionalMealLog {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date           String   // "YYYY-MM-DD"
+  mealCategory   String   // "breakfast"|"brunch"|"lunch"|"evening_snack"|"dinner"|"other"
+  mealTime       String?  // optional, e.g. "10:30 AM"
+
+  foodName       String
+  foodSource     String   // "open_food_facts"|"usda"|"ai_estimate"|"manual"
+  foodExternalId String?
+
+  servingSize    String
+  servingQty     Float
+  servingGrams   Float?
+
+  calories       Float
+  proteinG       Float
+  carbsG         Float
+  fatG           Float
+  fibreG         Float
+
+  note           String?  @default("")
+  isAiEstimate   Boolean  @default(false)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId, date])
+  @@index([userId, date, mealCategory])
+  @@map("additional_meal_logs")
 }
 
 model WaterLog {

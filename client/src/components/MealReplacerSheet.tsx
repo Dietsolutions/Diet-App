@@ -5,21 +5,32 @@ import { MealReplacerResults } from './MealReplacerResults';
 import { MealReplacerQuantity } from './MealReplacerQuantity';
 import { MealReplacerAI } from './MealReplacerAI';
 
+const MEAL_CATEGORIES: { id: string; emoji: string; label: string }[] = [
+  { id: 'breakfast',     emoji: '🌅', label: 'Breakfast'     },
+  { id: 'brunch',        emoji: '🥞', label: 'Brunch'        },
+  { id: 'lunch',         emoji: '☀️', label: 'Lunch'         },
+  { id: 'evening_snack', emoji: '🍎', label: 'Evening Snack' },
+  { id: 'dinner',        emoji: '🌙', label: 'Dinner'        },
+  { id: 'other',         emoji: '🍴', label: 'Other'         },
+];
+
 export function MealReplacerSheet() {
-  const { isOpen, currentScreen, closeReplacer, setScreen, setSearchQuery } = useMealReplacerStore();
+  const { isOpen, currentScreen, closeReplacer, setScreen, setSearchQuery, addModeCategory, setAddModeCategory } = useMealReplacerStore();
   const sheetRef = useRef<HTMLDivElement>(null);
   const [dragY, setDragY] = useState(0);
   const dragStartY = useRef(0);
   const isDragging = useRef(false);
   const [initialQuery, setInitialQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
 
   // Reset drag on open
   useEffect(() => {
     if (isOpen) {
       setDragY(0);
       setInitialQuery('');
+      setSelectedCategory(addModeCategory || '');
     }
-  }, [isOpen]);
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Prevent body scroll when sheet is open
   useEffect(() => {
@@ -102,6 +113,45 @@ export function MealReplacerSheet() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-4 pb-6 overscroll-contain">
+          {currentScreen === 'category' && (
+            <div className="space-y-5 px-1">
+              <div>
+                <h3 className="font-display text-lg font-bold text-primary">What kind of meal?</h3>
+                <p className="text-xs text-secondary font-sans mt-0.5">Choose the meal category to log</p>
+              </div>
+
+              {/* 2×3 grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {MEAL_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
+                    className={`flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-left transition-all ${
+                      selectedCategory === cat.id
+                        ? 'bg-violet/15 border-violet/40 ring-1 ring-violet/30'
+                        : 'bg-elevated border-border hover:bg-accent/10'
+                    }`}
+                  >
+                    <span className="text-2xl">{cat.emoji}</span>
+                    <span className={`text-sm font-sans font-semibold ${selectedCategory === cat.id ? 'text-violet' : 'text-primary'}`}>
+                      {cat.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <button
+                disabled={!selectedCategory}
+                onClick={() => {
+                  setAddModeCategory(selectedCategory);
+                  setScreen('search');
+                }}
+                className="w-full bg-accent text-white font-semibold font-sans py-3.5 rounded-[14px] text-base active:scale-95 transition-all disabled:opacity-40"
+              >
+                Next →
+              </button>
+            </div>
+          )}
           {currentScreen === 'search' && (
             <MealReplacerSearch
               onSearchFocus={handleSearchFocus}

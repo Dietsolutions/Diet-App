@@ -2,12 +2,17 @@ import { create } from 'zustand';
 import axios from 'axios';
 import { FoodResult, MealReplacement, MealTarget, ServingSize, FoodMacros, RecentFoodLog } from '../types';
 
-type Screen = 'search' | 'results' | 'quantity' | 'ai';
+export type Screen = 'search' | 'results' | 'quantity' | 'ai' | 'category';
 
 interface MealReplacerState {
   isOpen: boolean;
   currentScreen: Screen;
   target: MealTarget | null;
+
+  // Add-mode fields (set when opening as "add a meal" instead of "replace a meal")
+  addMode:         boolean;
+  addModeDate:     string | null;
+  addModeCategory: string | null;
 
   searchQuery: string;
   searchResults: FoodResult[];
@@ -23,9 +28,11 @@ interface MealReplacerState {
   recentFoods: RecentFoodLog[];
   note: string;
 
-  openReplacer: (target: MealTarget) => void;
-  closeReplacer: () => void;
-  setScreen: (s: Screen) => void;
+  openReplacer:      (target: MealTarget) => void;
+  openAdder:         (date: string) => void;        // opens sheet in add mode
+  setAddModeCategory:(cat: string) => void;
+  closeReplacer:     () => void;
+  setScreen:         (s: Screen) => void;
   setSearchQuery: (q: string) => void;
   setSearchResults: (results: FoodResult[]) => void;
   setIsSearching: (v: boolean) => void;
@@ -57,10 +64,19 @@ function repKey(date: string, mealIndex: number): string {
   return `${date}-${mealIndex}`;
 }
 
+// Lazy import to avoid circular deps at module init time
+function getAdditionalStore() {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('./additionalMealsStore').useAdditionalMealsStore.getState();
+}
+
 export const useMealReplacerStore = create<MealReplacerState>((set, get) => ({
   isOpen: false,
   currentScreen: 'search',
   target: null,
+  addMode: false,
+  addModeDate: null,
+  addModeCategory: null,
   searchQuery: '',
   searchResults: [],
   isSearching: false,
@@ -77,6 +93,9 @@ export const useMealReplacerStore = create<MealReplacerState>((set, get) => ({
       isOpen: true,
       currentScreen: 'search',
       target,
+      addMode: false,
+      addModeDate: null,
+      addModeCategory: null,
       searchQuery: '',
       searchResults: [],
       selectedFood: null,
@@ -86,11 +105,33 @@ export const useMealReplacerStore = create<MealReplacerState>((set, get) => ({
       note: '',
     }),
 
+  openAdder: (date: string) =>
+    set({
+      isOpen: true,
+      currentScreen: 'category',  // Start at category picker
+      target: null,
+      addMode: true,
+      addModeDate: date,
+      addModeCategory: null,
+      searchQuery: '',
+      searchResults: [],
+      selectedFood: null,
+      selectedServing: null,
+      quantity: 1,
+      computedMacros: null,
+      note: '',
+    }),
+
+  setAddModeCategory: (cat: string) => set({ addModeCategory: cat }),
+
   closeReplacer: () =>
     set({
       isOpen: false,
       currentScreen: 'search',
       target: null,
+      addMode: false,
+      addModeDate: null,
+      addModeCategory: null,
       searchQuery: '',
       searchResults: [],
       selectedFood: null,
@@ -147,9 +188,42 @@ export const useMealReplacerStore = create<MealReplacerState>((set, get) => ({
   },
 
   submitReplacement: async () => {
-    const { target, selectedFood, selectedServing, quantity, computedMacros, note, replacements } = get();
-    if (!target || !selectedFood || !computedMacros || !selectedServing) return;
+    const { target, addMode, addModeDate, addModeCategory, selectedFood, selectedServing, quantity, computedMacros, note, replacements } = get();
+    if (!selectedFood || !computedMacros || !selectedServing) return;
 
+    // ── Add-mode: POST to /api/meals/additional ──────────────────────────
+    if (addMode && addModeDate) {
+      const body = {
+        date:          addModeDate,
+        mealCategory:  addModeCategory || 'other',
+        mealTime:      null,
+        foodName:      selectedFood.name,
+        foodSource:    selectedFood.source,
+        foodExternalId: selectedFood.id,
+        servingSize:   selectedServing.label,
+        servingQty:    quantity,
+        servingGrams:  selectedServing.grams * quantity,
+        calories:      computedMacros.calories,
+        proteinG:      computedMacros.protein,
+        carbsG:        computedMacros.carbs,
+        fatG:          computedMacros.fat,
+        fibreG:        computedMacros.fibre,
+        note:          note || '',
+        isAiEstimate:  selectedFood.isAiEstimate,
+      };
+      const res = await axios.post('/api/meals/additional', body, { withCredentials: true });
+      // Push into additionalMealsStore so UI updates immediately
+      getAdditionalStore().addToLocal(res.data.additionalMeal);
+      set({
+        isOpen: false, currentScreen: 'search', target: null,
+        addMode: false, addModeDate: null, addModeCategory: null,
+        selectedFood: null, selectedServing: null, quantity: 1, computedMacros: null, note: '',
+      });
+      return;
+    }
+
+    // ── Replace-mode: POST to /api/meals/replace (unchanged) ─────────────
+    if (!target) return;
     const body = {
       date: target.date,
       dayIndex: target.dayIndex,

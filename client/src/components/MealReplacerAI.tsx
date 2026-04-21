@@ -8,7 +8,7 @@ interface Props {
 }
 
 export function MealReplacerAI({ onBack }: Props) {
-  const { target, submitReplacement, closeReplacer, setScreen } = useMealReplacerStore();
+  const { target, addMode, addModeDate, addModeCategory, submitReplacement, closeReplacer, setScreen } = useMealReplacerStore();
   const [description, setDescription] = useState('');
   const [isEstimating, setIsEstimating] = useState(false);
   const [error, setError] = useState('');
@@ -40,37 +40,68 @@ export function MealReplacerAI({ onBack }: Props) {
   };
 
   const handleLog = async () => {
-    if (!result || !target) return;
+    if (!result) return;
     setIsLogging(true);
     setError('');
 
     try {
-      await axios.post(
-        '/api/meals/replace',
-        {
-          date: target.date,
-          dayIndex: target.dayIndex,
-          mealIndex: target.mealIndex,
-          foodName: description.trim(),
-          foodSource: 'ai_estimate',
-          servingSize: '1 meal',
-          servingQty: 1,
-          servingGrams: null,
-          calories: result.totals.calories,
-          proteinG: result.totals.proteinG,
-          carbsG: result.totals.carbsG,
-          fatG: result.totals.fatG,
-          fibreG: result.totals.fibreG,
-          note: '',
-          isAiEstimate: true,
-        },
-        { withCredentials: true }
-      );
-
-      // Refresh replacements and close
-      const { fetchReplacementsForWeek } = useMealReplacerStore.getState();
-      await fetchReplacementsForWeek();
-      closeReplacer();
+      if (addMode && addModeDate) {
+        // ── Add-mode: log as additional meal ──────────────────────────────
+        // Lazy-require to avoid circular dep
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { useAdditionalMealsStore } = require('../store/additionalMealsStore');
+        const additionalStore = useAdditionalMealsStore.getState();
+        const res = await axios.post(
+          '/api/meals/additional',
+          {
+            date: addModeDate,
+            mealCategory: addModeCategory || 'other',
+            mealTime: null,
+            foodName: description.trim(),
+            foodSource: 'ai_estimate',
+            servingSize: '1 meal',
+            servingQty: 1,
+            servingGrams: null,
+            calories: result.totals.calories,
+            proteinG: result.totals.proteinG,
+            carbsG: result.totals.carbsG,
+            fatG: result.totals.fatG,
+            fibreG: result.totals.fibreG,
+            note: '',
+            isAiEstimate: true,
+          },
+          { withCredentials: true }
+        );
+        additionalStore.addToLocal(res.data.additionalMeal);
+        closeReplacer();
+      } else {
+        // ── Replace-mode: log as meal replacement ─────────────────────────
+        if (!target) return;
+        await axios.post(
+          '/api/meals/replace',
+          {
+            date: target.date,
+            dayIndex: target.dayIndex,
+            mealIndex: target.mealIndex,
+            foodName: description.trim(),
+            foodSource: 'ai_estimate',
+            servingSize: '1 meal',
+            servingQty: 1,
+            servingGrams: null,
+            calories: result.totals.calories,
+            proteinG: result.totals.proteinG,
+            carbsG: result.totals.carbsG,
+            fatG: result.totals.fatG,
+            fibreG: result.totals.fibreG,
+            note: '',
+            isAiEstimate: true,
+          },
+          { withCredentials: true }
+        );
+        const { fetchReplacementsForWeek } = useMealReplacerStore.getState();
+        await fetchReplacementsForWeek();
+        closeReplacer();
+      }
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to log meal');
       setIsLogging(false);
@@ -166,7 +197,7 @@ export function MealReplacerAI({ onBack }: Props) {
               disabled={isLogging}
               className="flex-1 bg-accent text-white font-semibold font-sans py-3 rounded-[14px] text-sm active:scale-95 transition-all disabled:opacity-50"
             >
-              {isLogging ? 'Logging...' : 'Log This Meal'}
+              {isLogging ? 'Logging...' : addMode ? 'Add to My Day' : 'Log This Meal'}
             </button>
             <button
               onClick={() => {
