@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
+import axios from 'axios';
 import { useAuth } from './hooks/useAuth';
 import { useAppStore } from './store/appStore';
 import { usePlan } from './hooks/usePlan';
@@ -17,13 +18,23 @@ import { TabId } from './types';
 
 export default function App() {
   const { user, isLoading, refreshUser } = useAuth();
-  const { activeTab, setActiveTab } = useAppStore();
+  const { activeTab, setActiveTab, profile, setProfile } = useAppStore();
   const toastRef = useRef<ToastHandle>(null);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
 
   // Load plan data when user is logged in and onboarded
   usePlan();
+
+  // ── Fetch profile once at startup (needed by MacroBand, MacroAchievementCard) ──
+  useEffect(() => {
+    if (!user?.onboardingDone || profile) return;
+    axios.get('/api/profile', { withCredentials: true })
+      .then(res => {
+        if (res.data.profile) setProfile(res.data.profile);
+      })
+      .catch(() => { /* non-critical — ProfileTab will retry on mount */ });
+  }, [user?.onboardingDone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handler = (e: Event) => {
