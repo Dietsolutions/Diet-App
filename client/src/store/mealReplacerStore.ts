@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import axios from 'axios';
 import { FoodResult, MealReplacement, MealTarget, ServingSize, FoodMacros, RecentFoodLog } from '../types';
+import { useAdditionalMealsStore } from './additionalMealsStore';
 
 export type Screen = 'search' | 'results' | 'quantity' | 'ai' | 'category';
 
@@ -64,11 +65,6 @@ function repKey(date: string, mealIndex: number): string {
   return `${date}-${mealIndex}`;
 }
 
-// Lazy import to avoid circular deps at module init time
-function getAdditionalStore() {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('./additionalMealsStore').useAdditionalMealsStore.getState();
-}
 
 export const useMealReplacerStore = create<MealReplacerState>((set, get) => ({
   isOpen: false,
@@ -213,7 +209,7 @@ export const useMealReplacerStore = create<MealReplacerState>((set, get) => ({
       };
       const res = await axios.post('/api/meals/additional', body, { withCredentials: true });
       // Push into additionalMealsStore so UI updates immediately
-      getAdditionalStore().addToLocal(res.data.additionalMeal);
+      useAdditionalMealsStore.getState().addToLocal(res.data.additionalMeal);
       set({
         isOpen: false, currentScreen: 'search', target: null,
         addMode: false, addModeDate: null, addModeCategory: null,

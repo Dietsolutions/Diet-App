@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
+import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { AIFoodComponent } from '../types';
 
 interface Props {
@@ -47,10 +48,6 @@ export function MealReplacerAI({ onBack }: Props) {
     try {
       if (addMode && addModeDate) {
         // ── Add-mode: log as additional meal ──────────────────────────────
-        // Lazy-require to avoid circular dep
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { useAdditionalMealsStore } = require('../store/additionalMealsStore');
-        const additionalStore = useAdditionalMealsStore.getState();
         const res = await axios.post(
           '/api/meals/additional',
           {
@@ -72,7 +69,7 @@ export function MealReplacerAI({ onBack }: Props) {
           },
           { withCredentials: true }
         );
-        additionalStore.addToLocal(res.data.additionalMeal);
+        useAdditionalMealsStore.getState().addToLocal(res.data.additionalMeal);
         closeReplacer();
       } else {
         // ── Replace-mode: log as meal replacement ─────────────────────────
