@@ -32,19 +32,27 @@ export default defineConfig(({ mode }) => {
           ]
         },
         workbox: {
+          // Force new SW to take over immediately — prevents iOS getting stuck
+          // on stale cached JS bundles after a new deploy.
+          skipWaiting: true,
+          clientsClaim: true,
+          // Remove stale caches from old SW versions on activation.
+          cleanupOutdatedCaches: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          // Serve index.html for all non-API navigate requests (SPA routing).
+          navigateFallback: '/index.html',
           navigateFallbackDenylist: [/^\/api\//],
           runtimeCaching: [
+            // Cache Google Fonts — safe, long-lived, never auth-related.
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
               options: { cacheName: 'google-fonts-cache', expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } }
             },
-            {
-              urlPattern: /\/api\/.*/i,
-              handler: 'NetworkFirst',
-              options: { cacheName: 'api-cache', expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 } }
-            }
+            // ⚠️ API routes must NOT be cached — auth state and session tokens
+            // change per-request and caching them causes stale 401/session bugs,
+            // especially on iOS Safari where the SW cookie jar differs from the
+            // browser's. Always go directly to the network for /api/*.
           ]
         }
       })
@@ -61,6 +69,11 @@ export default defineConfig(({ mode }) => {
       }
     },
     build: {
+      // Target iOS Safari 14+ so modern JS syntax is transpiled correctly.
+      // iOS 14 shipped Sept 2020 and supports ES2017+, optional chaining, etc.
+      // Without an explicit target Vite defaults to 'modules' which can leave
+      // some syntax un-transpiled that JavaScriptCore on older iOS can't parse.
+      target: ['es2019', 'safari14', 'chrome87', 'firefox78', 'edge88'],
       sourcemap: false,
       rollupOptions: {
         output: {

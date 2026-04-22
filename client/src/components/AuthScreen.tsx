@@ -50,8 +50,12 @@ export function AuthScreen() {
 
   // Default mode: signup for first-visit, login if returning user
   const [mode, setMode] = useState<AuthMode>(() => {
-    const stored = typeof window !== 'undefined' ? localStorage.getItem('lastAuthTab') : null;
-    if (stored === 'login' || stored === 'signup') return stored;
+    try {
+      const stored = typeof window !== 'undefined' ? localStorage.getItem('lastAuthTab') : null;
+      if (stored === 'login' || stored === 'signup') return stored as AuthMode;
+    } catch {
+      // localStorage unavailable (iOS private mode quota = 0) — default to signup
+    }
     return 'signup';
   });
 
@@ -75,9 +79,13 @@ export function AuthScreen() {
   const debounceRef = useRef<number | null>(null);
   const lastCheckedRef = useRef<string>('');
 
-  // Persist last used tab
+  // Persist last used tab (guarded — localStorage.setItem throws in iOS private mode)
   useEffect(() => {
-    localStorage.setItem('lastAuthTab', mode);
+    try {
+      localStorage.setItem('lastAuthTab', mode);
+    } catch {
+      // Silently ignore — not critical
+    }
   }, [mode]);
 
   // Clear fields + errors when switching mode
@@ -270,7 +278,7 @@ export function AuthScreen() {
   const isSignup = mode === 'signup';
 
   return (
-    <div className="min-h-screen bg-dark flex items-center justify-center px-5 py-8">
+    <div className="min-h-app bg-dark flex items-center justify-center px-5 py-8">
       <div className="w-full max-w-sm">
         {/* Header */}
         <div className="text-center mb-8">

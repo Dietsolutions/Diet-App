@@ -90,7 +90,21 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthScreen />;
+    return (
+      <ErrorBoundary fallback={
+        <div className="min-h-app bg-dark flex items-center justify-center px-5">
+          <div className="text-center">
+            <p className="text-primary text-base font-sans font-semibold mb-2">Something went wrong</p>
+            <p className="text-secondary text-sm font-sans mb-4">Please reload the page</p>
+            <button onClick={() => window.location.reload()} className="bg-accent text-white px-6 py-2.5 rounded-xl text-sm font-semibold font-sans">
+              Reload
+            </button>
+          </div>
+        </div>
+      }>
+        <AuthScreen />
+      </ErrorBoundary>
+    );
   }
 
   // Show onboarding if user hasn't completed it
