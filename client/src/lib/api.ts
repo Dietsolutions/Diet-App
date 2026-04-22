@@ -10,6 +10,7 @@
  * deployed to a different origin (e.g. preview environments).
  */
 import axios from 'axios';
+import { getStoredToken } from './auth';
 
 const RAW_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
@@ -19,6 +20,19 @@ const RAW_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
  */
 axios.defaults.baseURL = RAW_BASE || undefined;
 axios.defaults.withCredentials = true;
+
+/**
+ * iOS Safari PWA fallback: attach stored JWT as Authorization header.
+ * The server accepts both httpOnly cookie AND this header, so the first
+ * mechanism that delivers a valid token wins.
+ */
+axios.interceptors.request.use((config) => {
+  const token = getStoredToken();
+  if (token && config.headers) {
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export function apiUrl(path: string): string {
   const normalised = path.startsWith('/') ? path : `/${path}`;

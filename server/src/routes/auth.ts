@@ -125,7 +125,9 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const token = issueToken(user.id);
     setAuthCookie(res, token);
 
+    // Return token in body as well — iOS Safari PWA fallback (sessionStorage)
     res.json({
+      token,
       user: {
         id: user.id,
         username: user.username,
@@ -188,7 +190,9 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response): Promi
     const token = issueToken(user.id);
     setAuthCookie(res, token);
 
+    // Return token in body as well — iOS Safari PWA fallback (sessionStorage)
     res.status(201).json({
+      token,
       user: {
         id: user.id,
         username: user.username,
@@ -348,7 +352,8 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
     const token = issueToken(user.id);
     setAuthCookie(res, token);
 
-    res.redirect(FRONTEND_URL);
+    // Pass token in URL for iOS Safari PWA fallback — frontend reads + removes it
+    res.redirect(`${FRONTEND_URL}?_at=${encodeURIComponent(token)}`);
   } catch (err) {
     console.error('Google OAuth error:', err);
     res.redirect(`${FRONTEND_URL}?error=google_auth_error`);

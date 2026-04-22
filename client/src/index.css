@@ -3,16 +3,41 @@
 @tailwind utilities;
 
 @layer base {
+  /* iOS 100vh fix: --app-height is set by main.tsx to window.innerHeight */
+  :root {
+    --app-height: 100%;
+  }
+
   html {
     font-family: 'Inter', 'DM Sans', sans-serif;
     -webkit-tap-highlight-color: transparent;
     -webkit-text-size-adjust: 100%;
+    /* Prevent rubber-band bounce on iOS at the document level */
+    overscroll-behavior: none;
   }
 
   body {
     background-color: #0F1117;
     color: #F0EDE8;
     overscroll-behavior: none;
+    /* Prevent text selection flicker on long-press (iOS) */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Re-enable text selection for content areas */
+  p, span, h1, h2, h3, h4, h5, h6, li, td, th, label {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* Input zoom prevention on iOS Safari (font-size < 16px triggers zoom) */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   * {
@@ -27,6 +52,20 @@
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+
+  /* iOS 100vh fix — use instead of h-screen where address bar causes overflow */
+  .h-app {
+    height: var(--app-height);
+  }
+  .min-h-app {
+    min-height: var(--app-height);
+  }
+
+  /* Momentum scrolling for iOS (required for overflow: scroll to feel native) */
+  .scroll-touch {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto;
   }
 
   .pt-safe-top {

@@ -1,4 +1,5 @@
 import { useRef, useCallback } from 'react';
+import { hapticFeedback } from '../utils/haptic';
 
 export function useLongPress(onLongPress: () => void, delay = 500) {
   const timer = useRef<ReturnType<typeof setTimeout>>();
@@ -8,7 +9,7 @@ export function useLongPress(onLongPress: () => void, delay = 500) {
     didFire.current = false;
     timer.current = setTimeout(() => {
       didFire.current = true;
-      if (navigator.vibrate) navigator.vibrate(50);
+      hapticFeedback(50);
       onLongPress();
     }, delay);
   }, [onLongPress, delay]);

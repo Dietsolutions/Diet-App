@@ -8,7 +8,18 @@ export interface AuthRequest extends Request {
 }
 
 export function requireAuth(req: AuthRequest, res: Response, next: NextFunction): void {
-  const token = req.cookies?.token;
+  // Primary: httpOnly cookie (works on Chrome, Android, desktop Safari)
+  let token = req.cookies?.token;
+
+  // Fallback: Authorization header (iOS Safari PWA standalone / private mode)
+  // iOS PWA contexts don't always share cookies with Safari, so the client
+  // stores the token in sessionStorage and sends it as a Bearer token.
+  if (!token) {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    }
+  }
 
   if (!token) {
     res.status(401).json({ error: 'Unauthorized' });

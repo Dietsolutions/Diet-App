@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from './hooks/useAuth';
 import { useAppStore } from './store/appStore';
 import { usePlan } from './hooks/usePlan';
+import { storeToken } from './lib/auth';
 import { AuthScreen } from './components/AuthScreen';
 import { Onboarding } from './components/Onboarding';
 import { AppBar } from './components/AppBar';
@@ -12,9 +13,15 @@ import { TrackerTab } from './components/TrackerTab';
 import { ShoppingTab } from './components/ShoppingTab';
 import { TipsTab } from './components/TipsTab';
 import { ProfileTab } from './components/ProfileTab';
+import { IOSInstallBanner } from './components/IOSInstallBanner';
 import { Toast, ToastHandle } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { TabId } from './types';
+
+/** Detect iOS Safari */
+function isIOS(): boolean {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+}
 
 export default function App() {
   const { user, isLoading, refreshUser } = useAuth();
@@ -25,6 +32,20 @@ export default function App() {
 
   // Load plan data when user is logged in and onboarded
   usePlan();
+
+  // ── iOS Safari PWA: read ?_at= token from URL (Google OAuth redirect fallback) ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const at = params.get('_at');
+    if (at) {
+      storeToken(at);
+      // Remove token from URL so it's not visible / logged in server referer headers
+      params.delete('_at');
+      const newSearch = params.toString();
+      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
+      window.history.replaceState(null, '', newUrl);
+    }
+  }, []);
 
   // ── Fetch profile once at startup (needed by MacroBand, MacroAchievementCard) ──
   useEffect(() => {
@@ -37,6 +58,8 @@ export default function App() {
   }, [user?.onboardingDone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    // beforeinstallprompt never fires on iOS Safari — iOS uses IOSInstallBanner instead
+    if (isIOS()) return;
     const handler = (e: Event) => {
       e.preventDefault();
       setInstallPrompt(e);
@@ -55,7 +78,7 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-dark flex items-center justify-center">
+      <div className="min-h-app bg-dark flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 bg-accent/20 rounded-2xl flex items-center justify-center mx-auto mb-3 animate-pulse">
             <span className="text-2xl">🍽️</span>
@@ -87,8 +110,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-dark">
-      <div className="max-w-app mx-auto flex flex-col h-screen relative bg-dark">
+    <div className="min-h-app bg-dark">
+      <div className="max-w-app mx-auto flex flex-col h-app relative bg-dark">
         <ErrorBoundary>
           <AppBar title="Diet Plan & Tracker" />
         </ErrorBoundary>
@@ -120,6 +143,7 @@ export default function App() {
 
         <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
         <Toast ref={toastRef} />
+        <IOSInstallBanner />
       </div>
     </div>
   );
