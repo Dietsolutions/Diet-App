@@ -38,6 +38,9 @@ export default defineConfig(({ mode }) => {
           clientsClaim: true,
           // Remove stale caches from old SW versions on activation.
           cleanupOutdatedCaches: true,
+          // Allow up to 4 MB per file in the precache (default is 2 MB).
+          // After code-splitting, individual chunks are well under 1 MB.
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
           // Serve index.html for all non-API navigate requests (SPA routing).
           navigateFallback: '/index.html',

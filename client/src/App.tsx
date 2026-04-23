@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, lazy, Suspense } from 'react';
 import axios from 'axios';
 import { useAuth } from './hooks/useAuth';
 import { useAppStore } from './store/appStore';
@@ -8,15 +8,23 @@ import { AuthScreen } from './components/AuthScreen';
 import { Onboarding } from './components/Onboarding';
 import { AppBar } from './components/AppBar';
 import { BottomNav } from './components/BottomNav';
-import { MealsTab } from './components/MealsTab';
-import { TrackerTab } from './components/TrackerTab';
-import { ShoppingTab } from './components/ShoppingTab';
-import { TipsTab } from './components/TipsTab';
-import { ProfileTab } from './components/ProfileTab';
 import { IOSInstallBanner } from './components/IOSInstallBanner';
 import { Toast, ToastHandle } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { TabId } from './types';
+
+// Lazy-load each tab so the initial JS bundle is small enough for the SW to
+// precache and for iOS Safari to parse quickly on first visit.
+const MealsTab    = lazy(() => import('./components/MealsTab').then(m => ({ default: m.MealsTab })));
+const TrackerTab  = lazy(() => import('./components/TrackerTab').then(m => ({ default: m.TrackerTab })));
+const ShoppingTab = lazy(() => import('./components/ShoppingTab').then(m => ({ default: m.ShoppingTab })));
+const TipsTab     = lazy(() => import('./components/TipsTab').then(m => ({ default: m.TipsTab })));
+const ProfileTab  = lazy(() => import('./components/ProfileTab').then(m => ({ default: m.ProfileTab })));
+
+/** Tab-level loading fallback — just an empty dark surface so there's no flash */
+function TabFallback() {
+  return <div className="flex-1 bg-dark" />;
+}
 
 /** Detect iOS Safari */
 function isIOS(): boolean {
@@ -147,11 +155,13 @@ export default function App() {
         {/* Main content */}
         <main className="flex-1 overflow-hidden flex flex-col pb-16">
           <ErrorBoundary>
-            {activeTab === 'meals' && <MealsTab />}
-            {activeTab === 'tracker' && <TrackerTab />}
-            {activeTab === 'shopping' && <ShoppingTab />}
-            {activeTab === 'tips' && <TipsTab />}
-            {activeTab === 'profile' && <ProfileTab />}
+            <Suspense fallback={<TabFallback />}>
+              {activeTab === 'meals' && <MealsTab />}
+              {activeTab === 'tracker' && <TrackerTab />}
+              {activeTab === 'shopping' && <ShoppingTab />}
+              {activeTab === 'tips' && <TipsTab />}
+              {activeTab === 'profile' && <ProfileTab />}
+            </Suspense>
           </ErrorBoundary>
         </main>
 
