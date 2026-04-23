@@ -5,16 +5,14 @@ import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { useTracker } from '../hooks/useTracker';
 import { usePlan } from '../hooks/usePlan';
-import { Meal, MealTarget } from '../types';
-import { ReplacedMealCard } from './ReplacedMealCard';
+import { Meal, MealReplacement } from '../types';
 import { MealReplacerSheet } from './MealReplacerSheet';
 import { WaterIntakeCard } from './WaterIntakeCard';
 import { MacroAchievementCard } from './MacroAchievementCard';
-import { AdditionalMealCard } from './AdditionalMealCard';
 import { AddMealButton } from './AddMealButton';
 import { ErrorBoundary } from './ErrorBoundary';
-
-const MEAL_ICONS = ['🌅', '☀️', '🍎', '🌙', '🥗'];
+import { s2 } from '../theme/tokens';
+import { HairLabel, Pill, Card, Check } from './ui';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function todayStr(): string {
@@ -22,7 +20,6 @@ function todayStr(): string {
 }
 
 function getWeekDates(weekOffset: number): string[] {
-  // Get Monday of the current week, then offset by weekOffset weeks
   const today = new Date();
   const monday = startOfWeek(today, { weekStartsOn: 1 });
   const targetMonday = addWeeks(monday, weekOffset);
@@ -31,17 +28,62 @@ function getWeekDates(weekOffset: number): string[] {
   );
 }
 
-// ── component ──────────────────────────────────────────────────────────────
+// ── NavArrow ──────────────────────────────────────────────────────────────
+function NavArrow({
+  dir,
+  disabled,
+  onClick,
+}: {
+  dir: 'left' | 'right';
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: 'transparent',
+        border: `1px solid ${s2.lineStrong}`,
+        width: 28,
+        height: 28,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: disabled ? 'default' : 'pointer',
+        color: disabled ? s2.textDimmer : s2.text,
+        flexShrink: 0,
+      }}
+    >
+      {dir === 'left' ? (
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <path d="M6 1 L2 5 L6 9" stroke="currentColor" strokeWidth="1.2" fill="none" />
+        </svg>
+      ) : (
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <path d="M4 1 L8 5 L4 9" stroke="currentColor" strokeWidth="1.2" fill="none" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+// ── MealsTab ───────────────────────────────────────────────────────────────
 export function MealsTab() {
   const {
-    selectedDate, setSelectedDate,
-    mealsCalendarOffset, setMealsCalendarOffset,
-    planDays, mealsPerDay, planDuration,
-    profile
+    selectedDate,
+    setSelectedDate,
+    mealsCalendarOffset,
+    setMealsCalendarOffset,
+    planDays,
+    mealsPerDay,
+    planDuration,
+    profile,
   } = useAppStore();
   const { weekData, toggleMeal } = useTracker();
   const { planDays: planDaysFromPlan } = usePlan();
-  const { replacements, openReplacer, undoReplacement, fetchReplacementsForWeek } = useMealReplacerStore();
+  const { replacements, openReplacer, undoReplacement, fetchReplacementsForWeek } =
+    useMealReplacerStore();
   const { fetchForDate, getForDate } = useAdditionalMealsStore();
 
   const today = todayStr();
@@ -50,7 +92,6 @@ export function MealsTab() {
     fetchReplacementsForWeek();
   }, [fetchReplacementsForWeek]);
 
-  // Fetch additional meals whenever the selected date changes
   useEffect(() => {
     if (selectedDate && selectedDate <= today) {
       fetchForDate(selectedDate);
@@ -59,23 +100,22 @@ export function MealsTab() {
 
   const additionalMeals = getForDate(selectedDate);
 
-  // Show current week by default (offset 0)
   const calendarDates = getWeekDates(mealsCalendarOffset);
-  const canGoForward = mealsCalendarOffset < 0; // can only go forward if we went back
-  const canGoBack = mealsCalendarOffset > -8;   // max 8 weeks back
+  const canGoForward  = mealsCalendarOffset < 0;
+  const canGoBack     = mealsCalendarOffset > -8;
 
-  // Map weekData by date for quick lookup
   const weekDataByDate: Record<string, typeof weekData[0]> = {};
-  weekData.forEach(d => { weekDataByDate[d.date] = d; });
+  weekData.forEach((d) => { weekDataByDate[d.date] = d; });
 
-  // Find the plan day for the selected date
-  const planDayIdx = weekData.findIndex(d => d.date === selectedDate);
-  const isPlanDate = planDayIdx !== -1;
-  const planDay = isPlanDate ? planDaysFromPlan[planDayIdx] || planDays[planDayIdx] : null;
+  const planDayIdx    = weekData.findIndex((d) => d.date === selectedDate);
+  const isPlanDate    = planDayIdx !== -1;
+  const planDay       = isPlanDate ? planDaysFromPlan[planDayIdx] || planDays[planDayIdx] : null;
   const meals: Meal[] = planDay?.meals || [];
   const dayTrackerData = weekData[planDayIdx];
 
-  const getMealEaten = (mealIndex: number) => dayTrackerData?.meals[mealIndex]?.eaten ?? false;
+  const getMealEaten = (mealIndex: number) =>
+    dayTrackerData?.meals[mealIndex]?.eaten ?? false;
+
   const handleToggle = (mealIndex: number) => {
     if (!dayTrackerData) return;
     toggleMeal(dayTrackerData.date, mealIndex, getMealEaten(mealIndex));
@@ -84,142 +124,224 @@ export function MealsTab() {
   const handleOpenReplacer = (mealIdx: number) => {
     const meal = meals[mealIdx];
     if (!meal || !selectedDate) return;
-    const mealType = meal.type || ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Snack 2'][mealIdx] || 'Meal';
-    const target: MealTarget = {
+    const mealType =
+      meal.type ||
+      ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Snack 2'][mealIdx] ||
+      'Meal';
+    openReplacer({
       date: selectedDate,
       dayIndex: planDayIdx,
       mealIndex: mealIdx,
       mealName: `${mealType} · ${planDay?.label || 'Day ' + (planDayIdx + 1)}`,
-    };
-    openReplacer(target);
+    });
   };
 
   const selectedIsFuture = selectedDate > today;
-  const eatenCount = dayTrackerData?.meals.filter(m => m.eaten).length ?? 0;
+  const eatenCount = dayTrackerData?.meals.filter((m) => m.eaten).length ?? 0;
+
+  // Month label — use middle day to avoid week-boundary wraps
+  const monthLabel = format(parseISO(calendarDates[3]), 'MMM yyyy').toUpperCase();
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ── Week Calendar Strip ──────────────────────────────────────────── */}
-      <div className="bg-surface border-b border-border px-4 py-3 flex-shrink-0">
-        {/* Month header + navigation */}
-        <div className="flex items-center justify-between mb-2">
-          <button
-            onClick={() => canGoBack && setMealsCalendarOffset(mealsCalendarOffset - 1)}
+    <div style={{
+      background: s2.bg,
+      minHeight: '100%',
+      color: s2.text,
+      paddingBottom: 90,
+    }}>
+
+      {/* ── Section header ────────────────────────────────────────────────── */}
+      <div style={{
+        padding: '14px 20px 0',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-end',
+      }}>
+        <div>
+          <HairLabel>{monthLabel}</HairLabel>
+          <div style={{
+            fontFamily: s2.sans,
+            fontSize: 30,
+            fontWeight: 400,
+            letterSpacing: '-0.025em',
+            marginTop: 4,
+            lineHeight: 1,
+          }}>
+            Meals
+          </div>
+        </div>
+        {isPlanDate && (
+          <Pill color={s2.accent}>{eatenCount}/{mealsPerDay} EATEN</Pill>
+        )}
+      </div>
+
+      {/* ── Week strip ────────────────────────────────────────────────────── */}
+      <div style={{ padding: '18px 20px 0' }}>
+        {/* Navigation row */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 10,
+        }}>
+          <NavArrow
+            dir="left"
             disabled={!canGoBack}
-            className={`p-1.5 rounded-lg transition-colors ${canGoBack ? 'text-primary hover:bg-elevated' : 'text-dimmed/40 cursor-not-allowed'}`}
-          >
-            ←
-          </button>
-          <span className="text-sm font-semibold font-sans text-primary">
-            {format(parseISO(calendarDates[0]), 'MMMM yyyy')}
-          </span>
-          <button
-            onClick={() => canGoForward && setMealsCalendarOffset(mealsCalendarOffset + 1)}
+            onClick={() => setMealsCalendarOffset(mealsCalendarOffset - 1)}
+          />
+          <HairLabel>
+            WEEK OF {format(parseISO(calendarDates[0]), 'dd MMM').toUpperCase()}
+          </HairLabel>
+          <NavArrow
+            dir="right"
             disabled={!canGoForward}
-            className={`p-1.5 rounded-lg transition-colors ${canGoForward ? 'text-primary hover:bg-elevated' : 'text-dimmed/40 cursor-not-allowed'}`}
-          >
-            →
-          </button>
+            onClick={() => setMealsCalendarOffset(mealsCalendarOffset + 1)}
+          />
         </div>
 
-        {/* Day cells */}
-        <div className="grid grid-cols-7 gap-1">
+        {/* 7-day grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
           {calendarDates.map((date) => {
-            const isFuture = date > today;
-            const isToday = date === today;
+            const isFuture   = date > today;
             const isSelected = date === selectedDate;
-            const dayData = weekDataByDate[date];
-            const isPlan = !!dayData;
-            const eaten = dayData?.meals.filter(m => m.eaten).length ?? 0;
+            const dayData    = weekDataByDate[date];
+            const eaten      = dayData?.meals.filter((m) => m.eaten).length ?? 0;
+            // EEEEE = single-char (M T W T F S S) in date-fns
+            const dayLetter  = format(parseISO(date), 'EEEEE');
+            const dayNum     = format(parseISO(date), 'd');
 
             return (
               <button
                 key={date}
-                onClick={() => {
-                  if (!isFuture) setSelectedDate(date);
-                }}
                 disabled={isFuture}
-                className={`flex flex-col items-center py-1.5 rounded-xl transition-all ${
-                  isFuture
-                    ? 'opacity-35 cursor-not-allowed'
-                    : isSelected
-                      ? 'bg-elevated ring-1 ring-accent/60'
-                      : isToday
-                        ? 'bg-accent/20'
-                        : 'hover:bg-elevated/70'
-                }`}
+                onClick={() => { if (!isFuture) setSelectedDate(date); }}
+                style={{
+                  cursor: isFuture ? 'default' : 'pointer',
+                  background: isSelected ? s2.accentFill : 'transparent',
+                  border: `1px solid ${isSelected ? s2.accent : s2.line}`,
+                  padding: '8px 4px',
+                  opacity: isFuture ? 0.35 : 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
               >
-                <span className="text-[9px] font-sans text-secondary font-medium">
-                  {format(parseISO(date), 'EEE').slice(0, 2)}
-                </span>
-                <span className={`text-sm font-bold font-mono leading-none mt-0.5 ${
-                  isToday ? 'text-accent' : isSelected ? 'text-primary' : 'text-primary'
-                }`}>
-                  {format(parseISO(date), 'd')}
-                </span>
-                {/* Meal dots */}
-                {isPlan && (
-                  <div className="flex gap-[2px] mt-1">
-                    {Array.from({ length: Math.min(mealsPerDay, 5) }, (_, i) => (
-                      <div
-                        key={i}
-                        className={`w-1 h-1 rounded-full ${
-                          i < eaten ? 'bg-success' : 'bg-border'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                )}
-                {!isPlan && <div className="h-3 mt-1" />}
+                <div style={{
+                  fontFamily: s2.mono,
+                  fontSize: 9,
+                  color: s2.textDim,
+                  letterSpacing: '0.1em',
+                }}>
+                  {dayLetter}
+                </div>
+                <div style={{
+                  fontFamily: s2.sans,
+                  fontSize: 18,
+                  fontWeight: 400,
+                  color: isSelected ? s2.accent : s2.text,
+                  letterSpacing: '-0.02em',
+                  lineHeight: 1,
+                }}>
+                  {dayNum}
+                </div>
+                {/* 3 px square meal-progress dots (max 4) */}
+                <div style={{ display: 'flex', gap: 2 }}>
+                  {Array.from({ length: Math.min(mealsPerDay, 4) }, (_, k) => (
+                    <div
+                      key={k}
+                      style={{
+                        width: 3,
+                        height: 3,
+                        background: k < eaten ? s2.accent : s2.line,
+                      }}
+                    />
+                  ))}
+                </div>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* ── Selected Date Header ─────────────────────────────────────────── */}
-      <div className="px-5 pt-3 pb-1 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-display text-lg font-bold text-primary">
-              {format(parseISO(selectedDate), 'EEEE, d MMMM')}
-            </h2>
-            {isPlanDate ? (
-              <p className="text-xs text-secondary font-sans">
-                Day {planDayIdx + 1} of {planDuration} · {eatenCount}/{mealsPerDay} eaten
-              </p>
-            ) : (
-              <p className="text-xs text-dimmed font-sans">Not a plan day</p>
-            )}
-          </div>
-          {isPlanDate && (
-            <span className="text-xs font-sans font-semibold bg-elevated px-2.5 py-1 rounded-full border border-border text-secondary">
-              {eatenCount}/{mealsPerDay} eaten
-            </span>
+      {/* ── Date header ───────────────────────────────────────────────────── */}
+      <div style={{
+        padding: '22px 20px 0',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-end',
+      }}>
+        <div>
+          {isPlanDate ? (
+            <HairLabel>
+              DAY {planDayIdx + 1} OF {planDuration} ·{' '}
+              {format(parseISO(selectedDate), 'EEEE').toUpperCase()}
+            </HairLabel>
+          ) : (
+            <HairLabel>{selectedIsFuture ? 'FUTURE DATE' : 'NOT A PLAN DAY'}</HairLabel>
           )}
+          <div style={{
+            fontFamily: s2.sans,
+            fontSize: 22,
+            fontWeight: 400,
+            marginTop: 4,
+            letterSpacing: '-0.02em',
+          }}>
+            {format(parseISO(selectedDate), 'd MMMM')}
+          </div>
         </div>
-      </div>
-
-      {/* ── Scrollable Content ───────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
-        {/* No plan for this date */}
-        {!isPlanDate && !selectedIsFuture && (
-          <div className="bg-surface rounded-2xl p-6 text-center border border-border card-glow">
-            <p className="text-4xl mb-2">📅</p>
-            <p className="text-secondary font-sans text-sm">No meal plan for this date.</p>
-            <p className="text-dimmed font-sans text-xs mt-1">
-              Your active plan covers {weekData.length > 0 ? `${weekData[0]?.date} – ${weekData[weekData.length - 1]?.date}` : 'this week'}.
-            </p>
+        {isPlanDate && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{
+              fontFamily: s2.sans,
+              fontSize: 28,
+              fontWeight: 300,
+              color: s2.accent,
+              letterSpacing: '-0.03em',
+              lineHeight: 1,
+            }}>
+              {eatenCount}
+              <span style={{ color: s2.textDim, fontSize: 16 }}>/{mealsPerDay}</span>
+            </div>
+            <HairLabel style={{ marginTop: 2 }}>EATEN</HairLabel>
           </div>
         )}
+      </div>
 
-        {isPlanDate && (
-          <>
-            {/* Water intake */}
+      {/* ── No-plan empty state ───────────────────────────────────────────── */}
+      {!isPlanDate && !selectedIsFuture && (
+        <div style={{ padding: '22px 20px 0' }}>
+          <Card padding={18}>
+            <HairLabel>NO PLAN</HairLabel>
+            <div style={{
+              fontFamily: s2.sans,
+              fontSize: 14,
+              color: s2.textDim,
+              marginTop: 8,
+              lineHeight: 1.5,
+            }}>
+              No meal plan for this date.
+              {weekData.length > 0 && (
+                <> Your active plan covers{' '}
+                  {weekData[0]?.date} – {weekData[weekData.length - 1]?.date}.
+                </>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Plan content (only when this date has a plan) ─────────────────── */}
+      {isPlanDate && (
+        <>
+          {/* Water */}
+          <div style={{ padding: '18px 20px 0' }}>
             <WaterIntakeCard date={selectedDate} />
+          </div>
 
-            {/* Macro achievement */}
-            {profile && (
+          {/* Macro band */}
+          {profile && (
+            <div style={{ padding: '12px 20px 0' }}>
               <ErrorBoundary>
                 <MacroAchievementCard
                   meals={meals}
@@ -232,144 +354,219 @@ export function MealsTab() {
                   additionalMeals={additionalMeals}
                 />
               </ErrorBoundary>
-            )}
+            </div>
+          )}
 
-            {/* Meal cards */}
+          {/* ── Meal list ─────────────────────────────────────────────────── */}
+          <div style={{ padding: '18px 20px 0' }}>
+            <HairLabel style={{ marginBottom: 10 }}>TODAY'S PLAN</HairLabel>
+
             {meals.map((meal, mealIdx) => {
-              const repKey = `${selectedDate}-${mealIdx}`;
-              const replacement = replacements[repKey];
-              const isReplaced = !!replacement;
-              const eaten = getMealEaten(mealIdx);
-              const icon = MEAL_ICONS[mealIdx] || '🍽️';
-              const mealType = meal.type || ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Snack 2'][mealIdx] || 'Meal';
+              const repKey      = `${selectedDate}-${mealIdx}`;
+              const replacement = replacements[repKey] as MealReplacement | undefined;
+              const isReplaced  = !!replacement;
+              const eaten       = getMealEaten(mealIdx);
+              const mealType    =
+                meal.type ||
+                ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Snack 2'][mealIdx] ||
+                'Meal';
+              const indexLabel  = String(mealIdx + 1).padStart(2, '0');
+
+              // Resolved nutritional data (replacement overrides plan meal)
+              const kcal = isReplaced ? replacement!.calories : meal.calories ?? 0;
+              const prot = isReplaced ? replacement!.proteinG : meal.protein  ?? 0;
+              const carb = isReplaced ? replacement!.carbsG   : meal.carbs    ?? 0;
+              const fat_ = isReplaced ? replacement!.fatG     : meal.fat      ?? 0;
+              const fibr = isReplaced ? replacement!.fibreG   : meal.fibre    ?? 0;
+              const name = isReplaced ? replacement!.foodName  : meal.name;
 
               return (
-                <div
-                  key={mealIdx}
-                  className={`rounded-2xl border transition-all card-glow ${
-                    isReplaced
-                      ? 'bg-amber-500/5 border-amber-500/20'
-                      : eaten
-                        ? 'bg-success-fill border-success/30'
-                        : 'bg-surface border-border'
-                  }`}
-                >
-                  {isReplaced && replacement ? (
-                    <ReplacedMealCard
-                      replacement={replacement}
-                      originalMeal={meal}
-                      mealIcon={icon}
-                      mealType={mealType}
-                      onUndo={() => undoReplacement(selectedDate, mealIdx)}
-                    />
-                  ) : (
-                    <MealCard
-                      meal={meal}
-                      mealIdx={mealIdx}
-                      eaten={eaten}
-                      onToggle={() => handleToggle(mealIdx)}
-                      onReplace={() => handleOpenReplacer(mealIdx)}
-                    />
-                  )}
+                <div key={mealIdx} style={{ marginBottom: 10 }}>
+                  <Card
+                    padding={14}
+                    style={
+                      isReplaced
+                        ? { borderColor: s2.accentSoft, background: 'rgba(255,176,102,0.04)' }
+                        : eaten
+                          ? { background: s2.accentFill }
+                          : {}
+                    }
+                  >
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      {/* ── Index number ────────────────────────────────── */}
+                      <div style={{
+                        fontFamily: s2.mono,
+                        fontSize: 11,
+                        color: eaten ? s2.accent : s2.textDim,
+                        width: 24,
+                        paddingTop: 2,
+                        flexShrink: 0,
+                      }}>
+                        {indexLabel}
+                      </div>
+
+                      {/* ── Body ────────────────────────────────────────── */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {/* Type + time header */}
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'baseline',
+                          marginBottom: 4,
+                        }}>
+                          <HairLabel color={eaten ? s2.accent : s2.textDim}>
+                            {mealType.toUpperCase()} · {meal.time}
+                          </HairLabel>
+                          {isReplaced && (
+                            <HairLabel color={s2.accentSoft}>↻ SWAPPED</HairLabel>
+                          )}
+                        </div>
+
+                        {/* Meal name */}
+                        <div style={{
+                          fontFamily: s2.sans,
+                          fontSize: 14,
+                          fontWeight: 500,
+                          lineHeight: 1.3,
+                          color: eaten ? s2.textDim : s2.text,
+                          textDecoration: eaten ? 'line-through' : 'none',
+                        }}>
+                          {name}
+                        </div>
+
+                        {/* Macro row */}
+                        <div style={{
+                          marginTop: 8,
+                          display: 'flex',
+                          gap: 12,
+                          fontFamily: s2.mono,
+                          fontSize: 10,
+                        }}>
+                          <span style={{ color: s2.textDim }}>
+                            {kcal}
+                            <span style={{ color: s2.textDimmer }}> kcal</span>
+                          </span>
+                          <span style={{ color: s2.protein }}>P{prot}</span>
+                          <span style={{ color: s2.carbs   }}>C{carb}</span>
+                          <span style={{ color: s2.fat     }}>F{fat_}</span>
+                          <span style={{ color: s2.fibre   }}>Fi{fibr}</span>
+                        </div>
+
+                        {/* Swap / undo link */}
+                        <div style={{ marginTop: 8 }}>
+                          {isReplaced ? (
+                            <button
+                              onClick={() => undoReplacement(selectedDate, mealIdx)}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                padding: 0,
+                                fontFamily: s2.mono,
+                                fontSize: 9,
+                                letterSpacing: '0.15em',
+                                color: s2.textDimmer,
+                                cursor: 'pointer',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              UNDO SWAP
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleOpenReplacer(mealIdx)}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                padding: 0,
+                                fontFamily: s2.mono,
+                                fontSize: 9,
+                                letterSpacing: '0.15em',
+                                color: s2.textDimmer,
+                                cursor: 'pointer',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              ↻ SWAP MEAL
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ── Check square ────────────────────────────────── */}
+                      <div style={{ paddingTop: 4, flexShrink: 0 }}>
+                        <button
+                          onClick={() => handleToggle(mealIdx)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Check on={eaten} size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  </Card>
                 </div>
               );
             })}
 
-            {/* Additional meals logged for this day */}
+            {/* ── Off-plan extra meals ───────────────────────────────────── */}
             {additionalMeals.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-dimmed font-sans uppercase tracking-wide px-0.5">
-                  Extra meals logged
-                </p>
+              <div style={{ marginTop: 18 }}>
+                <HairLabel style={{ marginBottom: 10 }}>EXTRA MEALS LOGGED</HairLabel>
                 {additionalMeals.map((extra) => (
-                  <AdditionalMealCard key={extra.id} meal={extra} />
+                  <div key={extra.id} style={{ marginBottom: 8 }}>
+                    <Card padding={12} style={{ borderColor: s2.lineStrong }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontFamily: s2.sans,
+                            fontSize: 13,
+                            fontWeight: 500,
+                            color: s2.text,
+                            lineHeight: 1.3,
+                          }}>
+                            {extra.foodName || 'Extra meal'}
+                          </div>
+                          <div style={{
+                            marginTop: 6,
+                            display: 'flex',
+                            gap: 10,
+                            fontFamily: s2.mono,
+                            fontSize: 10,
+                          }}>
+                            <span style={{ color: s2.textDim }}>
+                              {extra.calories}
+                              <span style={{ color: s2.textDimmer }}> kcal</span>
+                            </span>
+                            <span style={{ color: s2.protein }}>P{extra.proteinG}</span>
+                            <span style={{ color: s2.carbs   }}>C{extra.carbsG}</span>
+                            <span style={{ color: s2.fat     }}>F{extra.fatG}</span>
+                            <span style={{ color: s2.fibre   }}>Fi{extra.fibreG}</span>
+                          </div>
+                        </div>
+                        <HairLabel style={{ marginLeft: 8, flexShrink: 0 }}>OFF-PLAN</HairLabel>
+                      </div>
+                    </Card>
+                  </div>
                 ))}
               </div>
             )}
 
-            {/* Add meal button */}
-            <AddMealButton date={selectedDate} />
-          </>
-        )}
-
-        <div className="h-4" />
-      </div>
-
-      <MealReplacerSheet />
-    </div>
-  );
-}
-
-// ── MealCard ───────────────────────────────────────────────────────────────
-interface MealCardProps {
-  meal: Meal;
-  mealIdx: number;
-  eaten: boolean;
-  onToggle: () => void;
-  onReplace: () => void;
-}
-
-function MealCard({ meal, mealIdx, eaten, onToggle, onReplace }: MealCardProps) {
-  const icon = MEAL_ICONS[mealIdx] || '🍽️';
-  const mealType = meal.type || ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Snack 2'][mealIdx] || 'Meal';
-
-  return (
-    <div className="p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-base">{icon}</span>
-            <span className="text-xs font-semibold font-sans text-secondary uppercase tracking-wide">
-              {mealType} · {meal.time}
-            </span>
+            {/* ── + LOG EXTRA MEAL dashed button ────────────────────────── */}
+            <div style={{ marginTop: 10 }}>
+              <AddMealButton date={selectedDate} />
+            </div>
           </div>
-          <h3 className={`font-sans font-semibold text-sm leading-snug ${eaten ? 'line-through text-dimmed' : 'text-primary'}`}>
-            {meal.name}
-          </h3>
-        </div>
-        {/* Eaten toggle */}
-        <button
-          onClick={onToggle}
-          className={`w-6 h-6 rounded-full border-2 flex-shrink-0 flex items-center justify-center mt-0.5 transition-all ${
-            eaten ? 'bg-success border-success' : 'border-border bg-surface hover:border-success/50'
-          }`}
-        >
-          {eaten && <span className="text-white text-xs">✓</span>}
-        </button>
-      </div>
-
-      {meal.description && (
-        <p className="text-xs text-secondary font-sans leading-relaxed mt-1.5 pl-6">{meal.description}</p>
+        </>
       )}
 
-      {/* Macros */}
-      <div className="flex gap-2 mt-3 pt-3 border-t border-border/60">
-        <MacroPill label="Protein" value={`${meal.protein}g`} bgColor="bg-success-fill" textColor="text-success" />
-        <MacroPill label="Carbs" value={`${meal.carbs}g`} bgColor="bg-accent-fill" textColor="text-accent" />
-        <MacroPill label="Fat" value={`${meal.fat}g`} bgColor="bg-violet-fill" textColor="text-violet" />
-        <MacroPill label="Fibre" value={`${meal.fibre ?? 0}g`} bgColor="bg-fibre-fill" textColor="text-fibre" />
-        <MacroPill label="kcal" value={`${meal.calories}`} bgColor="bg-primary/[0.08]" textColor="text-primary" bold />
-      </div>
+      <div style={{ height: 16 }} />
 
-      {/* Replace button */}
-      <button
-        onClick={onReplace}
-        className="mt-2.5 flex items-center gap-1.5 text-xs font-sans text-accent/70 hover:text-accent transition-colors"
-      >
-        <span>✏️</span>
-        <span>Replace this meal</span>
-      </button>
-    </div>
-  );
-}
-
-function MacroPill({ label, value, bgColor, textColor, bold }: {
-  label: string; value: string; bgColor: string; textColor: string; bold?: boolean
-}) {
-  return (
-    <div className={`flex-1 text-center rounded-3xl py-1 ${bgColor}`}>
-      <p className={`text-[11px] font-semibold font-mono ${textColor} ${bold ? 'font-bold' : ''}`}>{value}</p>
-      <p className="text-[9px] text-secondary font-sans">{label}</p>
+      {/* Meal replacer sheet (modal) — logic unchanged */}
+      <MealReplacerSheet />
     </div>
   );
 }

@@ -16,7 +16,7 @@
   }
 
   html {
-    font-family: 'Inter', 'DM Sans', sans-serif;
+    font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
     -webkit-tap-highlight-color: transparent;
     -webkit-text-size-adjust: 100%;
     /* Prevent rubber-band bounce on iOS at the document level */
@@ -24,8 +24,8 @@
   }
 
   body {
-    background-color: #0F1117;
-    color: #F0EDE8;
+    background-color: #0C0907;  /* Strain v2 bg — was #0F1117 */
+    color: #F5EFE8;
     overscroll-behavior: none;
     /* Prevent text selection flicker on long-press (iOS) */
     -webkit-user-select: none;

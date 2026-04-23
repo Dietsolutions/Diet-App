@@ -1,17 +1,12 @@
+import { s2 } from '../theme/tokens';
 import { TabId } from '../types';
 
-interface Tab {
-  id: TabId;
-  label: string;
-  icon: string;
-}
-
-const TABS: Tab[] = [
-  { id: 'meals', label: 'Meals', icon: '🍽️' },
-  { id: 'tracker', label: 'Tracker', icon: '📅' },
-  { id: 'shopping', label: 'Shopping', icon: '🛒' },
-  { id: 'tips', label: 'Tips', icon: '💡' },
-  { id: 'profile', label: 'Profile', icon: '👤' }
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'meals',    label: 'MEALS'  },
+  { id: 'tracker',  label: 'TRACK'  },
+  { id: 'shopping', label: 'SHOP'   },
+  { id: 'tips',     label: 'LEARN'  },
+  { id: 'profile',  label: 'BODY'   },
 ];
 
 interface BottomNavProps {
@@ -21,27 +16,59 @@ interface BottomNavProps {
 
 export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-30 pb-safe-bottom" style={{ background: 'rgba(15,17,23,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
-      <div className="max-w-app mx-auto flex border-t border-border">
-        {TABS.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => onTabChange(tab.id)}
-              className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-all tab-transition ${
-                isActive ? 'text-accent' : 'text-dimmed'
-              }`}
-            >
-              <span className={`text-lg leading-none transition-transform ${isActive ? 'scale-110' : ''}`}>{tab.icon}</span>
-              <span className={`text-[10px] font-sans font-medium ${isActive ? 'text-accent' : 'text-dimmed'}`}>
-                {tab.label}
-              </span>
-              {isActive && <div className="w-4 h-0.5 bg-accent rounded-full mt-0.5" />}
-            </button>
-          );
-        })}
-      </div>
+    <nav
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        // 28 px base + safe-area on iPhone X+ (home indicator ~34 px)
+        paddingBottom: 'max(28px, env(safe-area-inset-bottom, 0px))',
+        paddingTop: 10,
+        background: 'rgba(12,9,7,0.94)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        borderTop: `1px solid ${s2.line}`,
+        display: 'flex',
+        justifyContent: 'space-around',
+        zIndex: 30,
+      }}
+    >
+      {TABS.map((tab) => {
+        const isActive = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id}
+            onClick={() => onTabChange(tab.id)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              padding: '6px 8px',
+              fontFamily: s2.mono,
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: '0.2em',
+              color: isActive ? s2.accent : s2.textDimmer,
+              cursor: 'pointer',
+              position: 'relative',
+            }}
+          >
+            {tab.label}
+            {/* Active indicator — 16 px wide 2 px accent line at the very top */}
+            {isActive && (
+              <div style={{
+                position: 'absolute',
+                top: -10,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: 16,
+                height: 2,
+                background: s2.accent,
+              }} />
+            )}
+          </button>
+        );
+      })}
     </nav>
   );
 }

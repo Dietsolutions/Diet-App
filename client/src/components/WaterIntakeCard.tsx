@@ -1,16 +1,21 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
+import { s2 } from '../theme/tokens';
+import { HairLabel } from './ui/HairLabel';
+import { Card } from './ui/Card';
+import { Bar } from './ui/Bar';
 
 interface Props {
   date: string;
+  /** Called when the user taps the card body (navigate to water detail). Optional. */
+  onExpand?: () => void;
 }
 
-export function WaterIntakeCard({ date }: Props) {
+export function WaterIntakeCard({ date, onExpand }: Props) {
   const { waterByDate, setWater, profile } = useAppStore();
-  const goal = profile?.waterIntakeGoal || 8;
+  const goal = profile?.waterIntakeGoal ?? 8;
   const glasses = waterByDate[date] ?? -1; // -1 = not yet loaded
-  const [showTooltip, setShowTooltip] = useState(false);
 
   const fetchWater = useCallback(async () => {
     try {
@@ -19,13 +24,14 @@ export function WaterIntakeCard({ date }: Props) {
     } catch {
       setWater(date, 0);
     }
-  }, [date]);
+  }, [date, setWater]);
 
   useEffect(() => {
     if (glasses === -1) fetchWater();
   }, [date, glasses, fetchWater]);
 
   const handleTap = async (n: number) => {
+    // Toggle: tapping the filled dot toggles it off; tapping an empty one fills up to it
     const newVal = glasses === n ? n - 1 : n;
     const clamped = Math.max(0, newVal);
     setWater(date, clamped);
@@ -37,63 +43,61 @@ export function WaterIntakeCard({ date }: Props) {
   };
 
   const displayGlasses = glasses === -1 ? 0 : glasses;
-  const litres = (displayGlasses * 0.25).toFixed(1).replace(/\.0$/, '');
+  const litres = (displayGlasses * 0.25).toFixed(1);
+  const goalLitres = (goal * 0.25).toFixed(1);
+  const pct = goal > 0 ? displayGlasses / goal : 0;
+  const pctDisplay = Math.round(pct * 100);
 
   return (
-    <div
-      className="bg-surface rounded-2xl border border-border card-glow"
-      style={{ padding: '10px 14px' }}
-    >
-      <div className="flex items-center gap-3">
-        {/* Label */}
-        <span className="text-xs font-bold font-sans text-primary flex-shrink-0">💧 Water</span>
+    <Card padding={14} onClick={onExpand}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* Left: label + percentage */}
+        <div>
+          <HairLabel>
+            HYDRATION · {litres} / {goalLitres} L
+          </HairLabel>
+          <div style={{
+            fontFamily: s2.sans,
+            fontSize: 20,
+            fontWeight: 400,
+            marginTop: 4,
+            letterSpacing: '-0.01em',
+            color: s2.text,
+          }}>
+            {pctDisplay}%
+          </div>
+        </div>
 
-        {/* Dot grid */}
-        <div className="flex items-center gap-[5px] flex-1">
+        {/* Right: mini rectangle grid */}
+        <div style={{ display: 'flex', gap: 3 }}>
           {Array.from({ length: goal }, (_, i) => {
-            const dotNum = i + 1;
-            const filled = dotNum <= displayGlasses;
+            const filled = i < displayGlasses;
             return (
               <button
-                key={dotNum}
-                onClick={() => handleTap(dotNum)}
+                key={i}
+                onClick={(e) => {
+                  e.stopPropagation(); // don't fire onExpand
+                  handleTap(i + 1);
+                }}
                 style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: '50%',
-                  backgroundColor: filled ? '#4CAF82' : '#2A2D3E',
-                  border: 'none',
+                  width: 12,
+                  height: 26,
+                  background: filled ? s2.accent : 'transparent',
+                  border: `1px solid ${filled ? s2.accent : s2.lineStrong}`,
                   padding: 0,
                   cursor: 'pointer',
                   flexShrink: 0,
-                  transition: 'background-color 150ms',
+                  transition: 'background 150ms, border-color 150ms',
                 }}
               />
             );
           })}
         </div>
-
-        {/* Count + info icon */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <span className="text-xs font-sans text-secondary font-mono whitespace-nowrap">
-            {displayGlasses}/{goal} · ~{litres}L
-          </span>
-          <button
-            onClick={() => setShowTooltip(v => !v)}
-            className="text-dimmed text-[10px] leading-none hover:text-secondary transition-colors"
-            style={{ lineHeight: 1 }}
-          >
-            ℹ
-          </button>
-        </div>
       </div>
 
-      {/* Tooltip */}
-      {showTooltip && (
-        <p className="text-[10px] text-dimmed font-sans mt-1.5 pl-1">
-          1 standard glass ≈ 250 ml — adjust based on your glass size
-        </p>
-      )}
-    </div>
+      {/* 2 px progress bar */}
+      <div style={{ height: 10 }} />
+      <Bar pct={pct} color={s2.accent} h={2} />
+    </Card>
   );
 }

@@ -4,36 +4,58 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        dark: '#0F1117',
-        surface: '#1A1D27',
-        elevated: '#22263A',
-        accent: '#E8845A',
-        success: '#4CAF82',
-        violet: '#7B6CF6',
-        primary: '#F0EDE8',
-        secondary: '#9A95A0',
-        dimmed: '#5C5869',
-        border: '#2A2D3E',
-        fibre: '#B48C64',
-        // Fill colors
-        'success-fill': 'rgba(76, 175, 130, 0.15)',
-        'accent-fill': 'rgba(232, 132, 90, 0.12)',
-        'violet-fill': 'rgba(123, 108, 246, 0.12)',
-        'fibre-fill': 'rgba(180, 140, 100, 0.15)',
+        // ── Strain v2 base palette ──────────────────────────────────────────
+        dark:        '#0C0907',
+        bg2:         '#120D0A',
+        surface:     '#17110C',
+        elevated:    '#1F1812',
+        // Warm hairline borders
+        border:      'rgba(255,182,128,0.08)',
+        'border-strong': 'rgba(255,182,128,0.18)',
+        // Text scale
+        primary:     '#F5EFE8',
+        secondary:   'rgba(245,239,232,0.55)',
+        dimmed:      'rgba(245,239,232,0.32)',
+        // Accent
+        accent:      '#FF6A2A',
+        'accent-soft': '#FFB066',
+        'accent-fill': 'rgba(255,106,42,0.14)',
+        warn:        '#FF3E3E',
+        // Macro hues
+        protein:     '#FF6A2A',
+        carbs:       '#C9A3FF',
+        fat:         '#FFD166',
+        fibre:       '#7CE0C4',
+        // Kept for backward-compat with components not yet redesigned
+        success:     '#4CAF82',
+        violet:      '#7B6CF6',
+        // Fill variants (for className usage)
+        'success-fill': 'rgba(76,175,130,0.15)',
+        'violet-fill':  'rgba(123,108,246,0.12)',
+        'fibre-fill':   'rgba(124,224,196,0.15)',
       },
       fontFamily: {
+        // Strain v2 primaries
+        sans:    ["'Space Grotesk'", 'system-ui', 'sans-serif'],
+        mono:    ["'IBM Plex Mono'", 'ui-monospace', 'monospace'],
+        // Legacy display font (still used by auth / onboarding)
         display: ['"Fraunces"', '"Playfair Display"', 'serif'],
-        sans: ['"Inter"', '"DM Sans"', 'sans-serif'],
-        mono: ['"DM Mono"', '"JetBrains Mono"', 'monospace'],
       },
       maxWidth: {
-        app: '480px'
+        app: '480px',
       },
+      // Zero border-radius design system — explicit overrides only
       borderRadius: {
-        '2xl': '16px',
-        '3xl': '20px',
+        DEFAULT: '0px',
+        sm: '0px',
+        md: '0px',
+        lg: '0px',
+        xl: '0px',
+        '2xl': '0px',
+        '3xl': '0px',
+        full: '9999px',
       },
-    }
+    },
   },
-  plugins: []
+  plugins: [],
 };
