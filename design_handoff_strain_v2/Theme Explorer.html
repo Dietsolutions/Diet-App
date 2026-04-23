@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Theme Explorer — AI Diet Plan Track</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --sans: 'Space Grotesk', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+  body {
+    background: #1a1a1a;
+    color: #e8e4dd;
+    font-family: var(--sans);
+    padding: 48px 32px 80px;
+    min-height: 100vh;
+  }
+  .page-hdr {
+    max-width: 1440px; margin: 0 auto 48px;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding-bottom: 24px;
+  }
+  .kicker {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.25em;
+    color: rgba(255,255,255,0.4); text-transform: uppercase; margin-bottom: 10px;
+  }
+  h1 { font-size: 34px; font-weight: 300; letter-spacing: -0.02em; }
+  .sub { color: rgba(255,255,255,0.5); font-size: 14px; max-width: 380px; line-height: 1.5; }
+
+  .grid {
+    max-width: 1440px; margin: 0 auto;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
+  }
+  @media (max-width: 1200px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+  /* Theme card frame */
+  .theme-card { display: flex; flex-direction: column; gap: 10px; }
+  .theme-meta {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 0 2px;
+  }
+  .theme-name {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
+    color: rgba(255,255,255,0.75); font-weight: 600; text-transform: uppercase;
+  }
+  .theme-idx {
+    font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,0.3);
+  }
+  .theme-mood {
+    font-family: var(--sans); font-size: 12px; color: rgba(255,255,255,0.45);
+    padding: 0 2px; line-height: 1.45; min-height: 34px;
+  }
+
+  /* Swatch strip */
+  .swatches { display: flex; gap: 0; height: 22px; }
+  .sw { flex: 1; position: relative; }
+  .sw .hex {
+    position: absolute; bottom: -18px; left: 0; font-family: var(--mono);
+    font-size: 8px; color: rgba(255,255,255,0.4); letter-spacing: 0.05em;
+  }
+
+  /* Device-like mock */
+  .mock {
+    aspect-ratio: 9 / 14;
+    padding: 18px 16px 16px;
+    display: flex; flex-direction: column; gap: 12px;
+    position: relative; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .mock-topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em;
+  }
+  .mock-hero {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .mock-kicker { font-family: var(--mono); font-size: 9px; letter-spacing: 0.22em; }
+  .mock-num { font-family: var(--sans); font-size: 42px; font-weight: 300; letter-spacing: -0.03em; line-height: 1; }
+  .mock-num small { font-size: 13px; margin-left: 4px; }
+  .mock-sub { font-family: var(--sans); font-size: 11px; }
+
+  .mock-bar { height: 3px; position: relative; }
+  .mock-bar-fill { height: 100%; }
+
+  .mock-card {
+    padding: 11px 12px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .mock-card-row { display: flex; justify-content: space-between; align-items: baseline; }
+  .mock-meal { font-family: var(--sans); font-size: 13px; font-weight: 500; letter-spacing: -0.01em; }
+  .mock-meal-sub { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; }
+
+  .mock-macros { display: flex; gap: 4px; margin-top: 4px; }
+  .mock-macro { flex: 1; height: 24px; border-radius: 0; display: flex; align-items: flex-end; padding: 3px 5px; }
+  .mock-macro-label { font-family: var(--mono); font-size: 8px; font-weight: 600; letter-spacing: 0.1em; }
+
+  .mock-cta {
+    margin-top: auto; padding: 11px 14px; text-align: center;
+    font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+
+  .mock-chip {
+    display: inline-block; padding: 3px 7px;
+    font-family: var(--mono); font-size: 8px; letter-spacing: 0.15em;
+    font-weight: 600; text-transform: uppercase;
+  }
+
+  /* Footer legend */
+  .legend {
+    max-width: 1440px; margin: 56px auto 0;
+    font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.5);
+    letter-spacing: 0.1em; text-align: center; line-height: 1.8;
+  }
+  .legend b { color: rgba(255,255,255,0.85); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="page-hdr">
+  <div>
+    <div class="kicker">REDESIGN V2 · BASE THEMES</div>
+    <h1>Color explorations</h1>
+  </div>
+  <div class="sub">Eight palette directions applied to the same UI anatomy — hero metric, progress, meal card, macros, and a CTA — so the mood difference is visible at product level, not just as swatches.</div>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="legend">
+  <b>Tip:</b> pick two or three favorites and I'll wire them as a swappable <b>Tweak</b> in Redesign v2 so you can compare them live on the real screens.
+</div>
+
+<script>
+// ─── Theme definitions ──────────────────────────────────────────
+const themes = [
+  {
+    id: 'molten',
+    name: 'Molten Orange',
+    idx: '01',
+    mood: 'Athletic, aggressive, performance-feel. Current direction.',
+    bg: '#0C0907', surface: '#17110C', line: 'rgba(255,182,128,0.14)',
+    text: '#F5EFE8', dim: 'rgba(245,239,232,0.55)', dimmer: 'rgba(245,239,232,0.3)',
+    accent: '#FF6A2A', onAccent: '#0C0907',
+    macro: ['#FF6A2A', '#C9A3FF', '#FFD166', '#7CE0C4'],
+  },
+  {
+    id: 'matcha',
+    name: 'Matcha Ceramic',
+    idx: '02',
+    mood: 'Clean eating + wellness without the saccharine. Pairs with a clay secondary.',
+    bg: '#0F110D', surface: '#171A14', line: 'rgba(180,220,150,0.14)',
+    text: '#EDEFE6', dim: 'rgba(237,239,230,0.55)', dimmer: 'rgba(237,239,230,0.3)',
+    accent: '#9FD36A', onAccent: '#0F110D',
+    macro: ['#9FD36A', '#E29A6A', '#F2D06B', '#7EC4C0'],
+  },
+  {
+    id: 'lime',
+    name: 'Electric Lime',
+    idx: '03',
+    mood: 'Whoop 2024. Very loud, very high-performance. Fitness tracker energy.',
+    bg: '#0A0A0A', surface: '#121212', line: 'rgba(214,255,78,0.12)',
+    text: '#F0F0F0', dim: 'rgba(240,240,240,0.55)', dimmer: 'rgba(240,240,240,0.28)',
+    accent: '#D6FF4E', onAccent: '#0A0A0A',
+    macro: ['#D6FF4E', '#A78BFA', '#FCD34D', '#5EEAD4'],
+  },
+  {
+    id: 'cyan',
+    name: 'Medical Cyan',
+    idx: '04',
+    mood: 'Clinical, calm, data-forward. "My doctor made this" trust.',
+    bg: '#0B1315', surface: '#121C1F', line: 'rgba(120,220,220,0.14)',
+    text: '#E6F0F2', dim: 'rgba(230,240,242,0.55)', dimmer: 'rgba(230,240,242,0.3)',
+    accent: '#5BE0D9', onAccent: '#0B1315',
+    macro: ['#5BE0D9', '#A78BFA', '#FCD34D', '#F59E9E'],
+  },
+  {
+    id: 'burgundy',
+    name: 'Burgundy + Cream',
+    idx: '05',
+    mood: 'Editorial, hospitality-magazine gravitas. Gives the food real weight.',
+    bg: '#141010', surface: '#1D1515', line: 'rgba(230,210,190,0.12)',
+    text: '#F2E9DD', dim: 'rgba(242,233,221,0.55)', dimmer: 'rgba(242,233,221,0.3)',
+    accent: '#B8434A', onAccent: '#F2E9DD',
+    macro: ['#B8434A', '#9B7FBF', '#E0B062', '#6FAA97'],
+  },
+  {
+    id: 'solar',
+    name: 'Solar Yellow',
+    idx: '06',
+    mood: 'Optimistic, morning-energy, food-friendly (yolks, turmeric, mango).',
+    bg: '#0F0D0A', surface: '#1A1510', line: 'rgba(245,197,24,0.14)',
+    text: '#F5F0E4', dim: 'rgba(245,240,228,0.55)', dimmer: 'rgba(245,240,228,0.3)',
+    accent: '#F5C518', onAccent: '#0F0D0A',
+    macro: ['#F5C518', '#C9A3FF', '#F08A4B', '#7ED2A8'],
+  },
+  {
+    id: 'paper',
+    name: 'Paper / Light',
+    idx: '07',
+    mood: 'Inverted daylight palette. Minimal, print-like, bone + brick.',
+    bg: '#F7F3EC', surface: '#EFEAE0', line: 'rgba(20,16,12,0.1)',
+    text: '#14100C', dim: 'rgba(20,16,12,0.6)', dimmer: 'rgba(20,16,12,0.35)',
+    accent: '#D04A1C', onAccent: '#F7F3EC',
+    macro: ['#D04A1C', '#7B5BC7', '#C68918', '#3C8F78'],
+  },
+  {
+    id: 'mono',
+    name: 'Mono + Pop',
+    idx: '08',
+    mood: 'Pure grayscale UI with one reserved pop. Linear / Arc territory.',
+    bg: '#0E0E0E', surface: '#1A1A1A', line: 'rgba(255,255,255,0.08)',
+    text: '#F0F0F0', dim: 'rgba(240,240,240,0.55)', dimmer: 'rgba(240,240,240,0.3)',
+    accent: '#FF4D2E', onAccent: '#0E0E0E',
+    macro: ['#FF4D2E', '#FFFFFF', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0.25)'],
+  },
+];
+
+// ─── Render ────────────────────────────────────────────────────
+const grid = document.getElementById('grid');
+
+function mix(color, alpha) {
+  // naive: tack alpha onto hex as rgba via computed
+  if (color.startsWith('rgba')) return color;
+  const hex = color.replace('#','');
+  const r = parseInt(hex.substr(0,2), 16);
+  const g = parseInt(hex.substr(2,2), 16);
+  const b = parseInt(hex.substr(4,2), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+themes.forEach(t => {
+  const el = document.createElement('div');
+  el.className = 'theme-card';
+  el.innerHTML = `
+    <div class="theme-meta">
+      <div class="theme-name">${t.name}</div>
+      <div class="theme-idx">${t.idx}</div>
+    </div>
+
+    <div class="mock" style="background:${t.bg}; color:${t.text};">
+      <!-- Top status bar -->
+      <div class="mock-topbar" style="color:${t.dimmer};">
+        <span>9:41</span>
+        <span style="color:${t.accent};">●</span>
+      </div>
+
+      <!-- Hero -->
+      <div class="mock-hero">
+        <div class="mock-kicker" style="color:${t.accent};">TODAY · MON 24</div>
+        <div class="mock-num" style="color:${t.text};">1,265<small style="color:${t.dim};"> / 1,680 kcal</small></div>
+        <div class="mock-sub" style="color:${t.dim};">415 kcal remaining · on pace</div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="mock-bar" style="background:${t.line};">
+        <div class="mock-bar-fill" style="width:75%; background:${t.accent};"></div>
+      </div>
+
+      <!-- Macro quartet -->
+      <div class="mock-macros">
+        ${['P','C','F','Fi'].map((L, i) => `
+          <div class="mock-macro" style="background:${mix(t.macro[i], 0.18)}; border-bottom:2px solid ${t.macro[i]};">
+            <div class="mock-macro-label" style="color:${t.macro[i]};">${L}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- Meal card -->
+      <div class="mock-card" style="background:${t.surface}; border:1px solid ${t.line};">
+        <div class="mock-card-row">
+          <span class="mock-chip" style="color:${t.accent}; border:1px solid ${t.accent};">LUNCH</span>
+          <div class="mock-meal-sub" style="color:${t.dimmer};">12:30 · 520 KCAL</div>
+        </div>
+        <div class="mock-meal" style="color:${t.text};">Grilled paneer bowl</div>
+        <div class="mock-card-row" style="margin-top:2px;">
+          <div class="mock-meal-sub" style="color:${t.dim};">P 38 · C 42 · F 18</div>
+          <div class="mock-meal-sub" style="color:${t.accent};">LOGGED</div>
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <div class="mock-cta" style="background:${t.accent}; color:${t.onAccent};">Log meal</div>
+    </div>
+
+    <div class="swatches">
+      <div class="sw" style="background:${t.bg};"><span class="hex">${t.bg}</span></div>
+      <div class="sw" style="background:${t.surface};"></div>
+      <div class="sw" style="background:${t.accent};"><span class="hex" style="color:${t.onAccent === '#F2E9DD' || t.onAccent === '#F7F3EC' ? t.onAccent : '#fff'};">${t.accent}</span></div>
+      <div class="sw" style="background:${t.macro[1]};"></div>
+      <div class="sw" style="background:${t.macro[2]};"></div>
+      <div class="sw" style="background:${t.macro[3]};"></div>
+    </div>
+
+    <div class="theme-mood">${t.mood}</div>
+  `;
+  grid.appendChild(el);
+});
+</script>
+
+</body>
+</html>
