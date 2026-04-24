@@ -1,4 +1,8 @@
+// GoalProjectionCard — Strain v2 visual. All hook logic preserved.
+
 import { useGoalProjection } from '../../hooks/useGoalProjection';
+import { s2 } from '../../theme/tokens';
+import { HairLabel } from '../ui';
 
 export function GoalProjectionCard() {
   const { weeksLeft, monthsLeft, goalDate, targetWeight, weeklyLossKg } = useGoalProjection();
@@ -6,36 +10,36 @@ export function GoalProjectionCard() {
   if (!goalDate) return null;
 
   const formattedDate = new Date(goalDate).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric'
+    day: 'numeric', month: 'short', year: 'numeric',
   });
 
   return (
-    <div className="bg-violet-fill rounded-xl border border-violet/20 p-3 mt-3">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-violet text-sm">🎯</span>
-        <h4 className="font-sans font-semibold text-violet text-xs">Goal Projection</h4>
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        <div className="text-center">
-          <p className="font-mono font-bold text-primary text-sm">{targetWeight} kg</p>
-          <p className="text-[10px] text-secondary font-sans">Target</p>
+    <div style={{
+      marginTop: 10,
+      border: `1px solid ${s2.accent}`,
+      background: s2.accentFill,
+      padding: '12px 14px',
+    }}>
+      <HairLabel color={s2.accentSoft} style={{ marginBottom: 10 }}>GOAL PROJECTION</HairLabel>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 14, color: s2.accent }}>{targetWeight} kg</div>
+          <HairLabel style={{ marginTop: 4 }}>TARGET</HairLabel>
         </div>
-        <div className="text-center">
-          <p className="font-mono font-bold text-primary text-sm">{formattedDate}</p>
-          <p className="text-[10px] text-secondary font-sans">Est. Date</p>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 12, color: s2.text }}>{formattedDate}</div>
+          <HairLabel style={{ marginTop: 4 }}>EST. DATE</HairLabel>
         </div>
-        <div className="text-center">
-          <p className="font-mono font-bold text-primary text-sm">
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 14, color: s2.text }}>
             {monthsLeft > 0 ? `${monthsLeft}mo` : `${weeksLeft}w`}
-          </p>
-          <p className="text-[10px] text-secondary font-sans">Remaining</p>
+          </div>
+          <HairLabel style={{ marginTop: 4 }}>REMAINING</HairLabel>
         </div>
       </div>
-      <p className="text-[10px] text-dimmed font-sans mt-2 text-center">
-        ~{weeklyLossKg} kg/week projected loss rate
-      </p>
+      <HairLabel style={{ marginTop: 10, textAlign: 'center', fontSize: 7 }}>
+        ~{weeklyLossKg} KG/WEEK PROJECTED LOSS RATE
+      </HairLabel>
     </div>
   );
 }

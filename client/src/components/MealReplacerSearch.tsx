@@ -1,14 +1,18 @@
+// MealReplacerSearch — Strain v2 visual. All logic preserved.
+
 import { useEffect } from 'react';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { FoodResult } from '../types';
+import { s2 } from '../theme/tokens';
+import { HairLabel } from './ui';
 
-const QUICK_PICKS: { emoji: string; label: string; query: string }[] = [
-  { emoji: '🥚', label: 'Boiled eggs', query: 'boiled eggs' },
-  { emoji: '🍚', label: 'Rice + Dal', query: 'rice dal' },
-  { emoji: '🍌', label: 'Banana', query: 'banana' },
-  { emoji: '☕', label: 'Coffee', query: 'coffee with milk' },
-  { emoji: '🥛', label: 'Protein shake', query: 'whey protein shake' },
-  { emoji: '🫓', label: 'Bread butter', query: 'bread butter' },
+const QUICK_PICKS: { label: string; query: string }[] = [
+  { label: 'Boiled eggs',    query: 'boiled eggs' },
+  { label: 'Rice + Dal',     query: 'rice dal' },
+  { label: 'Banana',         query: 'banana' },
+  { label: 'Coffee',         query: 'coffee with milk' },
+  { label: 'Protein shake',  query: 'whey protein shake' },
+  { label: 'Bread butter',   query: 'bread butter' },
 ];
 
 interface Props {
@@ -23,16 +27,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Props) {
-  const { target, addMode, addModeDate, addModeCategory, recentFoods, fetchRecentFoods, selectFood, setScreen, setSearchQuery } = useMealReplacerStore();
+  const { target, addMode, addModeDate, addModeCategory, recentFoods, fetchRecentFoods, selectFood, setSearchQuery } = useMealReplacerStore();
 
-  useEffect(() => {
-    fetchRecentFoods();
-  }, [fetchRecentFoods]);
+  useEffect(() => { fetchRecentFoods(); }, [fetchRecentFoods]);
 
-  const handleQuickPick = (query: string) => {
-    setSearchQuery(query);
-    onQuickPick(query);
-  };
+  const handleQuickPick = (query: string) => { setSearchQuery(query); onQuickPick(query); };
 
   const handleRecentSelect = (recent: any) => {
     const data = recent.foodData || {};
@@ -48,17 +47,14 @@ export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Pro
       defaultServing: { label: data.servingSize || '1 serving', grams: data.servingGrams || 100 },
       per100g: {
         calories: data.servingGrams ? Math.round((data.calories / data.servingGrams) * 100) : data.calories || 0,
-        protein: data.servingGrams ? Math.round(((data.proteinG || 0) / data.servingGrams) * 1000) / 10 : data.proteinG || 0,
-        carbs: data.servingGrams ? Math.round(((data.carbsG || 0) / data.servingGrams) * 1000) / 10 : data.carbsG || 0,
-        fat: data.servingGrams ? Math.round(((data.fatG || 0) / data.servingGrams) * 1000) / 10 : data.fatG || 0,
-        fibre: data.servingGrams ? Math.round(((data.fibreG || 0) / data.servingGrams) * 1000) / 10 : data.fibreG || 0,
+        protein:  data.servingGrams ? Math.round(((data.proteinG || 0) / data.servingGrams) * 1000) / 10 : data.proteinG || 0,
+        carbs:    data.servingGrams ? Math.round(((data.carbsG  || 0) / data.servingGrams) * 1000) / 10 : data.carbsG  || 0,
+        fat:      data.servingGrams ? Math.round(((data.fatG    || 0) / data.servingGrams) * 1000) / 10 : data.fatG    || 0,
+        fibre:    data.servingGrams ? Math.round(((data.fibreG  || 0) / data.servingGrams) * 1000) / 10 : data.fibreG  || 0,
       },
       perServing: {
-        calories: data.calories || 0,
-        protein: data.proteinG || 0,
-        carbs: data.carbsG || 0,
-        fat: data.fatG || 0,
-        fibre: data.fibreG || 0,
+        calories: data.calories || 0, protein: data.proteinG || 0,
+        carbs: data.carbsG || 0, fat: data.fatG || 0, fibre: data.fibreG || 0,
       },
       isAiEstimate: data.isAiEstimate || false,
     };
@@ -66,41 +62,67 @@ export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Pro
   };
 
   return (
-    <div className="space-y-5 px-1">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Header */}
       <div>
-        <h3 className="font-display text-lg font-bold text-primary">What did you eat?</h3>
+        <HairLabel style={{ marginBottom: 6 }}>
+          {addMode ? 'ADD MEAL' : 'SWAP MEAL'}
+        </HairLabel>
+        <div style={{ fontFamily: s2.sans, fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text }}>
+          What did you eat?
+        </div>
         {addMode && addModeDate ? (
-          <p className="text-xs text-secondary font-sans mt-0.5">
-            Adding to: <span className="text-violet font-medium">{CATEGORY_LABELS[addModeCategory || ''] || 'Other'}</span> &middot; {addModeDate}
-          </p>
+          <HairLabel color={s2.accent} style={{ marginTop: 4 }}>
+            ADDING TO: {CATEGORY_LABELS[addModeCategory || ''] || 'OTHER'} · {addModeDate}
+          </HairLabel>
         ) : target ? (
-          <p className="text-xs text-secondary font-sans mt-0.5">
-            Replacing: {target.mealName} &middot; {target.date}
-          </p>
+          <HairLabel color={s2.textDim} style={{ marginTop: 4 }}>
+            REPLACING: {target.mealName} · {target.date}
+          </HairLabel>
         ) : null}
       </div>
 
-      {/* Search box */}
-      <div
+      {/* Search box (tap to open results) */}
+      <button
         onClick={onSearchFocus}
-        className="flex items-center gap-2.5 bg-elevated rounded-xl px-3.5 py-3 border border-border cursor-text hover:border-accent/40 transition-colors"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '13px 14px',
+          background: s2.surface,
+          border: `1px solid ${s2.lineStrong}`,
+          cursor: 'text',
+          textAlign: 'left',
+          width: '100%',
+          color: s2.textDimmer,
+        }}
       >
-        <span className="text-secondary">🔍</span>
-        <span className="text-secondary text-sm font-sans">Search foods, dishes, ingredients...</span>
-      </div>
+        <span style={{ fontFamily: s2.mono, fontSize: 14, color: s2.accent }}>⌕</span>
+        <span style={{ fontFamily: s2.sans, fontSize: 14 }}>Search foods, dishes, ingredients...</span>
+      </button>
 
       {/* Quick picks */}
       <div>
-        <p className="text-xs text-dimmed font-sans uppercase tracking-wide mb-2">Quick picks</p>
-        <div className="flex flex-wrap gap-2">
+        <HairLabel style={{ marginBottom: 10 }}>QUICK PICKS</HairLabel>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {QUICK_PICKS.map((p) => (
             <button
               key={p.query}
               onClick={() => handleQuickPick(p.query)}
-              className="flex items-center gap-1.5 bg-elevated rounded-full px-3 py-1.5 text-sm font-sans text-primary hover:bg-accent/10 transition-colors border border-border"
+              style={{
+                padding: '7px 12px',
+                border: `1px solid ${s2.lineStrong}`,
+                background: 'transparent',
+                fontFamily: s2.mono,
+                fontSize: 9,
+                letterSpacing: '0.12em',
+                color: s2.textDim,
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+              }}
             >
-              <span>{p.emoji}</span>
-              <span>{p.label}</span>
+              {p.label}
             </button>
           ))}
         </div>
@@ -109,20 +131,31 @@ export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Pro
       {/* Recent */}
       {recentFoods.length > 0 && (
         <div>
-          <p className="text-xs text-dimmed font-sans uppercase tracking-wide mb-2">Recent</p>
-          <div className="space-y-1.5">
+          <HairLabel style={{ marginBottom: 10 }}>RECENT</HairLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             {recentFoods.slice(0, 5).map((r) => (
               <button
                 key={r.id}
                 onClick={() => handleRecentSelect(r)}
-                className="w-full flex items-center gap-3 bg-elevated rounded-xl px-3 py-2.5 text-left hover:bg-accent/10 transition-colors border border-border"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '11px 12px',
+                  background: s2.surface,
+                  border: `1px solid ${s2.line}`,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  color: s2.text,
+                  width: '100%',
+                }}
               >
-                <span className="text-lg">🕐</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-sans font-medium text-primary truncate">{r.foodName}</p>
-                  <p className="text-xs text-secondary font-sans">
-                    {r.foodData?.calories || 0} kcal &middot; {r.foodSource === 'ai_estimate' ? 'AI' : r.foodSource === 'open_food_facts' ? 'OFF' : 'USDA'}
-                  </p>
+                <div style={{ fontFamily: s2.mono, fontSize: 11, color: s2.textDimmer }}>↺</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: s2.sans, fontSize: 14, color: s2.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.foodName}</div>
+                  <HairLabel style={{ marginTop: 2 }}>
+                    {r.foodData?.calories || 0} KCAL · {r.foodSource === 'ai_estimate' ? 'AI' : r.foodSource === 'open_food_facts' ? 'OFF' : 'USDA'}
+                  </HairLabel>
                 </div>
               </button>
             ))}
@@ -131,23 +164,36 @@ export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Pro
       )}
 
       {/* Divider */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 h-px bg-border" />
-        <span className="text-xs text-dimmed font-sans">or</span>
-        <div className="flex-1 h-px bg-border" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ flex: 1, height: 1, background: s2.line }} />
+        <HairLabel>OR</HairLabel>
+        <div style={{ flex: 1, height: 1, background: s2.line }} />
       </div>
 
       {/* AI mode */}
       <button
         onClick={onAIMode}
-        className="w-full bg-violet/10 border border-violet/20 rounded-xl px-4 py-3.5 text-left hover:bg-violet/15 transition-colors"
+        style={{
+          padding: '16px 14px',
+          background: s2.accentFill,
+          border: `1px solid ${s2.accent}`,
+          textAlign: 'left',
+          cursor: 'pointer',
+          width: '100%',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 14,
+          color: s2.text,
+        }}
       >
-        <span className="text-sm font-sans font-semibold text-violet flex items-center gap-2">
-          ✨ Describe what you ate — let AI estimate
-        </span>
-        <p className="text-xs text-secondary font-sans mt-0.5 ml-6">
-          e.g. "2 rotis with butter chicken and raita"
-        </p>
+        <div style={{ fontFamily: s2.mono, fontSize: 11, color: s2.accent }}>02</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: s2.sans, fontSize: 15, fontWeight: 500, color: s2.text, marginBottom: 4 }}>
+            Ask AI to estimate
+          </div>
+          <HairLabel color={s2.textDim}>DESCRIBE WHAT YOU ATE — AI MATCHES MACROS</HairLabel>
+        </div>
+        <div style={{ color: s2.accent, alignSelf: 'center' }}>→</div>
       </button>
     </div>
   );

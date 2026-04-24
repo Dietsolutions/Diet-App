@@ -1,12 +1,16 @@
+// WeightLogModal — Strain v2 bottom sheet. All logic preserved.
+
 import { useState, useEffect } from 'react';
 import { useWeightStore } from '../../store/weightStore';
+import { s2 } from '../../theme/tokens';
+import { HairLabel } from '../ui';
 
 export function WeightLogModal() {
   const { isLogModalOpen, editingLog, closeLogModal, logWeight, updateLog } = useWeightStore();
   const [weight, setWeight] = useState('');
-  const [note, setNote] = useState('');
-  const [date, setDate] = useState('');
-  const [error, setError] = useState('');
+  const [note,   setNote]   = useState('');
+  const [date,   setDate]   = useState('');
+  const [error,  setError]  = useState('');
   const [saving, setSaving] = useState(false);
 
   const isEdit = !!editingLog;
@@ -51,76 +55,151 @@ export function WeightLogModal() {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-end justify-center z-50" style={{ backdropFilter: 'blur(8px)' }} onClick={closeLogModal}>
+    <div
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.65)',
+        backdropFilter: 'blur(8px)',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        zIndex: 50,
+      }}
+      onClick={closeLogModal}
+    >
       <div
-        className="bg-surface w-full max-w-md rounded-t-3xl p-6 border-t border-x border-border animate-[slideUp_0.3s_ease-out]"
+        style={{
+          background: s2.surface,
+          borderTop: `1px solid ${s2.lineStrong}`,
+          width: '100%',
+          maxWidth: 480,
+          padding: '16px 20px 32px',
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="w-10 h-1 bg-border rounded-full mx-auto mb-4" />
-        <h3 className="font-display font-bold text-primary text-lg mb-4">
-          {isEdit ? 'Edit Weight Log' : 'Log Weight'}
-        </h3>
+        {/* Drag indicator */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+          <div style={{ width: 28, height: 2, background: s2.lineStrong }} />
+        </div>
 
-        <div className="space-y-3">
+        <HairLabel style={{ marginBottom: 10 }}>{isEdit ? 'EDIT WEIGHT LOG' : 'LOG WEIGHT'}</HairLabel>
+        <div style={{ fontFamily: s2.sans, fontSize: 20, fontWeight: 400, letterSpacing: '-0.02em', marginBottom: 20 }}>
+          {isEdit ? 'Edit entry' : 'Record weight'}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Weight input */}
           <div>
-            <label className="text-xs text-secondary font-sans mb-1 block">Weight (kg)</label>
+            <HairLabel style={{ marginBottom: 8 }}>WEIGHT (KG)</HairLabel>
             <input
               type="number"
               step="0.1"
               value={weight}
               onChange={(e) => setWeight(e.target.value)}
               placeholder="e.g. 75.5"
-              className="w-full bg-elevated border border-border rounded-xl px-4 py-3 text-primary font-mono text-lg focus:outline-none focus:border-accent transition-colors"
               autoFocus
+              style={{
+                width: '100%',
+                background: s2.surface2,
+                border: `1px solid ${s2.lineStrong}`,
+                padding: '13px 14px',
+                fontFamily: s2.mono,
+                fontSize: 22,
+                color: s2.text,
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
             />
           </div>
 
-          {/* Date picker (only for new logs) */}
+          {/* Date (new logs only) */}
           {!isEdit && (
             <div>
-              <label className="text-xs text-secondary font-sans mb-1 block">Date</label>
+              <HairLabel style={{ marginBottom: 8 }}>DATE</HairLabel>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 max={new Date().toISOString().substring(0, 10)}
-                className="w-full bg-elevated border border-border rounded-xl px-4 py-3 text-primary font-sans text-sm focus:outline-none focus:border-accent transition-colors"
+                style={{
+                  width: '100%',
+                  background: s2.surface2,
+                  border: `1px solid ${s2.lineStrong}`,
+                  padding: '12px 14px',
+                  fontFamily: s2.sans,
+                  fontSize: 14,
+                  color: s2.text,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  colorScheme: 'dark',
+                }}
               />
             </div>
           )}
 
           {/* Note */}
           <div>
-            <label className="text-xs text-secondary font-sans mb-1 block">Note (optional)</label>
+            <HairLabel style={{ marginBottom: 8 }}>NOTE (OPTIONAL)</HairLabel>
             <input
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="e.g. After morning walk"
               maxLength={100}
-              className="w-full bg-elevated border border-border rounded-xl px-4 py-3 text-primary font-sans text-sm focus:outline-none focus:border-accent transition-colors"
+              style={{
+                width: '100%',
+                background: s2.surface2,
+                border: `1px solid ${s2.lineStrong}`,
+                padding: '12px 14px',
+                fontFamily: s2.sans,
+                fontSize: 14,
+                color: s2.text,
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
             />
           </div>
 
           {error && (
-            <p className="text-red-400 text-xs font-sans bg-red-900/20 rounded-lg px-3 py-2">{error}</p>
+            <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '8px 12px' }}>
+              <div style={{ fontFamily: s2.sans, fontSize: 12, color: '#FF3E3E' }}>{error}</div>
+            </div>
           )}
         </div>
 
-        <div className="flex gap-3 mt-5">
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button
             onClick={closeLogModal}
-            className="flex-1 bg-elevated text-secondary font-medium py-3 rounded-[14px] font-sans text-sm border border-border"
+            style={{
+              flex: 1,
+              padding: '13px 0',
+              background: 'transparent',
+              border: `1px solid ${s2.lineStrong}`,
+              fontFamily: s2.mono,
+              fontSize: 10,
+              letterSpacing: '0.15em',
+              color: s2.textDim,
+              cursor: 'pointer',
+              textTransform: 'uppercase',
+            }}
           >
-            Cancel
+            CANCEL
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex-1 bg-accent text-white font-semibold py-3 rounded-[14px] font-sans text-sm active:scale-95 transition-all disabled:opacity-50"
+            style={{
+              flex: 1,
+              padding: '13px 0',
+              background: saving ? s2.surface : s2.accent,
+              border: `1px solid ${s2.accent}`,
+              fontFamily: s2.mono,
+              fontSize: 10,
+              letterSpacing: '0.15em',
+              color: saving ? s2.textDimmer : s2.bg,
+              cursor: saving ? 'default' : 'pointer',
+              textTransform: 'uppercase',
+            }}
           >
-            {saving ? 'Saving...' : isEdit ? 'Update' : 'Save'}
+            {saving ? 'SAVING…' : isEdit ? 'UPDATE' : 'SAVE'}
           </button>
         </div>
       </div>

@@ -1,4 +1,8 @@
+// FoodResultCard — Strain v2 visual. All logic preserved.
+
 import { FoodResult } from '../types';
+import { s2 } from '../theme/tokens';
+import { HairLabel } from './ui';
 
 interface FoodResultCardProps {
   food: FoodResult;
@@ -6,72 +10,86 @@ interface FoodResultCardProps {
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  open_food_facts: 'Open Food Facts',
-  usda: 'USDA',
-  ai_estimate: 'AI Estimate',
+  open_food_facts: 'OFF',
+  usda:            'USDA',
+  ai_estimate:     'AI',
 };
 
 export function FoodResultCard({ food, onSelect }: FoodResultCardProps) {
   const macros = food.perServing;
-  const isAI = food.isAiEstimate;
+  const isAI   = food.isAiEstimate;
 
   return (
-    <div
+    <button
       onClick={() => onSelect(food)}
-      className={`rounded-xl border p-3.5 cursor-pointer transition-all active:scale-[0.98] ${
-        isAI
-          ? 'bg-violet-fill/30 border-violet/20 hover:border-violet/40'
-          : 'bg-surface border-border hover:border-accent/40'
-      }`}
+      style={{
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        padding: '12px 14px',
+        background: isAI ? s2.accentFill : s2.surface,
+        border: `1px solid ${isAI ? s2.accent : s2.line}`,
+        cursor: 'pointer',
+        color: s2.text,
+      }}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-sans font-semibold text-primary truncate">
-            {isAI && <span className="mr-1">✨</span>}
+      {/* Name row */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: s2.sans, fontSize: 14, fontWeight: 500, color: s2.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {isAI && <span style={{ color: s2.accent, marginRight: 6 }}>✨</span>}
             {food.name}
-          </h4>
-          <p className="text-xs text-secondary font-sans mt-0.5">
-            Per {food.defaultServing.label}
-            {food.defaultServing.grams !== 100 && ` (~${food.defaultServing.grams}g)`}
-          </p>
+          </div>
+          <HairLabel style={{ marginTop: 3 }}>
+            PER {food.defaultServing.label}
+            {food.defaultServing.grams !== 100 ? ` · ${food.defaultServing.grams}g` : ''}
+          </HairLabel>
         </div>
-        <button
-          onClick={(e) => { e.stopPropagation(); onSelect(food); }}
-          className="flex-shrink-0 w-8 h-8 rounded-full bg-accent/10 text-accent flex items-center justify-center text-lg font-bold hover:bg-accent/20 transition-colors"
-        >
+        <div style={{
+          width: 28,
+          height: 28,
+          border: `1px solid ${s2.accent}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          fontFamily: s2.sans,
+          fontSize: 18,
+          color: s2.accent,
+        }}>
           +
-        </button>
+        </div>
       </div>
 
-      <div className="flex gap-1.5 mt-2.5">
-        <MacroBadge value={`${Math.round(macros.calories)}`} label="kcal" color="text-primary" bg="bg-primary/[0.08]" />
-        <MacroBadge value={`${macros.protein}g`} label="P" color="text-success" bg="bg-success-fill" />
-        <MacroBadge value={`${macros.carbs}g`} label="C" color="text-accent" bg="bg-accent-fill" />
-        <MacroBadge value={`${macros.fat}g`} label="F" color="text-violet" bg="bg-violet-fill" />
-        <MacroBadge value={`${macros.fibre}g`} label="Fi" color="text-fibre" bg="bg-fibre-fill" />
+      {/* Macro row */}
+      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+        {[
+          { v: Math.round(macros.calories), u: 'kcal', c: s2.text },
+          { v: macros.protein,              u: 'P',    c: s2.protein },
+          { v: macros.carbs,                u: 'C',    c: s2.carbs   },
+          { v: macros.fat,                  u: 'F',    c: s2.fat     },
+          { v: macros.fibre,                u: 'Fi',   c: s2.fibre   },
+        ].map((m) => (
+          <div key={m.u} style={{
+            flex: 1,
+            textAlign: 'center',
+            padding: '5px 2px',
+            background: `${m.c}14`,
+            border: `1px solid ${m.c}22`,
+          }}>
+            <div style={{ fontFamily: s2.mono, fontSize: 10, color: m.c, fontWeight: 500 }}>{m.v}</div>
+            <div style={{ fontFamily: s2.mono, fontSize: 7, color: s2.textDimmer, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{m.u}</div>
+          </div>
+        ))}
       </div>
 
-      <div className="flex items-center gap-1.5 mt-2">
-        <span className={`text-[10px] font-sans px-1.5 py-0.5 rounded-full ${
-          isAI ? 'bg-violet/10 text-violet' : 'bg-elevated text-secondary'
-        }`}>
+      {/* Source tag */}
+      <div style={{ marginTop: 8 }}>
+        <HairLabel color={isAI ? s2.accent : s2.textDimmer} style={{ fontSize: 7 }}>
           {SOURCE_LABELS[food.source] || food.source}
-        </span>
-        {isAI && (
-          <span className="text-[10px] text-violet/70 font-sans">
-            Estimated — accuracy may vary
-          </span>
-        )}
+          {isAI ? ' · ESTIMATE — ACCURACY MAY VARY' : ''}
+        </HairLabel>
       </div>
-    </div>
-  );
-}
-
-function MacroBadge({ value, label, color, bg }: { value: string; label: string; color: string; bg: string }) {
-  return (
-    <div className={`flex-1 text-center rounded-lg py-1 ${bg}`}>
-      <p className={`text-[10px] font-semibold font-mono ${color}`}>{value}</p>
-      <p className="text-[8px] text-secondary font-sans">{label}</p>
-    </div>
+    </button>
   );
 }

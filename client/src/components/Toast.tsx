@@ -1,4 +1,7 @@
+// Toast — Strain v2. All hook logic preserved.
+
 import { useEffect, useState, forwardRef, useImperativeHandle } from 'react';
+import { s2 } from '../theme/tokens';
 
 export interface ToastHandle {
   show: (message: string) => void;
@@ -12,7 +15,7 @@ export const Toast = forwardRef<ToastHandle>((_, ref) => {
     show: (msg: string) => {
       setMessage(msg);
       setVisible(true);
-    }
+    },
   }));
 
   useEffect(() => {
@@ -25,8 +28,26 @@ export const Toast = forwardRef<ToastHandle>((_, ref) => {
   if (!visible || !message) return null;
 
   return (
-    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 max-w-xs w-full px-4">
-      <div className="bg-surface text-primary text-sm font-sans px-4 py-3 rounded-xl shadow-xl border border-border text-center card-glow">
+    <div style={{
+      position: 'fixed',
+      bottom: 88,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      zIndex: 60,
+      width: 'calc(100% - 40px)',
+      maxWidth: 320,
+    }}>
+      <div style={{
+        background: s2.surface2,
+        border: `1px solid ${s2.lineStrong}`,
+        padding: '12px 16px',
+        fontFamily: s2.sans,
+        fontSize: 13,
+        color: s2.text,
+        textAlign: 'center',
+        lineHeight: 1.45,
+        letterSpacing: '-0.01em',
+      }}>
         {message}
       </div>
     </div>

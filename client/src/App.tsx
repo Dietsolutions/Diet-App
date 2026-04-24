@@ -12,6 +12,7 @@ import { IOSInstallBanner } from './components/IOSInstallBanner';
 import { Toast, ToastHandle } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { TabId } from './types';
+import { s2 } from './theme/tokens';
 
 // Lazy-load each tab so the initial JS bundle is small enough for the SW to
 // precache and for iOS Safari to parse quickly on first visit.
@@ -86,12 +87,18 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-app bg-dark flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 bg-accent/20 rounded-2xl flex items-center justify-center mx-auto mb-3 animate-pulse">
-            <span className="text-2xl">🍽️</span>
+      <div style={{ minHeight: '100dvh', background: s2.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: 44, height: 44,
+            background: s2.accentFill,
+            border: `1px solid ${s2.accent}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 14px',
+          }}>
+            <span style={{ fontSize: 22 }}>🍽️</span>
           </div>
-          <p className="text-secondary text-sm font-sans">Loading...</p>
+          <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.2em', color: s2.textDimmer }}>LOADING…</div>
         </div>
       </div>
     );
@@ -100,12 +107,15 @@ export default function App() {
   if (!user) {
     return (
       <ErrorBoundary fallback={
-        <div className="min-h-app bg-dark flex items-center justify-center px-5">
-          <div className="text-center">
-            <p className="text-primary text-base font-sans font-semibold mb-2">Something went wrong</p>
-            <p className="text-secondary text-sm font-sans mb-4">Please reload the page</p>
-            <button onClick={() => window.location.reload()} className="bg-accent text-white px-6 py-2.5 rounded-xl text-sm font-semibold font-sans">
-              Reload
+        <div style={{ minHeight: '100dvh', background: s2.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 20px' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontFamily: s2.sans, fontSize: 16, color: s2.text, marginBottom: 8 }}>Something went wrong</div>
+            <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, marginBottom: 20 }}>Please reload the page</div>
+            <button
+              onClick={() => window.location.reload()}
+              style={{ padding: '11px 24px', background: s2.accent, border: 'none', fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.18em', color: s2.bg, cursor: 'pointer' }}
+            >
+              RELOAD
             </button>
           </div>
         </div>
@@ -132,28 +142,45 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-app bg-dark">
-      <div className="max-w-app mx-auto flex flex-col h-app relative bg-dark">
+    <div style={{ background: s2.bg, minHeight: '100dvh' }}>
+      <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: '100dvh', position: 'relative', background: s2.bg }}>
+        {/* Safe-area spacer (AppBar renders this) */}
         <ErrorBoundary>
           <AppBar title="Diet Plan & Tracker" />
         </ErrorBoundary>
 
         {/* PWA install banner */}
         {showInstallBanner && (
-          <div className="bg-accent text-white px-5 py-2.5 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div style={{
+            background: s2.accent,
+            padding: '10px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span>📱</span>
-              <p className="text-sm font-sans font-medium">Add to Home Screen</p>
+              <span style={{ fontFamily: s2.sans, fontSize: 13, color: s2.bg, fontWeight: 500 }}>Add to Home Screen</span>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={handleInstall} className="text-xs bg-white text-accent font-semibold px-3 py-1.5 rounded-lg">Install</button>
-              <button onClick={() => setShowInstallBanner(false)} className="text-white/70 text-lg leading-none">&times;</button>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button
+                onClick={handleInstall}
+                style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', background: s2.bg, border: 'none', color: s2.accent, padding: '5px 10px', cursor: 'pointer' }}
+              >
+                INSTALL
+              </button>
+              <button
+                onClick={() => setShowInstallBanner(false)}
+                style={{ background: 'transparent', border: 'none', color: 'rgba(12,9,7,0.7)', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: 0 }}
+              >
+                ×
+              </button>
             </div>
           </div>
         )}
 
         {/* Main content */}
-        <main className="flex-1 overflow-hidden flex flex-col pb-16">
+        <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', paddingBottom: 64 }}>
           <ErrorBoundary>
             <Suspense fallback={<TabFallback />}>
               {activeTab === 'meals' && <MealsTab />}

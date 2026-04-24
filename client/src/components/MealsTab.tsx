@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { format, parseISO, addWeeks, startOfWeek, addDays } from 'date-fns';
 import { useAppStore } from '../store/appStore';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
@@ -7,7 +7,9 @@ import { useTracker } from '../hooks/useTracker';
 import { usePlan } from '../hooks/usePlan';
 import { Meal, MealReplacement } from '../types';
 import { MealReplacerSheet } from './MealReplacerSheet';
+import { MealDetailSheet } from './MealDetailSheet';
 import { WaterIntakeCard } from './WaterIntakeCard';
+import { WaterDetailSheet } from './WaterDetailSheet';
 import { MacroAchievementCard } from './MacroAchievementCard';
 import { AddMealButton } from './AddMealButton';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -70,6 +72,9 @@ function NavArrow({
 
 // ── MealsTab ───────────────────────────────────────────────────────────────
 export function MealsTab() {
+  const [showWaterDetail, setShowWaterDetail]   = useState(false);
+  const [detailMealIdx,   setDetailMealIdx]     = useState<number | null>(null);
+
   const {
     selectedDate,
     setSelectedDate,
@@ -336,7 +341,7 @@ export function MealsTab() {
         <>
           {/* Water */}
           <div style={{ padding: '18px 20px 0' }}>
-            <WaterIntakeCard date={selectedDate} />
+            <WaterIntakeCard date={selectedDate} onExpand={() => setShowWaterDetail(true)} />
           </div>
 
           {/* Macro band */}
@@ -391,6 +396,7 @@ export function MealsTab() {
                           ? { background: s2.accentFill }
                           : {}
                     }
+                    onClick={() => setDetailMealIdx(mealIdx)}
                   >
                     <div style={{ display: 'flex', gap: 12 }}>
                       {/* ── Index number ────────────────────────────────── */}
@@ -456,7 +462,7 @@ export function MealsTab() {
                         <div style={{ marginTop: 8 }}>
                           {isReplaced ? (
                             <button
-                              onClick={() => undoReplacement(selectedDate, mealIdx)}
+                              onClick={(e) => { e.stopPropagation(); undoReplacement(selectedDate, mealIdx); }}
                               style={{
                                 background: 'transparent',
                                 border: 'none',
@@ -473,7 +479,7 @@ export function MealsTab() {
                             </button>
                           ) : (
                             <button
-                              onClick={() => handleOpenReplacer(mealIdx)}
+                              onClick={(e) => { e.stopPropagation(); handleOpenReplacer(mealIdx); }}
                               style={{
                                 background: 'transparent',
                                 border: 'none',
@@ -495,7 +501,7 @@ export function MealsTab() {
                       {/* ── Check square ────────────────────────────────── */}
                       <div style={{ paddingTop: 4, flexShrink: 0 }}>
                         <button
-                          onClick={() => handleToggle(mealIdx)}
+                          onClick={(e) => { e.stopPropagation(); handleToggle(mealIdx); }}
                           style={{
                             background: 'transparent',
                             border: 'none',
@@ -567,6 +573,39 @@ export function MealsTab() {
 
       {/* Meal replacer sheet (modal) — logic unchanged */}
       <MealReplacerSheet />
+
+      {/* Water detail full-screen sheet */}
+      {showWaterDetail && (
+        <WaterDetailSheet
+          date={selectedDate}
+          onClose={() => setShowWaterDetail(false)}
+        />
+      )}
+
+      {/* Meal detail full-screen sheet */}
+      {detailMealIdx !== null && meals[detailMealIdx] && (() => {
+        const mIdx = detailMealIdx;
+        const repKey = `${selectedDate}-${mIdx}`;
+        return (
+          <MealDetailSheet
+            meal={meals[mIdx]}
+            replacement={replacements[repKey] as MealReplacement | undefined}
+            mealIndex={mIdx}
+            mealCount={meals.length}
+            date={selectedDate}
+            planDayLabel={planDay?.label ?? ''}
+            eaten={getMealEaten(mIdx)}
+            profile={profile}
+            allMeals={meals}
+            eatenMask={meals.map((_, i) => getMealEaten(i))}
+            replacements={replacements as Record<string, MealReplacement | undefined>}
+            onClose={() => setDetailMealIdx(null)}
+            onToggleEaten={() => handleToggle(mIdx)}
+            onOpenReplacer={() => { setDetailMealIdx(null); handleOpenReplacer(mIdx); }}
+            onUndoReplacement={() => { undoReplacement(selectedDate, mIdx); setDetailMealIdx(null); }}
+          />
+        );
+      })()}
     </div>
   );
 }

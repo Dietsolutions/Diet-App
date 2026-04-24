@@ -1,52 +1,86 @@
+// WeightStatsHeader — Strain v2 visual. All store logic preserved.
+
 import { useWeightStore } from '../../store/weightStore';
+import { s2 } from '../../theme/tokens';
+import { HairLabel, Bar } from '../ui';
 
 export function WeightStatsHeader() {
   const { logs, openLogModal, getCurrentWeight, getTotalLost, getProgressPercent } = useWeightStore();
 
-  if (logs.length === 0) return null;
-
-  const startW = logs[0].weightKg;
-  const currentW = getCurrentWeight();
-  const totalLost = getTotalLost();
-  const progress = getProgressPercent();
-
-  return (
-    <div className="bg-surface rounded-2xl border border-border p-4 card-glow">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-sans font-semibold text-primary text-sm">Weight Progress</h3>
+  if (logs.length === 0) {
+    return (
+      <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <HairLabel>WEIGHT PROGRESS</HairLabel>
         <button
           onClick={() => openLogModal()}
-          className="bg-accent text-white text-xs font-semibold px-3 py-1.5 rounded-full font-sans active:scale-95 transition-all"
+          style={{
+            padding: '7px 14px',
+            background: s2.accent,
+            border: 'none',
+            fontFamily: s2.mono,
+            fontSize: 9,
+            letterSpacing: '0.15em',
+            color: s2.bg,
+            cursor: 'pointer',
+            textTransform: 'uppercase',
+          }}
         >
-          + Log Weight
+          + LOG WEIGHT
+        </button>
+      </div>
+    );
+  }
+
+  const startW    = logs[0].weightKg;
+  const currentW  = getCurrentWeight();
+  const totalLost = getTotalLost();
+  const progress  = getProgressPercent();
+  const lostColor = totalLost > 0 ? '#4CAF82' : totalLost < 0 ? s2.warn : s2.text;
+
+  return (
+    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <HairLabel>WEIGHT PROGRESS</HairLabel>
+        <button
+          onClick={() => openLogModal()}
+          style={{
+            padding: '6px 12px',
+            background: s2.accent,
+            border: 'none',
+            fontFamily: s2.mono,
+            fontSize: 9,
+            letterSpacing: '0.15em',
+            color: s2.bg,
+            cursor: 'pointer',
+            textTransform: 'uppercase',
+          }}
+        >
+          + LOG
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 mb-3">
-        <div className="text-center">
-          <p className="font-mono font-bold text-primary text-base">{startW}</p>
-          <p className="text-[10px] text-secondary font-sans">Started</p>
+      {/* 3-column stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 14 }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 18, fontWeight: 400, color: s2.text }}>{startW}</div>
+          <HairLabel style={{ marginTop: 4 }}>STARTED</HairLabel>
         </div>
-        <div className="text-center">
-          <p className="font-mono font-bold text-accent text-base">{currentW}</p>
-          <p className="text-[10px] text-secondary font-sans">Current</p>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 18, fontWeight: 400, color: s2.accent }}>{currentW}</div>
+          <HairLabel style={{ marginTop: 4 }}>CURRENT</HairLabel>
         </div>
-        <div className="text-center">
-          <p className={`font-mono font-bold text-base ${totalLost > 0 ? 'text-success' : totalLost < 0 ? 'text-red-400' : 'text-primary'}`}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 18, fontWeight: 400, color: lostColor }}>
             {totalLost > 0 ? '-' : totalLost < 0 ? '+' : ''}{Math.abs(totalLost)} kg
-          </p>
-          <p className="text-[10px] text-secondary font-sans">Lost</p>
+          </div>
+          <HairLabel style={{ marginTop: 4 }}>LOST</HairLabel>
         </div>
       </div>
 
       {/* Progress bar */}
-      <div className="w-full h-2 bg-border rounded-full overflow-hidden">
-        <div
-          className="h-full bg-gradient-to-r from-accent to-success rounded-full progress-fill"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-      <p className="text-[10px] text-dimmed font-sans mt-1 text-right">{progress}% to goal</p>
+      <Bar pct={progress / 100} color={s2.accent} h={2} />
+      <HairLabel style={{ marginTop: 6, textAlign: 'right' }}>{progress}% TO GOAL</HairLabel>
     </div>
   );
 }

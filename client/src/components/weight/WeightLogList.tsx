@@ -1,5 +1,9 @@
+// WeightLogList — Strain v2 visual. All logic preserved.
+
 import { useState } from 'react';
 import { useWeightStore } from '../../store/weightStore';
+import { s2 } from '../../theme/tokens';
+import { HairLabel } from '../ui';
 
 export function WeightLogList() {
   const { logs, openLogModal, deleteLog } = useWeightStore();
@@ -9,8 +13,7 @@ export function WeightLogList() {
 
   if (logs.length === 0) return null;
 
-  // Show most recent first
-  const sortedLogs = [...logs].reverse();
+  const sortedLogs  = [...logs].reverse();
   const displayLogs = expanded ? sortedLogs : sortedLogs.slice(0, 5);
 
   const handleDelete = async (id: string) => {
@@ -26,72 +29,95 @@ export function WeightLogList() {
   };
 
   return (
-    <div className="bg-surface rounded-2xl border border-border p-4 card-glow">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-sans font-semibold text-primary text-sm">Weight History</h3>
-        <span className="text-[10px] text-dimmed font-sans">{logs.length} entries</span>
+    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface }}>
+      {/* Header */}
+      <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${s2.line}` }}>
+        <HairLabel>WEIGHT HISTORY</HairLabel>
+        <HairLabel>{logs.length} ENTRIES</HairLabel>
       </div>
 
-      <div className="space-y-1.5">
-        {displayLogs.map((log, idx) => {
-          // Calculate delta from previous log
+      {/* Log rows */}
+      <div>
+        {displayLogs.map((log) => {
           const logIndex = logs.findIndex(l => l.id === log.id);
-          const prev = logIndex > 0 ? logs[logIndex - 1] : null;
-          const delta = prev ? Math.round((log.weightKg - prev.weightKg) * 10) / 10 : null;
+          const prev     = logIndex > 0 ? logs[logIndex - 1] : null;
+          const delta    = prev ? Math.round((log.weightKg - prev.weightKg) * 10) / 10 : null;
+          const isFirst  = logIndex === 0;
 
           const dateStr = new Date(log.loggedAt).toLocaleDateString('en-IN', {
-            day: 'numeric',
-            month: 'short'
+            day: 'numeric', month: 'short',
           });
 
-          const isFirst = logIndex === 0;
+          const deltaColor = delta === null ? s2.textDimmer : delta < 0 ? '#4CAF82' : delta > 0 ? s2.warn : s2.textDimmer;
 
           return (
-            <div key={log.id} className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-elevated/50 transition-colors group">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <span className="text-xs text-secondary font-sans w-12 shrink-0">{dateStr}</span>
-                <span className="font-mono font-bold text-primary text-sm">{log.weightKg} kg</span>
+            <div
+              key={log.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 14px',
+                borderBottom: `1px solid ${s2.line}`,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: s2.mono, fontSize: 10, color: s2.textDimmer, width: 36, flexShrink: 0 }}>
+                  {dateStr}
+                </div>
+                <div style={{ fontFamily: s2.mono, fontSize: 14, fontWeight: 500, color: s2.text }}>
+                  {log.weightKg} kg
+                </div>
                 {delta !== null && (
-                  <span className={`text-[10px] font-mono font-medium ${
-                    delta < 0 ? 'text-success' : delta > 0 ? 'text-red-400' : 'text-dimmed'
-                  }`}>
+                  <div style={{ fontFamily: s2.mono, fontSize: 10, color: deltaColor }}>
                     {delta > 0 ? '+' : ''}{delta}
-                  </span>
+                  </div>
                 )}
                 {log.note && (
-                  <span className="text-[10px] text-dimmed font-sans truncate">{log.note}</span>
+                  <div style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {log.note}
+                  </div>
                 )}
               </div>
 
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {/* Edit / delete */}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0, marginLeft: 8 }}>
                 <button
                   onClick={() => openLogModal(log)}
-                  className="text-secondary hover:text-accent text-xs p-1 transition-colors"
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: s2.textDimmer, fontSize: 13, padding: 0 }}
                   title="Edit"
                 >
                   ✏️
                 </button>
                 {!isFirst && (
                   confirmDeleteId === log.id ? (
-                    <div className="flex items-center gap-1">
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <button
                         onClick={() => handleDelete(log.id)}
                         disabled={deletingId === log.id}
-                        className="text-red-400 text-[10px] font-sans font-medium px-1.5 py-0.5 bg-red-900/30 rounded"
+                        style={{
+                          background: 'rgba(255,62,62,0.12)', border: 'none',
+                          fontFamily: s2.mono, fontSize: 8, letterSpacing: '0.1em',
+                          color: s2.warn, cursor: 'pointer', padding: '4px 8px',
+                        }}
                       >
-                        {deletingId === log.id ? '...' : 'Yes'}
+                        {deletingId === log.id ? '…' : 'YES'}
                       </button>
                       <button
                         onClick={() => setConfirmDeleteId(null)}
-                        className="text-secondary text-[10px] font-sans px-1.5 py-0.5"
+                        style={{
+                          background: 'transparent', border: 'none',
+                          fontFamily: s2.mono, fontSize: 8, letterSpacing: '0.1em',
+                          color: s2.textDimmer, cursor: 'pointer',
+                        }}
                       >
-                        No
+                        NO
                       </button>
                     </div>
                   ) : (
                     <button
                       onClick={() => setConfirmDeleteId(log.id)}
-                      className="text-secondary hover:text-red-400 text-xs p-1 transition-colors"
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: s2.textDimmer, fontSize: 13, padding: 0 }}
                       title="Delete"
                     >
                       🗑️
@@ -104,12 +130,25 @@ export function WeightLogList() {
         })}
       </div>
 
+      {/* Show more */}
       {sortedLogs.length > 5 && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="w-full text-center text-accent text-xs font-sans font-medium mt-2 py-1 hover:underline"
+          style={{
+            width: '100%',
+            padding: '10px 0',
+            background: 'transparent',
+            border: 'none',
+            borderTop: expanded ? `1px solid ${s2.line}` : 'none',
+            fontFamily: s2.mono,
+            fontSize: 9,
+            letterSpacing: '0.18em',
+            color: s2.accent,
+            cursor: 'pointer',
+            textTransform: 'uppercase',
+          }}
         >
-          {expanded ? 'Show less' : `Show all ${sortedLogs.length} entries`}
+          {expanded ? 'SHOW LESS' : `SHOW ALL ${sortedLogs.length} ENTRIES`}
         </button>
       )}
     </div>

@@ -1,7 +1,11 @@
+// AuthScreen — Strain v2 visual. All auth logic, validation, debounce, and Google OAuth preserved.
+
 import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
 import { apiUrl } from '../lib/api';
+import { s2 } from '../theme/tokens';
+import { HairLabel, Btn } from './ui';
 
 type AuthMode = 'login' | 'signup';
 type Strength = 'weak' | 'good' | 'strong';
@@ -11,7 +15,7 @@ const RESERVED = new Set(['admin', 'root', 'system', 'support', 'help', 'dietpla
 
 function getPasswordStrength(password: string): Strength {
   let score = 0;
-  if (password.length >= 6) score++;
+  if (password.length >= 6)  score++;
   if (password.length >= 10) score++;
   if (password.length >= 14) score++;
   if (/[A-Z]/.test(password)) score++;
@@ -23,15 +27,15 @@ function getPasswordStrength(password: string): Strength {
 }
 
 function validateUsernameFormat(username: string): string | null {
-  if (/\s/.test(username)) return 'Username cannot contain spaces';
+  if (/\s/.test(username))             return 'Username cannot contain spaces';
   if (username.length < 3 || username.length > 20) return 'Username must be 3–20 characters';
-  if (!USERNAME_REGEX.test(username)) return 'Only letters, numbers and _ allowed';
+  if (!USERNAME_REGEX.test(username))  return 'Only letters, numbers and _ allowed';
   if (RESERVED.has(username.toLowerCase())) return 'This username is not available';
   return null;
 }
 
 function validatePassword(password: string, username: string): string | null {
-  if (password.length < 6) return 'Password must be at least 6 characters';
+  if (password.length < 6)  return 'Password must be at least 6 characters';
   if (password.length > 72) return 'Password is too long';
   if (/^\d+$/.test(password)) return 'Password cannot be all numbers';
   if (username && password.toLowerCase() === username.toLowerCase()) return 'Password cannot be your username';
@@ -45,17 +49,78 @@ interface Errors {
   general?: string;
 }
 
+// ── Field component ────────────────────────────────────────────────────────
+function Field({
+  label, inputRef, type, value, onChange, placeholder, autoComplete, autoCapitalize,
+  spellCheck, error, rightSlot,
+}: {
+  label: string;
+  inputRef?: React.RefObject<HTMLInputElement>;
+  type: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  autoComplete?: string;
+  autoCapitalize?: string;
+  spellCheck?: boolean;
+  error?: string;
+  rightSlot?: React.ReactNode;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div>
+      <HairLabel style={{ marginBottom: 8 }}>{label}</HairLabel>
+      <div style={{ position: 'relative' }}>
+        <input
+          ref={inputRef}
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+          autoCapitalize={autoCapitalize}
+          spellCheck={spellCheck}
+          required
+          style={{
+            width: '100%',
+            background: s2.surface,
+            border: `1px solid ${error ? '#FF3E3E' : focused ? s2.accent : s2.lineStrong}`,
+            padding: rightSlot ? '13px 44px 13px 14px' : '13px 14px',
+            fontFamily: s2.sans,
+            fontSize: 15,
+            color: s2.text,
+            outline: 'none',
+            boxSizing: 'border-box',
+            transition: 'border-color 150ms',
+            WebkitAppearance: 'none',
+          }}
+        />
+        {rightSlot && (
+          <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', display: 'flex', alignItems: 'center' }}>
+            {rightSlot}
+          </div>
+        )}
+      </div>
+      {error && (
+        <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: '#FF3E3E', marginTop: 6 }}>
+          ⚠ {error.toUpperCase()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── AuthScreen ─────────────────────────────────────────────────────────────
 export function AuthScreen() {
   const { login, signup } = useAuth();
 
-  // Default mode: signup for first-visit, login if returning user
   const [mode, setMode] = useState<AuthMode>(() => {
     try {
       const stored = typeof window !== 'undefined' ? localStorage.getItem('lastAuthTab') : null;
       if (stored === 'login' || stored === 'signup') return stored as AuthMode;
-    } catch {
-      // localStorage unavailable (iOS private mode quota = 0) — default to signup
-    }
+    } catch {}
     return 'signup';
   });
 
@@ -73,22 +138,16 @@ export function AuthScreen() {
   const [successBurst, setSuccessBurst] = useState(false);
 
   const confirmTouchedRef = useRef(false);
-  const usernameInputRef = useRef<HTMLInputElement>(null);
-  const passwordInputRef = useRef<HTMLInputElement>(null);
-  const confirmInputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<number | null>(null);
-  const lastCheckedRef = useRef<string>('');
+  const usernameInputRef  = useRef<HTMLInputElement>(null);
+  const passwordInputRef  = useRef<HTMLInputElement>(null);
+  const confirmInputRef   = useRef<HTMLInputElement>(null);
+  const debounceRef       = useRef<number | null>(null);
+  const lastCheckedRef    = useRef<string>('');
 
-  // Persist last used tab (guarded — localStorage.setItem throws in iOS private mode)
   useEffect(() => {
-    try {
-      localStorage.setItem('lastAuthTab', mode);
-    } catch {
-      // Silently ignore — not critical
-    }
+    try { localStorage.setItem('lastAuthTab', mode); } catch {}
   }, [mode]);
 
-  // Clear fields + errors when switching mode
   const switchMode = (newMode: AuthMode) => {
     if (newMode === mode) return;
     setMode(newMode);
@@ -103,134 +162,80 @@ export function AuthScreen() {
     confirmTouchedRef.current = false;
   };
 
-  // Debounced username availability check (signup only)
   const checkUsername = useCallback(async (value: string) => {
     if (mode !== 'signup') return;
-    if (value.length < 3) {
-      setUsernameAvailable(null);
-      setUsernameChecking(false);
-      return;
-    }
+    if (value.length < 3) { setUsernameAvailable(null); setUsernameChecking(false); return; }
     const formatError = validateUsernameFormat(value);
-    if (formatError) {
-      setUsernameAvailable(null);
-      setUsernameChecking(false);
-      return;
-    }
+    if (formatError) { setUsernameAvailable(null); setUsernameChecking(false); return; }
     setUsernameChecking(true);
     try {
       const res = await axios.get('/api/auth/check-username', { params: { username: value } });
-      if (lastCheckedRef.current === value) {
-        setUsernameAvailable(!!res.data.available);
-      }
+      if (lastCheckedRef.current === value) setUsernameAvailable(!!res.data.available);
     } catch {
-      if (lastCheckedRef.current === value) {
-        setUsernameAvailable(null);
-      }
+      if (lastCheckedRef.current === value) setUsernameAvailable(null);
     } finally {
-      if (lastCheckedRef.current === value) {
-        setUsernameChecking(false);
-      }
+      if (lastCheckedRef.current === value) setUsernameChecking(false);
     }
   }, [mode]);
 
-  // Username onChange handler — validate format, schedule availability check
   const handleUsernameChange = (value: string) => {
     setUsername(value);
-
     if (mode === 'signup') {
-      // Live format validation
-      if (value.length === 0) {
-        setErrors(e => ({ ...e, username: undefined }));
-        setUsernameAvailable(null);
-      } else {
-        const err = validateUsernameFormat(value);
-        setErrors(e => ({ ...e, username: err || undefined }));
-      }
-
-      // Debounced availability check
+      if (value.length === 0) { setErrors(e => ({ ...e, username: undefined })); setUsernameAvailable(null); }
+      else { const err = validateUsernameFormat(value); setErrors(e => ({ ...e, username: err || undefined })); }
       lastCheckedRef.current = value;
-      if (debounceRef.current) {
-        window.clearTimeout(debounceRef.current);
-      }
-      debounceRef.current = window.setTimeout(() => {
-        checkUsername(value);
-      }, 500);
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      debounceRef.current = window.setTimeout(() => checkUsername(value), 500);
     } else {
-      // Login mode — no format validation
       setErrors(e => ({ ...e, username: undefined }));
     }
   };
 
-  // Password onChange
   const handlePasswordChange = (value: string) => {
     setPassword(value);
     if (mode === 'signup' && value.length > 0) {
       const err = validatePassword(value, username);
-      setErrors(e => ({ ...e, password: err || undefined }));
-      // Re-validate confirm if it was touched
       if (confirmTouchedRef.current && confirmPassword) {
-        setErrors(e => ({
-          ...e,
-          password: err || undefined,
-          confirmPassword: value !== confirmPassword ? 'Passwords do not match' : undefined
-        }));
+        setErrors(e => ({ ...e, password: err || undefined, confirmPassword: value !== confirmPassword ? 'Passwords do not match' : undefined }));
+      } else {
+        setErrors(e => ({ ...e, password: err || undefined }));
       }
     } else {
       setErrors(e => ({ ...e, password: undefined }));
     }
   };
 
-  // Confirm password onChange
   const handleConfirmChange = (value: string) => {
     setConfirmPassword(value);
     confirmTouchedRef.current = true;
-    if (value.length > 0 && value !== password) {
-      setErrors(e => ({ ...e, confirmPassword: 'Passwords do not match' }));
-    } else {
-      setErrors(e => ({ ...e, confirmPassword: undefined }));
-    }
+    setErrors(e => ({ ...e, confirmPassword: value.length > 0 && value !== password ? 'Passwords do not match' : undefined }));
   };
 
-  const passwordStrength: Strength | null = mode === 'signup' && password.length > 0
-    ? getPasswordStrength(password)
-    : null;
+  const passwordStrength: Strength | null = mode === 'signup' && password.length > 0 ? getPasswordStrength(password) : null;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrors({});
 
     if (mode === 'login') {
-      if (!username.trim() || !password) {
-        setErrors({ general: 'Please enter your username and password' });
-        return;
-      }
+      if (!username.trim() || !password) { setErrors({ general: 'Please enter your username and password' }); return; }
       setIsSubmitting(true);
-      try {
-        await login(username.trim(), password);
-      } catch (err: any) {
-        setErrors({ general: err?.response?.data?.error || 'Invalid username or password' });
-      } finally {
-        setIsSubmitting(false);
-      }
+      try { await login(username.trim(), password); }
+      catch (err: any) { setErrors({ general: err?.response?.data?.error || 'Invalid username or password' }); }
+      finally { setIsSubmitting(false); }
       return;
     }
 
-    // Signup mode — full validation
     const newErrors: Errors = {};
     const usernameErr = validateUsernameFormat(username);
     if (usernameErr) newErrors.username = usernameErr;
     else if (usernameAvailable === false) newErrors.username = 'This username is already taken';
-
     const passwordErr = validatePassword(password, username);
     if (passwordErr) newErrors.password = passwordErr;
-
     if (password !== confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
     if (!confirmPassword) newErrors.confirmPassword = 'Please confirm your password';
-
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      // Focus first errored field
       if (newErrors.username) usernameInputRef.current?.focus();
       else if (newErrors.password) passwordInputRef.current?.focus();
       else if (newErrors.confirmPassword) confirmInputRef.current?.focus();
@@ -241,10 +246,7 @@ export function AuthScreen() {
     try {
       await signup(username, password, confirmPassword);
       setSuccessBurst(true);
-      // After brief success state, useAuth will trigger the onboarding redirect via user state change
-      setTimeout(() => {
-        setSuccessBurst(false);
-      }, 800);
+      setTimeout(() => setSuccessBurst(false), 800);
     } catch (err: any) {
       const data = err?.response?.data;
       if (data?.error === 'username_taken') {
@@ -263,13 +265,10 @@ export function AuthScreen() {
 
   const handleGoogleLogin = async () => {
     try {
-      const res = await fetch(apiUrl('/api/auth/google/check'), { credentials: 'include' });
+      const res  = await fetch(apiUrl('/api/auth/google/check'), { credentials: 'include' });
       const data = await res.json();
-      if (data.configured) {
-        window.location.href = apiUrl('/api/auth/google');
-      } else {
-        setErrors({ general: 'Google Sign-In is not configured. Please use credentials to sign in.' });
-      }
+      if (data.configured) window.location.href = apiUrl('/api/auth/google');
+      else setErrors({ general: 'Google Sign-In is not configured. Please use credentials to sign in.' });
     } catch {
       setErrors({ general: 'Google Sign-In is not available. Please use credentials to sign in.' });
     }
@@ -277,248 +276,249 @@ export function AuthScreen() {
 
   const isSignup = mode === 'signup';
 
+  // Strength colours
+  const strengthColor = passwordStrength === 'strong' ? '#4CAF82' : passwordStrength === 'good' ? s2.accentSoft : '#FF3E3E';
+
+  // Username availability indicator
+  const UsernameIndicator = isSignup && username.length >= 3 && !errors.username ? (
+    usernameChecking ? (
+      <div style={{ width: 14, height: 14, border: `2px solid ${s2.textDimmer}`, borderTopColor: s2.accent, borderRadius: '50%' }} />
+    ) : usernameAvailable === true ? (
+      <span style={{ fontFamily: s2.mono, fontSize: 11, color: '#4CAF82' }}>✓</span>
+    ) : usernameAvailable === false ? (
+      <span style={{ fontFamily: s2.mono, fontSize: 11, color: '#FF3E3E' }}>✗</span>
+    ) : null
+  ) : null;
+
+  const EyeBtn = ({ show, onToggle }: { show: boolean; onToggle: () => void }) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      tabIndex={-1}
+      style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1 }}
+    >
+      {show ? '🙈' : '👁'}
+    </button>
+  );
+
   return (
-    <div className="min-h-app bg-dark flex items-center justify-center px-5 py-8">
-      <div className="w-full max-w-sm">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="w-20 h-20 bg-accent-fill rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-4xl">🍽️</span>
+    <div style={{
+      minHeight: '100dvh',
+      background: s2.bg,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '32px 20px',
+      color: s2.text,
+    }}>
+      <div style={{ width: '100%', maxWidth: 340 }}>
+
+        {/* ── Logo / header ─────────────────────────────────────────────── */}
+        <div style={{ textAlign: 'center', marginBottom: 36 }}>
+          {/* Square logo mark */}
+          <div style={{
+            width: 52,
+            height: 52,
+            background: s2.accentFill,
+            border: `1px solid ${s2.accent}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 16px',
+          }}>
+            <span style={{ fontSize: 26 }}>🍽️</span>
           </div>
-          <h1 className="font-display text-3xl font-bold text-primary tracking-tight">Diet Plan</h1>
-          <p className="font-display text-accent text-xl font-semibold">& Tracker</p>
-          <p className="text-secondary text-sm mt-2 font-sans">Your AI-powered nutrition companion</p>
+          <div style={{ fontFamily: s2.sans, fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text }}>
+            Diet Plan
+          </div>
+          <div style={{ fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.2em', color: s2.accent, marginTop: 3 }}>
+            & TRACKER
+          </div>
+          <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, marginTop: 8 }}>
+            AI-powered nutrition companion
+          </div>
         </div>
 
-        {/* Tab toggle */}
-        <div className="relative bg-white/[0.04] rounded-xl p-1 mb-6 flex">
-          <button
-            type="button"
-            onClick={() => switchMode('login')}
-            className={`flex-1 py-2.5 rounded-lg font-sans text-sm font-semibold transition-colors relative z-10 ${
-              mode === 'login' ? 'text-primary' : 'text-dimmed'
-            }`}
-          >
-            Login
-          </button>
-          <button
-            type="button"
-            onClick={() => switchMode('signup')}
-            className={`flex-1 py-2.5 rounded-lg font-sans text-sm font-semibold transition-colors relative z-10 ${
-              mode === 'signup' ? 'text-primary' : 'text-dimmed'
-            }`}
-          >
-            Sign Up
-          </button>
-          {/* Sliding indicator */}
-          <div
-            className="absolute top-1 bottom-1 rounded-lg bg-white/[0.08] transition-transform duration-300 ease-out"
-            style={{
-              width: 'calc(50% - 4px)',
-              left: '4px',
-              transform: mode === 'login' ? 'translateX(0)' : 'translateX(100%)'
-            }}
-          />
-          {/* Accent underline */}
-          <div
-            className="absolute bottom-0 h-0.5 bg-accent rounded-full transition-transform duration-300 ease-out"
-            style={{
-              width: 'calc(50% - 8px)',
-              left: '8px',
-              transform: mode === 'login' ? 'translateX(0)' : 'translateX(calc(100% + 16px))'
-            }}
-          />
+        {/* ── Mode toggle ────────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', marginBottom: 24, border: `1px solid ${s2.lineStrong}`, position: 'relative' }}>
+          {(['login', 'signup'] as const).map(m => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => switchMode(m)}
+              style={{
+                flex: 1,
+                padding: '11px 0',
+                background: mode === m ? s2.surface : 'transparent',
+                border: 'none',
+                borderBottom: `2px solid ${mode === m ? s2.accent : 'transparent'}`,
+                fontFamily: s2.mono,
+                fontSize: 10,
+                letterSpacing: '0.18em',
+                color: mode === m ? s2.accent : s2.textDimmer,
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+                transition: 'all 150ms',
+              }}
+            >
+              {m === 'login' ? 'LOGIN' : 'SIGN UP'}
+            </button>
+          ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        {/* ── Form ──────────────────────────────────────────────────────── */}
+        <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
           {/* Username */}
-          <div>
-            <label className="block text-sm font-medium text-secondary mb-1.5 font-sans">Username</label>
-            <div className="relative">
-              <input
-                ref={usernameInputRef}
-                type="text"
-                value={username}
-                onChange={(e) => handleUsernameChange(e.target.value)}
-                className={`w-full bg-surface border-[1.5px] text-primary rounded-xl px-4 py-3 pr-10 font-sans text-base focus:outline-none focus:ring-1 placeholder-dimmed transition-colors ${
-                  errors.username
-                    ? 'border-red-500/60 focus:border-red-500 focus:ring-red-500/30'
-                    : 'border-border focus:border-accent focus:ring-accent/30'
-                }`}
-                placeholder="yourname"
-                autoComplete={isSignup ? 'username' : 'username'}
-                autoCapitalize="none"
-                spellCheck={false}
-                required
-              />
-              {/* Availability indicator */}
-              {isSignup && username.length >= 3 && !errors.username && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  {usernameChecking ? (
-                    <span className="inline-block w-4 h-4 border-2 border-dimmed border-t-transparent rounded-full animate-spin" />
-                  ) : usernameAvailable === true ? (
-                    <span className="text-success text-lg leading-none">✓</span>
-                  ) : usernameAvailable === false ? (
-                    <span className="text-red-500 text-lg leading-none">✗</span>
-                  ) : null}
-                </div>
-              )}
-            </div>
-            {errors.username && (
-              <p className="text-red-500 text-xs mt-1 font-sans flex items-center gap-1 animate-[fadeIn_200ms_ease]">
-                <span>⚠</span>{errors.username}
-              </p>
-            )}
-            {isSignup && !errors.username && username.length >= 3 && usernameAvailable === false && (
-              <p className="text-red-500 text-xs mt-1 font-sans flex items-center gap-1 animate-[fadeIn_200ms_ease]">
-                <span>⚠</span>Already taken
-              </p>
-            )}
-          </div>
+          <Field
+            label="USERNAME"
+            inputRef={usernameInputRef}
+            type="text"
+            value={username}
+            onChange={handleUsernameChange}
+            placeholder="yourname"
+            autoComplete={isSignup ? 'username' : 'username'}
+            autoCapitalize="none"
+            spellCheck={false}
+            error={errors.username || (isSignup && !errors.username && username.length >= 3 && usernameAvailable === false ? 'Already taken' : undefined)}
+            rightSlot={UsernameIndicator ?? undefined}
+          />
 
           {/* Password */}
-          <div>
-            <label className="block text-sm font-medium text-secondary mb-1.5 font-sans">Password</label>
-            <div className="relative">
-              <input
-                ref={passwordInputRef}
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => handlePasswordChange(e.target.value)}
-                className={`w-full bg-surface border-[1.5px] text-primary rounded-xl px-4 py-3 pr-11 font-sans text-base focus:outline-none focus:ring-1 placeholder-dimmed transition-colors ${
-                  errors.password
-                    ? 'border-red-500/60 focus:border-red-500 focus:ring-red-500/30'
-                    : 'border-border focus:border-accent focus:ring-accent/30'
-                }`}
-                placeholder="••••••••"
-                autoComplete={isSignup ? 'new-password' : 'current-password'}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(s => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary hover:text-primary text-base transition-colors"
-                tabIndex={-1}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? '🙈' : '👁'}
-              </button>
-            </div>
-            {errors.password && (
-              <p className="text-red-500 text-xs mt-1 font-sans flex items-center gap-1 animate-[fadeIn_200ms_ease]">
-                <span>⚠</span>{errors.password}
-              </p>
-            )}
-            {/* Password strength bar (signup only) */}
-            {isSignup && passwordStrength && !errors.password && (
-              <div className="mt-1.5">
-                <div className="h-1 bg-border rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-300 ease-out"
-                    style={{
-                      width: passwordStrength === 'weak' ? '33%' : passwordStrength === 'good' ? '66%' : '100%',
-                      backgroundColor: passwordStrength === 'weak' ? '#DC2626' : passwordStrength === 'good' ? '#E8845A' : '#4CAF82'
-                    }}
-                  />
-                </div>
-                <p className="text-[10px] font-sans mt-1 capitalize" style={{
-                  color: passwordStrength === 'weak' ? '#DC2626' : passwordStrength === 'good' ? '#E8845A' : '#4CAF82'
-                }}>
-                  {passwordStrength}
-                </p>
+          <Field
+            label="PASSWORD"
+            inputRef={passwordInputRef}
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            onChange={handlePasswordChange}
+            placeholder="••••••••"
+            autoComplete={isSignup ? 'new-password' : 'current-password'}
+            error={errors.password}
+            rightSlot={<EyeBtn show={showPassword} onToggle={() => setShowPassword(s => !s)} />}
+          />
+          {/* Password strength bar */}
+          {isSignup && passwordStrength && !errors.password && (
+            <div style={{ marginTop: -10 }}>
+              <div style={{ height: 2, background: s2.line, position: 'relative' }}>
+                <div style={{
+                  position: 'absolute', top: 0, left: 0, height: '100%',
+                  width: passwordStrength === 'weak' ? '33%' : passwordStrength === 'good' ? '66%' : '100%',
+                  background: strengthColor,
+                  transition: 'width 250ms',
+                }} />
               </div>
-            )}
-          </div>
+              <HairLabel color={strengthColor} style={{ marginTop: 4, fontSize: 8 }}>
+                {passwordStrength.toUpperCase()}
+              </HairLabel>
+            </div>
+          )}
 
           {/* Confirm password (signup only) */}
           {isSignup && (
-            <div>
-              <label className="block text-sm font-medium text-secondary mb-1.5 font-sans">Confirm Password</label>
-              <div className="relative">
-                <input
-                  ref={confirmInputRef}
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={(e) => handleConfirmChange(e.target.value)}
-                  className={`w-full bg-surface border-[1.5px] text-primary rounded-xl px-4 py-3 pr-11 font-sans text-base focus:outline-none focus:ring-1 placeholder-dimmed transition-colors ${
-                    errors.confirmPassword
-                      ? 'border-red-500/60 focus:border-red-500 focus:ring-red-500/30'
-                      : 'border-border focus:border-accent focus:ring-accent/30'
-                  }`}
-                  placeholder="••••••••"
-                  autoComplete="new-password"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-secondary hover:text-primary text-base transition-colors"
-                  tabIndex={-1}
-                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showConfirmPassword ? '🙈' : '👁'}
-                </button>
-                {/* Match checkmark */}
-                {confirmPassword.length > 0 && password === confirmPassword && !errors.confirmPassword && (
-                  <span className="absolute right-11 top-1/2 -translate-y-1/2 text-success text-base leading-none">✓</span>
-                )}
-              </div>
-              {errors.confirmPassword && (
-                <p className="text-red-500 text-xs mt-1 font-sans flex items-center gap-1 animate-[fadeIn_200ms_ease]">
-                  <span>⚠</span>{errors.confirmPassword}
-                </p>
-              )}
-            </div>
+            <Field
+              label="CONFIRM PASSWORD"
+              inputRef={confirmInputRef}
+              type={showConfirmPassword ? 'text' : 'password'}
+              value={confirmPassword}
+              onChange={handleConfirmChange}
+              placeholder="••••••••"
+              autoComplete="new-password"
+              error={errors.confirmPassword}
+              rightSlot={
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {confirmPassword.length > 0 && password === confirmPassword && !errors.confirmPassword && (
+                    <span style={{ fontFamily: s2.mono, fontSize: 11, color: '#4CAF82' }}>✓</span>
+                  )}
+                  <EyeBtn show={showConfirmPassword} onToggle={() => setShowConfirmPassword(s => !s)} />
+                </div>
+              }
+            />
           )}
 
-          {/* General error banner */}
+          {/* General error */}
           {errors.general && (
-            <div className="bg-red-900/30 border border-red-500/40 text-red-300 text-sm px-4 py-3 rounded-xl font-sans animate-[fadeIn_200ms_ease]">
-              {errors.general}
+            <div style={{
+              border: `1px solid rgba(255,62,62,0.5)`,
+              background: 'rgba(255,62,62,0.08)',
+              padding: '10px 12px',
+            }}>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{errors.general}</div>
             </div>
           )}
 
-          {/* Submit button */}
+          {/* Submit */}
           <button
             type="submit"
             disabled={isSubmitting || successBurst}
-            className="w-full bg-accent hover:bg-accent/90 active:scale-95 text-white font-semibold py-3.5 rounded-[14px] font-sans text-base transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            style={{
+              width: '100%',
+              padding: '14px 0',
+              background: successBurst ? '#4CAF82' : s2.accent,
+              border: 'none',
+              fontFamily: s2.mono,
+              fontSize: 10,
+              letterSpacing: '0.2em',
+              color: s2.bg,
+              fontWeight: 600,
+              cursor: isSubmitting || successBurst ? 'default' : 'pointer',
+              opacity: isSubmitting ? 0.75 : 1,
+              transition: 'background 200ms',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              marginTop: 4,
+            }}
           >
             {successBurst ? (
-              <>
-                <span className="text-lg">✓</span>Account created!
-              </>
+              '✓ ACCOUNT CREATED'
             ) : isSubmitting ? (
               <>
-                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                {isSignup ? 'Creating account...' : 'Signing in...'}
+                <div style={{ width: 12, height: 12, border: `1.5px solid ${s2.bg}`, borderTopColor: 'transparent', borderRadius: '50%' }} />
+                {isSignup ? 'CREATING...' : 'SIGNING IN...'}
               </>
-            ) : isSignup ? (
-              <>Create Account →</>
-            ) : (
-              <>Login →</>
-            )}
+            ) : isSignup ? 'CREATE ACCOUNT →' : 'LOGIN →'}
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="flex items-center gap-3 my-5">
-          <div className="flex-1 h-px bg-border" />
-          <span className="text-dimmed text-xs font-sans uppercase">or</span>
-          <div className="flex-1 h-px bg-border" />
+        {/* ── Divider ───────────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
+          <div style={{ flex: 1, height: 1, background: s2.line }} />
+          <HairLabel>OR</HairLabel>
+          <div style={{ flex: 1, height: 1, background: s2.line }} />
         </div>
 
-        {/* Google Sign In */}
+        {/* ── Google ────────────────────────────────────────────────────── */}
         <button
           type="button"
           onClick={handleGoogleLogin}
-          className="w-full flex items-center justify-center gap-3 bg-surface hover:bg-elevated text-primary font-medium py-3.5 rounded-xl font-sans text-base transition-all active:scale-95 border border-border"
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            padding: '13px 0',
+            background: s2.surface,
+            border: `1px solid ${s2.lineStrong}`,
+            fontFamily: s2.sans,
+            fontSize: 14,
+            color: s2.text,
+            cursor: 'pointer',
+          }}
         >
-          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+          <svg width="18" height="18" viewBox="0 0 48 48">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
           Continue with Google
         </button>
 
-        <p className="text-center text-dimmed text-xs mt-8 font-sans">AI-powered nutrition planning</p>
+        <div style={{ textAlign: 'center', marginTop: 28 }}>
+          <HairLabel>AI-POWERED NUTRITION PLANNING</HairLabel>
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,11 @@
+// MealPrepGuide — Strain v2. All fetch logic preserved.
+
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { MealPrepGuide as MealPrepGuideType } from '../types';
 import { useAppStore } from '../store/appStore';
+import { s2 } from '../theme/tokens';
+import { HairLabel } from './ui';
 
 export function MealPrepGuide() {
   const { setActiveTab } = useAppStore();
@@ -13,63 +17,138 @@ export function MealPrepGuide() {
       .catch(() => setGuide(null));
   }, []);
 
+  // ── Loading skeleton ──
   if (guide === undefined) {
     return (
-      <div className="space-y-3 px-1 py-2">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {[1, 2, 3].map(i => (
-          <div key={i} className="h-12 bg-elevated rounded-xl animate-pulse" />
+          <div
+            key={i}
+            style={{
+              height: 48,
+              background: s2.surface2,
+              animation: 'pulse 1.4s ease-in-out infinite',
+            }}
+          />
         ))}
       </div>
     );
   }
 
+  // ── Empty state ──
   if (!guide) {
     return (
-      <div className="px-1 py-3 text-center space-y-3">
-        <p className="text-sm text-secondary font-sans">
+      <div style={{ padding: '12px 0', textAlign: 'center' }}>
+        <div style={{
+          fontFamily: s2.sans,
+          fontSize: 13,
+          color: s2.textDim,
+          lineHeight: 1.55,
+          marginBottom: 14,
+        }}>
           No prep guide yet. Regenerate your meal plan to unlock your personalised weekly prep guide.
-        </p>
+        </div>
         <button
           onClick={() => setActiveTab('profile')}
-          className="text-accent text-sm font-sans font-medium underline underline-offset-2"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            fontFamily: s2.mono,
+            fontSize: 9,
+            letterSpacing: '0.18em',
+            color: s2.accent,
+            cursor: 'pointer',
+            textTransform: 'uppercase',
+          }}
         >
-          Go to Profile → Regenerate Plan
+          GO TO PROFILE → REGENERATE PLAN
         </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 px-1">
-      <p className="text-sm text-secondary font-sans leading-relaxed">{guide.intro}</p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Intro */}
+      {guide.intro && (
+        <div style={{
+          fontFamily: s2.sans,
+          fontSize: 13,
+          color: s2.textDim,
+          lineHeight: 1.6,
+        }}>
+          {guide.intro}
+        </div>
+      )}
 
+      {/* Sections */}
       {guide.sections.map((section) => (
         <div key={section.category}>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-base">{section.emoji}</span>
-            <span className="text-xs font-semibold font-sans text-primary uppercase tracking-wide">
-              {section.category}
-            </span>
-            <div className="flex-1 h-px bg-border" />
+          {/* Section header */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 8,
+          }}>
+            <span style={{ fontSize: 14 }}>{section.emoji}</span>
+            <HairLabel>{section.category.toUpperCase()}</HairLabel>
+            <div style={{ flex: 1, height: 1, background: s2.line }} />
           </div>
-          <ul className="space-y-2">
+
+          {/* Tasks */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {section.tasks.map((task, i) => (
-              <li key={i} className="bg-elevated rounded-xl p-3 border border-border/60">
-                <p className="text-sm text-primary font-sans leading-snug">{task.instruction}</p>
+              <div
+                key={i}
+                style={{
+                  border: `1px solid ${s2.line}`,
+                  background: s2.surface,
+                  padding: '10px 12px',
+                }}
+              >
+                <div style={{
+                  fontFamily: s2.sans,
+                  fontSize: 13,
+                  color: s2.text,
+                  lineHeight: 1.45,
+                }}>
+                  {task.instruction}
+                </div>
                 {task.usedOn && (
-                  <p className="text-xs text-accent font-sans mt-1">📅 {task.usedOn}</p>
+                  <div style={{
+                    marginTop: 4,
+                    fontFamily: s2.mono,
+                    fontSize: 9,
+                    letterSpacing: '0.12em',
+                    color: s2.accentSoft,
+                  }}>
+                    📅 {task.usedOn}
+                  </div>
                 )}
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       ))}
 
-      <div className="bg-accent-fill border border-accent/20 rounded-xl px-4 py-2.5 flex items-center gap-2">
-        <span className="text-sm">⏱️</span>
-        <p className="text-sm font-sans text-primary">
-          Estimated total prep time: <span className="font-semibold">{guide.estimatedMinutes}–{guide.estimatedMinutes + 15} minutes</span>
-        </p>
+      {/* Time estimate */}
+      <div style={{
+        border: `1px solid ${s2.accentSoft}`,
+        background: s2.accentFill,
+        padding: '10px 14px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+      }}>
+        <span style={{ fontSize: 13 }}>⏱️</span>
+        <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.text }}>
+          Estimated prep time:{' '}
+          <span style={{ color: s2.accent, fontFamily: s2.mono }}>
+            {guide.estimatedMinutes}–{guide.estimatedMinutes + 15} min
+          </span>
+        </div>
       </div>
     </div>
   );

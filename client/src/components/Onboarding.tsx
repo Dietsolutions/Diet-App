@@ -5,6 +5,7 @@ import { apiUrl } from '../lib/api';
 import { OnboardingData } from '../types';
 import { Country, City } from 'country-state-city';
 import { COUNTRIES, COUNTRY_CODES, ALLERGENS, ALLERGEN_ICONS, INGREDIENT_CATEGORIES, INGREDIENT_ICONS, CUISINE_OPTIONS, CUISINE_REGIONS, KITCHEN_EQUIPMENT, EQUIPMENT_ICONS, HEALTH_CONDITIONS } from '../data/onboarding';
+import { s2 } from '../theme/tokens';
 
 const INITIAL: OnboardingData = {
   name: '', age: 25, gender: 'male', country: 'India', city: '',
@@ -139,19 +140,33 @@ export function Onboarding({ onComplete, userName }: Props) {
 
   if (generating) {
     return (
-      <div className="min-h-screen bg-dark flex items-center justify-center px-5">
-        <div className="text-center max-w-xs">
-          <div className="text-6xl mb-6 animate-bounce">🍽️</div>
-          <h2 className="font-display text-2xl font-bold text-primary mb-3">Creating Your Plan</h2>
-          <p className="text-accent font-sans font-medium mb-6">{genStep}</p>
-          <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
-            <div className="h-full shimmer rounded-full" style={{ width: '60%' }} />
+      <div style={{ minHeight: '100dvh', background: s2.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 20px' }}>
+        <div style={{ textAlign: 'center', maxWidth: 300, width: '100%' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.22em', color: s2.textDimmer, textTransform: 'uppercase', marginBottom: 20 }}>
+            AI-GENERATING YOUR PLAN
+          </div>
+          <div style={{ fontFamily: s2.sans, fontSize: 26, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text, marginBottom: 12, lineHeight: 1.2 }}>
+            Building your plan
+          </div>
+          <div style={{ fontFamily: s2.mono, fontSize: 11, color: s2.accent, letterSpacing: '0.1em', marginBottom: 28, minHeight: 18 }}>
+            {genStep}
+          </div>
+          <div style={{ height: 2, background: s2.line, position: 'relative', overflow: 'hidden' }}>
+            <div style={{
+              position: 'absolute', top: 0, left: '-60%', height: '100%', width: '60%',
+              background: `linear-gradient(90deg, transparent, ${s2.accent}, transparent)`,
+              animation: 'shimmer 1.4s infinite',
+            }} />
           </div>
           {error && (
-            <div className="mt-6 bg-red-900/30 border border-red-500/40 text-red-300 text-sm px-4 py-3 rounded-xl font-sans">
-              {error}
-              <button onClick={() => { setGenerating(false); setShowSummary(true); }}
-                className="block mt-2 text-accent underline text-sm">Try Again</button>
+            <div style={{ marginTop: 24, border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '12px 14px' }}>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E', marginBottom: 8 }}>{error}</div>
+              <button
+                onClick={() => { setGenerating(false); setShowSummary(true); }}
+                style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.accent, cursor: 'pointer' }}
+              >
+                TRY AGAIN
+              </button>
             </div>
           )}
         </div>
@@ -161,26 +176,47 @@ export function Onboarding({ onComplete, userName }: Props) {
 
   if (showSummary) {
     return (
-      <div className="min-h-screen bg-dark">
-        <div className="max-w-app mx-auto px-5 py-6">
-          <h2 className="font-display text-2xl font-bold text-primary mb-1">Review Your Profile</h2>
-          <p className="text-secondary text-sm font-sans mb-5">Confirm everything looks right</p>
+      <div style={{ minHeight: '100dvh', background: s2.bg, color: s2.text, paddingBottom: 40 }}>
+        <div style={{ maxWidth: 480, margin: '0 auto', padding: '24px 20px' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.22em', color: s2.textDimmer, textTransform: 'uppercase', marginBottom: 10 }}>
+            REVIEW PROFILE
+          </div>
+          <div style={{ fontFamily: s2.sans, fontSize: 26, fontWeight: 400, letterSpacing: '-0.025em', marginBottom: 20, lineHeight: 1 }}>
+            Confirm & Generate
+          </div>
 
-          <SummaryCard label="Personal" items={[`${data.name}, ${data.age}y, ${data.gender}`, `${data.city}, ${data.country}`]} onEdit={() => { setShowSummary(false); setStep(1); }} />
-          <SummaryCard label="Body" items={[`${data.weightKg}kg → ${data.targetWeightKg}kg`, `Height: ${data.heightCm}cm`]} onEdit={() => { setShowSummary(false); setStep(2); }} />
-          <SummaryCard label="Diet" items={[data.mealPreference, `${data.mealsPerDay} meals/day`, data.cuisinePreferences.join(', ')]} onEdit={() => { setShowSummary(false); setStep(3); }} />
-          <SummaryCard label="Allergies" items={[data.allergies.length > 0 ? data.allergies.join(', ') : 'None']} onEdit={() => { setShowSummary(false); setStep(4); }} />
-          <SummaryCard label="Goal" items={[data.primaryGoal, `Intensity: ${data.dietIntensity}`, data.activityLevel]} onEdit={() => { setShowSummary(false); setStep(7); }} />
+          <SummaryCard label="PERSONAL" items={[`${data.name}, ${data.age}y, ${data.gender}`, `${data.city}, ${data.country}`]} onEdit={() => { setShowSummary(false); setStep(1); }} />
+          <SummaryCard label="BODY" items={[`${data.weightKg}kg → ${data.targetWeightKg}kg`, `Height: ${data.heightCm}cm`]} onEdit={() => { setShowSummary(false); setStep(2); }} />
+          <SummaryCard label="DIET" items={[data.mealPreference, `${data.mealsPerDay} meals/day`, data.cuisinePreferences.join(', ')]} onEdit={() => { setShowSummary(false); setStep(3); }} />
+          <SummaryCard label="ALLERGIES" items={[data.allergies.length > 0 ? data.allergies.join(', ') : 'None']} onEdit={() => { setShowSummary(false); setStep(4); }} />
+          <SummaryCard label="GOAL" items={[data.primaryGoal, `Intensity: ${data.dietIntensity}`, data.activityLevel]} onEdit={() => { setShowSummary(false); setStep(7); }} />
 
-          {error && <div className="bg-red-900/30 border border-red-500/40 text-red-300 text-sm px-4 py-3 rounded-xl font-sans mb-4">{error}</div>}
+          {error && (
+            <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px', marginBottom: 14 }}>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{error}</div>
+            </div>
+          )}
 
-          <button onClick={handleGenerate}
-            className="w-full shimmer text-white font-semibold py-4 rounded-[14px] font-sans text-base active:scale-95 transition-all mb-3">
-            Generate My Meal Plan ✨
+          <button
+            onClick={handleGenerate}
+            style={{
+              width: '100%', padding: '15px 0', background: s2.accent, border: 'none',
+              fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.2em', color: s2.bg,
+              cursor: 'pointer', marginBottom: 10, textTransform: 'uppercase',
+            }}
+          >
+            GENERATE MY MEAL PLAN ✨
           </button>
-          <button onClick={handleSkip}
-            className="w-full bg-surface border border-border text-secondary font-medium py-3 rounded-[14px] font-sans text-sm mb-6 hover:bg-elevated transition-colors">
-            Skip — Use default plan for now
+          <button
+            onClick={handleSkip}
+            style={{
+              width: '100%', padding: '13px 0', background: 'transparent',
+              border: `1px solid ${s2.lineStrong}`,
+              fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em',
+              color: s2.textDim, cursor: 'pointer', marginBottom: 20, textTransform: 'uppercase',
+            }}
+          >
+            SKIP — USE DEFAULT PLAN
           </button>
         </div>
       </div>
@@ -188,23 +224,39 @@ export function Onboarding({ onComplete, userName }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-dark">
-      <div className="max-w-app mx-auto flex flex-col min-h-screen">
-        {/* Progress bar */}
-        <div className="px-5 pt-6 pb-2">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-sans font-semibold text-secondary">Step {step} of {totalSteps}</span>
-            <div className="flex items-center gap-4">
-              {step > 1 && <button onClick={() => setStep(s => s - 1)} className="text-accent text-sm font-sans font-medium">← Back</button>}
-              <button onClick={logout} className="text-dimmed text-xs font-sans hover:text-red-400 transition-colors">Logout</button>
+    <div style={{ minHeight: '100dvh', background: s2.bg, color: s2.text }}>
+      <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+
+        {/* Progress bar area */}
+        <div style={{ padding: '24px 20px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.18em', color: s2.textDimmer, textTransform: 'uppercase' }}>
+              STEP {step} OF {totalSteps}
+            </div>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              {step > 1 && (
+                <button
+                  onClick={() => setStep(s => s - 1)}
+                  style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.accent, cursor: 'pointer' }}
+                >
+                  ← BACK
+                </button>
+              )}
+              <button
+                onClick={logout}
+                style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.12em', color: s2.textDimmer, cursor: 'pointer' }}
+              >
+                LOGOUT
+              </button>
             </div>
           </div>
-          <div className="h-1.5 bg-border rounded-full overflow-hidden">
-            <div className="h-full bg-accent rounded-full progress-fill" style={{ width: `${(step / totalSteps) * 100}%` }} />
+          {/* 2px flat progress bar */}
+          <div style={{ height: 2, background: s2.line }}>
+            <div style={{ height: '100%', width: `${(step / totalSteps) * 100}%`, background: s2.accent, transition: 'width 200ms' }} />
           </div>
         </div>
 
-        <div className="flex-1 px-5 py-4 overflow-y-auto pb-24">
+        <div style={{ flex: 1, padding: '0 20px 100px', overflowY: 'auto' }}>
           {step === 1 && <StepPersonal data={data} update={update} />}
           {step === 2 && <StepBody data={data} update={update} />}
           {step === 3 && <StepDiet data={data} update={update} toggleArr={toggleArrMax} />}
@@ -214,14 +266,37 @@ export function Onboarding({ onComplete, userName }: Props) {
           {step === 7 && <StepGoals data={data} update={update} toggleArr={toggleArr} />}
         </div>
 
-        <div className="fixed bottom-0 left-0 right-0 border-t border-border px-5 py-3 z-20" style={{ background: 'rgba(15,17,23,0.92)', backdropFilter: 'blur(20px)' }}>
-          <div className="max-w-app mx-auto">
+        {/* Fixed bottom CTA */}
+        <div style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          borderTop: `1px solid ${s2.line}`,
+          padding: '12px 20px max(16px, env(safe-area-inset-bottom, 0px))',
+          background: 'rgba(12,9,7,0.95)',
+          backdropFilter: 'blur(20px)',
+          zIndex: 20,
+        }}>
+          <div style={{ maxWidth: 480, margin: '0 auto' }}>
             <button
               onClick={() => step === totalSteps ? setShowSummary(true) : setStep(s => s + 1)}
               disabled={!canNext()}
-              className="w-full bg-accent text-white font-semibold py-3.5 rounded-[14px] font-sans disabled:opacity-40 active:scale-95 transition-all"
+              style={{
+                width: '100%',
+                padding: '14px 0',
+                background: canNext() ? s2.accent : s2.surface,
+                border: `1px solid ${canNext() ? s2.accent : s2.line}`,
+                fontFamily: s2.mono,
+                fontSize: 10,
+                letterSpacing: '0.2em',
+                color: canNext() ? s2.bg : s2.textDimmer,
+                cursor: canNext() ? 'pointer' : 'default',
+                textTransform: 'uppercase',
+                transition: 'background 150ms, color 150ms',
+              }}
             >
-              {step === totalSteps ? 'Review & Generate' : 'Continue'}
+              {step === totalSteps ? 'REVIEW & GENERATE' : 'CONTINUE →'}
             </button>
           </div>
         </div>
@@ -232,12 +307,19 @@ export function Onboarding({ onComplete, userName }: Props) {
 
 function SummaryCard({ label, items, onEdit }: { label: string; items: string[]; onEdit: () => void }) {
   return (
-    <div className="bg-surface rounded-xl border border-border p-4 mb-3 card-glow">
-      <div className="flex items-center justify-between mb-1">
-        <span className="font-sans font-semibold text-primary text-sm">{label}</span>
-        <button onClick={onEdit} className="text-accent text-xs font-sans font-medium">Edit</button>
+    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: '12px 14px', marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.18em', color: s2.textDimmer, textTransform: 'uppercase' }}>{label}</div>
+        <button
+          onClick={onEdit}
+          style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.accent, cursor: 'pointer' }}
+        >
+          EDIT
+        </button>
       </div>
-      {items.map((item, i) => <p key={i} className="text-sm text-secondary font-sans">{item}</p>)}
+      {items.map((item, i) => (
+        <div key={i} style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, marginTop: i > 0 ? 4 : 0 }}>{item}</div>
+      ))}
     </div>
   );
 }

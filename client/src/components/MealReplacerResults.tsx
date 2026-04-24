@@ -1,7 +1,11 @@
+// MealReplacerResults — Strain v2 visual. All logic preserved.
+
 import { useEffect } from 'react';
 import { useFoodSearch } from '../hooks/useFoodSearch';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { FoodResultCard } from './FoodResultCard';
+import { s2 } from '../theme/tokens';
+import { HairLabel } from './ui';
 
 interface Props {
   initialQuery?: string;
@@ -13,62 +17,103 @@ export function MealReplacerResults({ initialQuery, onBack }: Props) {
   const { selectFood, setScreen } = useMealReplacerStore();
 
   useEffect(() => {
-    if (initialQuery && !searchQuery) {
-      setSearchQuery(initialQuery);
-    }
+    if (initialQuery && !searchQuery) setSearchQuery(initialQuery);
   }, [initialQuery, searchQuery, setSearchQuery]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Search bar */}
-      <div className="flex items-center gap-2 mb-4 px-1">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button
           onClick={onBack}
-          className="text-accent text-sm font-sans font-semibold flex-shrink-0"
+          style={{
+            background: 'transparent',
+            border: `1px solid ${s2.lineStrong}`,
+            width: 36,
+            height: 36,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            flexShrink: 0,
+          }}
         >
-          ← Back
+          <svg width="10" height="10" viewBox="0 0 10 10">
+            <path d="M6 1 L2 5 L6 9" stroke={s2.text} strokeWidth="1.2" fill="none"/>
+          </svg>
         </button>
-        <div className="flex-1 flex items-center bg-elevated rounded-xl px-3 py-2.5 border border-border">
-          <span className="text-secondary mr-2">🔍</span>
+
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '10px 12px',
+          background: s2.surface,
+          border: `1px solid ${s2.accent}`,
+        }}>
+          <span style={{ fontFamily: s2.mono, fontSize: 13, color: s2.accent }}>⌕</span>
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search foods..."
             autoFocus
-            className="flex-1 bg-transparent text-sm font-sans text-primary outline-none placeholder-dimmed"
+            style={{
+              flex: 1,
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              fontFamily: s2.sans,
+              fontSize: 14,
+              color: s2.text,
+            }}
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="text-dimmed hover:text-secondary ml-1 text-lg"
+              style={{ background: 'transparent', border: 'none', color: s2.textDimmer, cursor: 'pointer', fontSize: 16, padding: 0, lineHeight: 1 }}
             >
-              &times;
+              ×
             </button>
           )}
         </div>
       </div>
 
       {/* Results */}
-      <div className="flex-1 overflow-y-auto space-y-2 px-1">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
         {isSearching && (
-          <div className="text-center py-8">
-            <div className="w-6 h-6 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-            <p className="text-sm text-secondary font-sans">Searching...</p>
+          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+            <div style={{
+              width: 20, height: 20,
+              border: `2px solid ${s2.accent}`,
+              borderTopColor: 'transparent',
+              borderRadius: '50%',
+              margin: '0 auto 12px',
+              animation: 'spin 0.8s linear infinite',
+            }} />
+            <HairLabel>SEARCHING…</HairLabel>
           </div>
         )}
 
         {!isSearching && searchResults.length === 0 && searchQuery.length >= 2 && (
-          <div className="text-center py-8">
-            <p className="text-4xl mb-2">🔍</p>
-            <p className="text-sm text-secondary font-sans mb-3">
-              No results found for "{searchQuery}"
-            </p>
+          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+            <HairLabel style={{ marginBottom: 12 }}>NO RESULTS FOR "{searchQuery.toUpperCase()}"</HairLabel>
             <button
               onClick={() => setScreen('ai')}
-              className="bg-violet/10 border border-violet/20 text-violet text-sm font-sans font-semibold px-4 py-2.5 rounded-xl hover:bg-violet/15 transition-colors"
+              style={{
+                padding: '12px 20px',
+                background: s2.accentFill,
+                border: `1px solid ${s2.accent}`,
+                fontFamily: s2.mono,
+                fontSize: 9,
+                letterSpacing: '0.18em',
+                color: s2.accent,
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+              }}
             >
-              ✨ Describe it — let AI estimate
+              ✨ DESCRIBE IT — LET AI ESTIMATE
             </button>
           </div>
         )}
@@ -78,9 +123,9 @@ export function MealReplacerResults({ initialQuery, onBack }: Props) {
         ))}
 
         {!isSearching && searchResults.length > 0 && (
-          <p className="text-[10px] text-dimmed font-sans text-center py-2">
-            Sources: Open Food Facts &middot; USDA &middot; AI
-          </p>
+          <HairLabel style={{ textAlign: 'center', padding: '8px 0' }}>
+            SOURCES: OPEN FOOD FACTS · USDA · AI
+          </HairLabel>
         )}
       </div>
     </div>

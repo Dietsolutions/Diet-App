@@ -1,7 +1,7 @@
-// AddMealButton — dashed button to open the add-meal sheet.
-// Hidden for future dates.
+// AddMealButton — Strain v2. Dashed border button, hidden for future dates.
 
 import { useMealReplacerStore } from '../store/mealReplacerStore';
+import { s2 } from '../theme/tokens';
 
 interface Props {
   date: string;
@@ -14,16 +14,39 @@ function todayStr() {
 export function AddMealButton({ date }: Props) {
   const { openAdder } = useMealReplacerStore();
 
-  // Don't show for future dates
   if (date > todayStr()) return null;
 
   return (
     <button
       onClick={() => openAdder(date)}
-      className="w-full flex items-center justify-center gap-2 rounded-2xl border border-dashed border-violet/30 bg-violet/5 px-4 py-3.5 text-sm font-sans font-medium text-violet/80 hover:bg-violet/10 hover:border-violet/50 hover:text-violet transition-all active:scale-95"
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        padding: '14px 0',
+        background: 'transparent',
+        border: `1px dashed ${s2.lineStrong}`,
+        fontFamily: s2.mono,
+        fontSize: 10,
+        letterSpacing: '0.2em',
+        color: s2.textDim,
+        cursor: 'pointer',
+        textTransform: 'uppercase',
+        transition: 'border-color 150ms, color 150ms',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLElement).style.borderColor = s2.accent;
+        (e.currentTarget as HTMLElement).style.color = s2.accent;
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLElement).style.borderColor = s2.lineStrong;
+        (e.currentTarget as HTMLElement).style.color = s2.textDim;
+      }}
     >
-      <span className="text-lg leading-none">+</span>
-      <span>Add a meal you had today</span>
+      <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+      LOG EXTRA MEAL
     </button>
   );
 }

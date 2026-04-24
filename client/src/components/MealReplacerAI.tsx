@@ -1,15 +1,19 @@
+// MealReplacerAI — Strain v2 visual. All logic preserved.
+
 import { useState } from 'react';
 import axios from 'axios';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { AIFoodComponent } from '../types';
+import { s2 } from '../theme/tokens';
+import { HairLabel, Card, Btn } from './ui';
 
 interface Props {
   onBack: () => void;
 }
 
 export function MealReplacerAI({ onBack }: Props) {
-  const { target, addMode, addModeDate, addModeCategory, submitReplacement, closeReplacer, setScreen } = useMealReplacerStore();
+  const { target, addMode, addModeDate, addModeCategory, closeReplacer, setScreen } = useMealReplacerStore();
   const [description, setDescription] = useState('');
   const [isEstimating, setIsEstimating] = useState(false);
   const [error, setError] = useState('');
@@ -25,13 +29,8 @@ export function MealReplacerAI({ onBack }: Props) {
     setIsEstimating(true);
     setError('');
     setResult(null);
-
     try {
-      const res = await axios.post(
-        '/api/food/ai-estimate',
-        { description: description.trim() },
-        { withCredentials: true }
-      );
+      const res = await axios.post('/api/food/ai-estimate', { description: description.trim() }, { withCredentials: true });
       setResult(res.data);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'AI estimation failed');
@@ -44,57 +43,28 @@ export function MealReplacerAI({ onBack }: Props) {
     if (!result) return;
     setIsLogging(true);
     setError('');
-
     try {
       if (addMode && addModeDate) {
-        // ── Add-mode: log as additional meal ──────────────────────────────
-        const res = await axios.post(
-          '/api/meals/additional',
-          {
-            date: addModeDate,
-            mealCategory: addModeCategory || 'other',
-            mealTime: null,
-            foodName: description.trim(),
-            foodSource: 'ai_estimate',
-            servingSize: '1 meal',
-            servingQty: 1,
-            servingGrams: null,
-            calories: result.totals.calories,
-            proteinG: result.totals.proteinG,
-            carbsG: result.totals.carbsG,
-            fatG: result.totals.fatG,
-            fibreG: result.totals.fibreG,
-            note: '',
-            isAiEstimate: true,
-          },
-          { withCredentials: true }
-        );
+        const res = await axios.post('/api/meals/additional', {
+          date: addModeDate, mealCategory: addModeCategory || 'other',
+          mealTime: null, foodName: description.trim(), foodSource: 'ai_estimate',
+          servingSize: '1 meal', servingQty: 1, servingGrams: null,
+          calories: result.totals.calories, proteinG: result.totals.proteinG,
+          carbsG: result.totals.carbsG, fatG: result.totals.fatG, fibreG: result.totals.fibreG,
+          note: '', isAiEstimate: true,
+        }, { withCredentials: true });
         useAdditionalMealsStore.getState().addToLocal(res.data.additionalMeal);
         closeReplacer();
       } else {
-        // ── Replace-mode: log as meal replacement ─────────────────────────
         if (!target) return;
-        await axios.post(
-          '/api/meals/replace',
-          {
-            date: target.date,
-            dayIndex: target.dayIndex,
-            mealIndex: target.mealIndex,
-            foodName: description.trim(),
-            foodSource: 'ai_estimate',
-            servingSize: '1 meal',
-            servingQty: 1,
-            servingGrams: null,
-            calories: result.totals.calories,
-            proteinG: result.totals.proteinG,
-            carbsG: result.totals.carbsG,
-            fatG: result.totals.fatG,
-            fibreG: result.totals.fibreG,
-            note: '',
-            isAiEstimate: true,
-          },
-          { withCredentials: true }
-        );
+        await axios.post('/api/meals/replace', {
+          date: target.date, dayIndex: target.dayIndex, mealIndex: target.mealIndex,
+          foodName: description.trim(), foodSource: 'ai_estimate',
+          servingSize: '1 meal', servingQty: 1, servingGrams: null,
+          calories: result.totals.calories, proteinG: result.totals.proteinG,
+          carbsG: result.totals.carbsG, fatG: result.totals.fatG, fibreG: result.totals.fibreG,
+          note: '', isAiEstimate: true,
+        }, { withCredentials: true });
         const { fetchReplacementsForWeek } = useMealReplacerStore.getState();
         await fetchReplacementsForWeek();
         closeReplacer();
@@ -106,104 +76,181 @@ export function MealReplacerAI({ onBack }: Props) {
   };
 
   return (
-    <div className="space-y-5 px-1">
-      <button onClick={onBack} className="text-accent text-sm font-sans font-semibold">
-        ← Back
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Back */}
+      <button
+        onClick={onBack}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'transparent', border: 'none',
+          fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em',
+          color: s2.accent, cursor: 'pointer', textTransform: 'uppercase',
+        }}
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <path d="M6 1 L2 5 L6 9" stroke={s2.accent} strokeWidth="1.2" fill="none"/>
+        </svg>
+        BACK
       </button>
 
+      {/* Header */}
       <div>
-        <h3 className="font-display text-lg font-bold text-primary flex items-center gap-2">
-          ✨ Describe your meal
-        </h3>
+        <HairLabel style={{ marginBottom: 6 }}>AI ESTIMATE</HairLabel>
+        <div style={{ fontFamily: s2.sans, fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text }}>
+          Describe your meal
+        </div>
       </div>
 
+      {/* Textarea */}
       <textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder='e.g. "2 rotis with butter chicken and a small bowl of raita"'
-        className="w-full bg-elevated border border-border rounded-xl px-3.5 py-3 text-sm font-sans text-primary placeholder-dimmed outline-none focus:border-accent/40 transition-colors resize-none"
         rows={3}
+        style={{
+          width: '100%',
+          background: s2.surface,
+          border: `1px solid ${s2.lineStrong}`,
+          padding: '12px 14px',
+          fontFamily: s2.sans,
+          fontSize: 14,
+          color: s2.text,
+          outline: 'none',
+          resize: 'none',
+          boxSizing: 'border-box',
+          lineHeight: 1.5,
+        }}
       />
 
       {!result && (
         <button
           onClick={handleEstimate}
           disabled={isEstimating || description.trim().length < 3}
-          className="w-full bg-violet text-white font-semibold font-sans py-3 rounded-[14px] text-sm active:scale-95 transition-all disabled:opacity-50"
+          style={{
+            width: '100%',
+            padding: '14px 0',
+            background: isEstimating || description.trim().length < 3 ? s2.surface : s2.accent,
+            border: `1px solid ${s2.accent}`,
+            fontFamily: s2.mono,
+            fontSize: 10,
+            letterSpacing: '0.2em',
+            color: isEstimating || description.trim().length < 3 ? s2.textDimmer : s2.bg,
+            cursor: isEstimating || description.trim().length < 3 ? 'default' : 'pointer',
+            textTransform: 'uppercase',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+          }}
         >
           {isEstimating ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Estimating...
-            </span>
-          ) : (
-            'Estimate Macros with AI'
-          )}
+            <>
+              <div style={{ width: 12, height: 12, border: `1.5px solid ${s2.textDimmer}`, borderTopColor: 'transparent', borderRadius: '50%' }} />
+              ESTIMATING…
+            </>
+          ) : 'ESTIMATE WITH AI'}
         </button>
       )}
 
       {error && (
-        <div className="bg-red-900/30 border border-red-500/40 text-red-300 text-sm px-3 py-2 rounded-xl font-sans">
-          {error}
+        <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
+          <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{error}</div>
         </div>
       )}
 
       {result && (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Breakdown */}
-          <div className="bg-surface rounded-xl border border-border p-3 space-y-2">
-            {result.breakdown.map((item, i) => (
-              <div key={i} className="flex items-start gap-2 text-sm font-sans">
-                <span className="text-accent mt-0.5">•</span>
-                <div className="flex-1">
-                  <p className="text-primary font-medium">
-                    {item.name}
-                    {item.portionDescription && (
-                      <span className="text-secondary font-normal"> — {item.portionDescription}</span>
-                    )}
-                  </p>
-                  <p className="text-xs text-secondary font-mono">
-                    {item.calories} kcal &middot; P:{item.proteinG}g &middot; C:{item.carbsG}g &middot; F:{item.fatG}g &middot; Fi:{item.fibreG}g
-                  </p>
+          <Card padding={12}>
+            <HairLabel style={{ marginBottom: 10 }}>BREAKDOWN</HairLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {result.breakdown.map((item, i) => (
+                <div key={i} style={{ display: 'flex', gap: 10, paddingBottom: 8, borderBottom: i < result.breakdown.length - 1 ? `1px solid ${s2.line}` : 'none' }}>
+                  <div style={{ fontFamily: s2.mono, fontSize: 10, color: s2.accent, width: 16, flexShrink: 0, paddingTop: 2 }}>·</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.text }}>
+                      {item.name}
+                      {item.portionDescription && (
+                        <span style={{ color: s2.textDim }}> — {item.portionDescription}</span>
+                      )}
+                    </div>
+                    <HairLabel style={{ marginTop: 3 }}>
+                      {item.calories} KCAL · P:{item.proteinG}g · C:{item.carbsG}g · F:{item.fatG}g · Fi:{item.fibreG}g
+                    </HairLabel>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </Card>
 
           {/* Totals */}
-          <div className="bg-surface rounded-xl border border-border p-3">
-            <p className="text-xs text-dimmed font-sans uppercase tracking-wide mb-1">Total</p>
-            <p className="text-xl font-bold font-mono text-primary">
-              {result.totals.calories} <span className="text-sm text-secondary">kcal</span>
-            </p>
-            <div className="flex gap-3 mt-1 text-xs font-mono">
-              <span className="text-success">P:{result.totals.proteinG}g</span>
-              <span className="text-accent">C:{result.totals.carbsG}g</span>
-              <span className="text-violet">F:{result.totals.fatG}g</span>
-              <span className="text-fibre">Fi:{result.totals.fibreG}g</span>
+          <Card padding={14}>
+            <HairLabel style={{ marginBottom: 8 }}>TOTAL</HairLabel>
+            <div style={{ fontFamily: s2.sans, fontSize: 28, fontWeight: 300, letterSpacing: '-0.03em', color: s2.accent, lineHeight: 1, marginBottom: 12 }}>
+              {result.totals.calories}<span style={{ fontFamily: s2.mono, fontSize: 12, color: s2.textDim, marginLeft: 6 }}>kcal</span>
             </div>
-          </div>
+            <div style={{ display: 'flex', gap: 14 }}>
+              <div><span style={{ fontFamily: s2.mono, fontSize: 12, color: s2.protein }}>P:{result.totals.proteinG}g</span></div>
+              <div><span style={{ fontFamily: s2.mono, fontSize: 12, color: s2.carbs }}>C:{result.totals.carbsG}g</span></div>
+              <div><span style={{ fontFamily: s2.mono, fontSize: 12, color: s2.fat }}>F:{result.totals.fatG}g</span></div>
+              <div><span style={{ fontFamily: s2.mono, fontSize: 12, color: s2.fibre }}>Fi:{result.totals.fibreG}g</span></div>
+            </div>
+          </Card>
 
-          <p className="text-[10px] text-dimmed font-sans text-center">
-            {result.confidenceNote || 'AI estimates — accuracy may vary ±20-25%'}
-          </p>
+          <HairLabel style={{ textAlign: 'center', fontSize: 7 }}>
+            {result.confidenceNote || 'AI ESTIMATES — ACCURACY MAY VARY ±20–25%'}
+          </HairLabel>
 
-          <div className="flex gap-3">
+          {error && (
+            <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{error}</div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10 }}>
             <button
               onClick={handleLog}
               disabled={isLogging}
-              className="flex-1 bg-accent text-white font-semibold font-sans py-3 rounded-[14px] text-sm active:scale-95 transition-all disabled:opacity-50"
+              style={{
+                flex: 1,
+                padding: '13px 0',
+                background: isLogging ? s2.surface : s2.accent,
+                border: `1px solid ${s2.accent}`,
+                fontFamily: s2.mono,
+                fontSize: 10,
+                letterSpacing: '0.15em',
+                color: isLogging ? s2.textDimmer : s2.bg,
+                cursor: isLogging ? 'default' : 'pointer',
+                textTransform: 'uppercase',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}
             >
-              {isLogging ? 'Logging...' : addMode ? 'Add to My Day' : 'Log This Meal'}
+              {isLogging ? (
+                <>
+                  <div style={{ width: 10, height: 10, border: `1.5px solid ${s2.textDimmer}`, borderTopColor: 'transparent', borderRadius: '50%' }} />
+                  LOGGING…
+                </>
+              ) : addMode ? 'ADD TO MY DAY' : 'LOG THIS MEAL'}
             </button>
             <button
-              onClick={() => {
-                setResult(null);
-                setScreen('results');
+              onClick={() => { setResult(null); setScreen('results'); }}
+              style={{
+                flex: 1,
+                padding: '13px 0',
+                background: 'transparent',
+                border: `1px solid ${s2.lineStrong}`,
+                fontFamily: s2.mono,
+                fontSize: 10,
+                letterSpacing: '0.15em',
+                color: s2.textDim,
+                cursor: 'pointer',
+                textTransform: 'uppercase',
               }}
-              className="flex-1 bg-elevated text-secondary font-medium font-sans py-3 rounded-[14px] text-sm border border-border hover:bg-elevated/80 transition-colors"
             >
-              Search manually
+              SEARCH MANUALLY
             </button>
           </div>
         </div>

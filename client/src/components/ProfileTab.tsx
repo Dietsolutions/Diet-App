@@ -1,3 +1,5 @@
+// ProfileTab — Strain v2 visual. All logic, hooks, API calls and sub-components preserved.
+
 import { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
@@ -12,7 +14,10 @@ import { WeightProgressChart } from './weight/WeightProgressChart';
 import { WeightLogModal } from './weight/WeightLogModal';
 import { WeightLogList } from './weight/WeightLogList';
 import { ErrorBoundary } from './ErrorBoundary';
+import { s2 } from '../theme/tokens';
+import { HairLabel, Card, Bar, Btn } from './ui';
 
+// ── ProfileTab ─────────────────────────────────────────────────────────────
 export function ProfileTab() {
   const { user, logout, refreshUser } = useAuth();
   const { profile, setProfile, setActiveTab } = useAppStore();
@@ -40,10 +45,9 @@ export function ProfileTab() {
         }
       })
       .catch(() => {});
-    // Fetch weight data
     fetchLogs();
     fetchProjection();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleInstructionsChange = (text: string) => {
     setMealInstructions(text);
@@ -54,14 +58,10 @@ export function ProfileTab() {
     setPlanDuration(duration);
     try {
       await axios.patch('/api/profile/plan-duration', { planDuration: duration }, { withCredentials: true });
-    } catch {
-      // silent — will be sent with next regenerate call
-    }
+    } catch {}
   };
 
-  const handleRegenerateClick = () => {
-    setShowConfirm(true);
-  };
+  const handleRegenerateClick = () => setShowConfirm(true);
 
   const handleRegenerate = async () => {
     setShowConfirm(false);
@@ -69,14 +69,12 @@ export function ProfileTab() {
     setError('');
     try {
       setRegenStep('Generating your new meal plan...');
-
       const result = await new Promise<any>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', apiUrl('/api/ai/generate-meal-plan'));
         xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.withCredentials = true;
         xhr.timeout = 180000;
-
         let processed = 0;
         let settled = false;
         const parseSSE = () => {
@@ -85,11 +83,11 @@ export function ProfileTab() {
           const blocks = text.split('\n\n');
           for (const block of blocks) {
             const eventMatch = block.match(/^event: (\w+)/);
-            const dataMatch = block.match(/^data: (.+)$/m);
+            const dataMatch  = block.match(/^data: (.+)$/m);
             if (!eventMatch || !dataMatch) continue;
             try {
               const parsed = JSON.parse(dataMatch[1]);
-              if (eventMatch[1] === 'progress') setRegenStep(parsed.step);
+              if (eventMatch[1] === 'progress' && !settled) setRegenStep(parsed.step);
               else if (eventMatch[1] === 'done' && !settled) { settled = true; resolve(parsed); }
               else if (eventMatch[1] === 'error' && !settled) { settled = true; reject(new Error(parsed.error)); }
             } catch {}
@@ -105,39 +103,51 @@ export function ProfileTab() {
             } else { reject(new Error('No response received')); }
           }
         };
-        xhr.onerror = () => { if (!settled) reject(new Error('Network error')); };
+        xhr.onerror  = () => { if (!settled) reject(new Error('Network error')); };
         xhr.ontimeout = () => { if (!settled) reject(new Error('Request timed out')); };
         xhr.send('{}');
       });
-
       if (!result?.success) throw new Error('Failed');
       setRegenStep('Done!');
       await refreshUser();
       setRegenerating(false);
       setShowSuccess(true);
-      if (instructionsRef.current.trim()) {
-        setShowBanner(true);
-      }
+      if (instructionsRef.current.trim()) setShowBanner(true);
     } catch (err: any) {
       setError(err?.message || 'Failed to regenerate');
       setRegenerating(false);
     }
   };
 
+  // ── Regenerating screen ────────────────────────────────────────────────
   if (regenerating) {
     return (
-      <div className="flex-1 flex items-center justify-center px-5">
-        <div className="text-center">
-          <div className="text-5xl mb-4 animate-bounce">🍽️</div>
-          <h3 className="font-display text-xl font-bold text-primary mb-2">Regenerating Plan</h3>
-          <p className="text-accent font-sans text-sm">{regenStep}</p>
-          <div className="w-48 h-1.5 bg-border rounded-full overflow-hidden mx-auto mt-4">
-            <div className="h-full shimmer rounded-full" style={{ width: '60%' }} />
+      <div style={{ background: s2.bg, minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+        <div style={{ textAlign: 'center', maxWidth: 280, width: '100%' }}>
+          <HairLabel style={{ marginBottom: 16 }}>REGENERATING</HairLabel>
+          <div style={{ fontFamily: s2.sans, fontSize: 26, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text, marginBottom: 12 }}>
+            Building your plan
+          </div>
+          <div style={{ fontFamily: s2.mono, fontSize: 11, color: s2.accent, letterSpacing: '0.1em', marginBottom: 24, minHeight: 18 }}>
+            {regenStep}
+          </div>
+          {/* Shimmer bar */}
+          <div style={{ height: 2, background: s2.line, position: 'relative', overflow: 'hidden' }}>
+            <div style={{
+              position: 'absolute', top: 0, left: '-60%', height: '100%', width: '60%',
+              background: `linear-gradient(90deg, transparent, ${s2.accent}, transparent)`,
+              animation: 'shimmer 1.4s infinite',
+            }} />
           </div>
           {error && (
-            <div className="mt-4 bg-red-900/30 border border-red-500/40 text-red-300 text-sm px-4 py-3 rounded-xl font-sans">
-              {error}
-              <button onClick={() => setRegenerating(false)} className="block mt-2 text-accent underline">Back</button>
+            <div style={{ marginTop: 20, border: `1px solid ${s2.warn}`, padding: 14, background: 'rgba(255,62,62,0.08)' }}>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{error}</div>
+              <button
+                onClick={() => setRegenerating(false)}
+                style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, color: s2.accent, cursor: 'pointer', letterSpacing: '0.15em', marginTop: 8 }}
+              >
+                BACK
+              </button>
             </div>
           )}
         </div>
@@ -145,32 +155,32 @@ export function ProfileTab() {
     );
   }
 
+  // ── Success screen ─────────────────────────────────────────────────────
   if (showSuccess) {
     return (
-      <div className="flex-1 flex items-center justify-center px-6">
-        <div className="text-center max-w-xs">
-          <div className="w-20 h-20 bg-success-fill rounded-full flex items-center justify-center mx-auto mb-5">
-            <span className="text-4xl">✅</span>
+      <div style={{ background: s2.bg, minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+        <div style={{ textAlign: 'center', maxWidth: 300, width: '100%' }}>
+          {/* Accent square "check" */}
+          <div style={{
+            width: 56, height: 56, background: s2.accentFill, border: `1px solid ${s2.accent}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px',
+          }}>
+            <svg width="24" height="24" viewBox="0 0 24 24">
+              <path d="M4 12 L9 17 L20 6" stroke={s2.accent} strokeWidth="2" fill="none" strokeLinecap="square"/>
+            </svg>
           </div>
-          <h3 className="font-display text-2xl font-bold text-primary mb-2">Plan Ready!</h3>
-          <p className="text-secondary font-sans text-sm leading-relaxed mb-6">
-            Your personalised {planDuration}-day meal plan has been generated successfully. Head over to the Meals tab to view your new diet plan.
-          </p>
-          <button
-            onClick={() => {
-              setShowSuccess(false);
-              setActiveTab('meals');
-            }}
-            className="w-full bg-accent text-white font-semibold py-3.5 rounded-[14px] font-sans text-base active:scale-95 transition-all"
-          >
-            View My Meal Plan
-          </button>
-          <button
-            onClick={() => setShowSuccess(false)}
-            className="w-full mt-3 bg-surface border border-border text-secondary font-medium py-3 rounded-[14px] font-sans text-sm hover:bg-elevated transition-colors"
-          >
-            Stay on Profile
-          </button>
+          <div style={{ fontFamily: s2.sans, fontSize: 26, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text, marginBottom: 10 }}>
+            Plan Ready
+          </div>
+          <div style={{ fontFamily: s2.sans, fontSize: 14, color: s2.textDim, lineHeight: 1.55, marginBottom: 28 }}>
+            Your personalised {planDuration}-day meal plan has been generated. Head to Meals to view it.
+          </div>
+          <Btn primary onClick={() => { setShowSuccess(false); setActiveTab('meals'); }} style={{ width: '100%', marginBottom: 10 }}>
+            VIEW MEAL PLAN
+          </Btn>
+          <Btn onClick={() => setShowSuccess(false)} style={{ width: '100%' }}>
+            STAY ON PROFILE
+          </Btn>
         </div>
       </div>
     );
@@ -180,176 +190,307 @@ export function ProfileTab() {
   const hasInstructions = mealInstructions.trim().length > 0;
 
   return (
-    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-      {/* Success banner */}
-      {showBanner && (
-        <div className="bg-success-fill border border-success/30 rounded-xl px-4 py-3 flex items-center justify-between">
-          <p className="text-sm font-sans text-success font-medium">
-            Your meal plan has been updated with your custom changes
-          </p>
-          <button onClick={() => setShowBanner(false)} className="text-success/60 hover:text-success ml-2 text-lg leading-none">&times;</button>
-        </div>
-      )}
+    <div style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 90 }}>
 
-      {/* User card */}
-      <div className="bg-surface rounded-2xl p-5 flex items-center gap-4 border border-border card-glow">
-        {user?.avatar ? (
-          <img src={user.avatar} alt="" className="w-14 h-14 rounded-full" />
-        ) : (
-          <div className="w-14 h-14 bg-accent/20 rounded-full flex items-center justify-center text-accent font-display font-bold text-lg">{initials}</div>
-        )}
-        <div>
-          <h2 className="font-display font-bold text-primary text-lg">{user?.name || user?.username}</h2>
-          <p className="text-secondary text-sm font-sans">{user?.email || `@${user?.username}`}</p>
+      {/* ── Section header ────────────────────────────────────────────────── */}
+      <div style={{ padding: '14px 20px 0' }}>
+        <HairLabel>YOUR BODY</HairLabel>
+        <div style={{ fontFamily: s2.sans, fontSize: 30, fontWeight: 400, letterSpacing: '-0.025em', marginTop: 4, lineHeight: 1 }}>
+          Profile
         </div>
       </div>
 
-      {/* Stats */}
-      {profile && (
-        <>
-          <div className="bg-surface rounded-2xl border border-border p-4 card-glow">
-            <h3 className="font-sans font-semibold text-primary text-sm mb-3">Body Stats</h3>
-            <div className="grid grid-cols-3 gap-3">
-              <StatItem label="Current" value={`${profile.weightKg}kg`} />
-              <StatItem label="Target" value={`${profile.targetWeightKg}kg`} />
-              <StatItem label="BMI" value={`${profile.bmi}`} />
-            </div>
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <StatItem label="Goal" value={profile.primaryGoal.replace(/_/g, ' ')} />
-              <StatItem label="Intensity" value={profile.dietIntensity} />
-            </div>
-            <GoalProjectionCard />
-          </div>
+      <div style={{ padding: '16px 20px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-          {/* Weight Tracking Section */}
-          <WeightStatsHeader />
-          <ErrorBoundary>
-            <WeightProgressChart />
-          </ErrorBoundary>
-          <WeightLogList />
-
-          <div className="bg-surface rounded-2xl border border-border p-4 card-glow">
-            <h3 className="font-sans font-semibold text-primary text-sm mb-3">Daily Nutrition Targets</h3>
-            <div className="grid grid-cols-5 gap-2">
-              <NutrientItem label="kcal" value={Math.round(profile.targetCalories)} color="text-primary" bgColor="bg-primary/[0.08]" />
-              <NutrientItem label="Protein" value={`${Math.round(profile.proteinTarget)}g`} color="text-success" bgColor="bg-success-fill" />
-              <NutrientItem label="Carbs" value={`${Math.round(profile.carbTarget)}g`} color="text-accent" bgColor="bg-accent-fill" />
-              <NutrientItem label="Fat" value={`${Math.round(profile.fatTarget)}g`} color="text-violet" bgColor="bg-violet-fill" />
-              <NutrientItem label="Fibre" value={`${Math.round(profile.fibreTarget)}g`} color="text-fibre" bgColor="bg-fibre-fill" />
-            </div>
-          </div>
-
-          <div className="bg-surface rounded-2xl border border-border p-4 card-glow">
-            <h3 className="font-sans font-semibold text-primary text-sm mb-3">Preferences</h3>
-            <div className="space-y-2 text-sm font-sans">
-              <div className="flex justify-between"><span className="text-secondary">Diet</span><span className="text-primary font-medium">{profile.mealPreference?.replace(/_/g, ' ')}</span></div>
-              <div className="flex justify-between"><span className="text-secondary">Cuisines</span><span className="text-primary font-medium">{(profile.cuisinePreferences || []).join(', ')}</span></div>
-              <div className="flex justify-between"><span className="text-secondary">Meals/day</span><span className="text-primary font-medium">{profile.mealsPerDay}</span></div>
-              <div className="flex justify-between"><span className="text-secondary">Activity</span><span className="text-primary font-medium">{profile.activityLevel?.replace(/_/g, ' ')}</span></div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Plan Duration Selector */}
-      <div className="bg-surface rounded-2xl border border-border p-4 card-glow">
-        <h3 className="font-sans font-semibold text-primary text-sm mb-3">Plan Duration</h3>
-        <p className="text-xs text-secondary font-sans mb-3">Changes take effect on your next regenerated plan.</p>
-        <div className="grid grid-cols-2 gap-3">
-          {([7, 14] as const).map(d => (
+        {/* Success banner */}
+        {showBanner && (
+          <div style={{
+            border: `1px solid ${s2.accent}`,
+            background: s2.accentFill,
+            padding: '10px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <HairLabel color={s2.accentSoft}>PLAN UPDATED WITH YOUR CHANGES</HairLabel>
             <button
-              key={d}
-              onClick={() => handlePlanDurationChange(d)}
-              className={`relative text-left px-4 py-3 rounded-xl text-sm font-sans transition-all ${
-                planDuration === d ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'
-              }`}
+              onClick={() => setShowBanner(false)}
+              style={{ background: 'transparent', border: 'none', color: s2.textDim, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}
             >
-              {d === 14 && (
-                <span className="absolute -top-2 right-2 bg-accent text-white text-[9px] font-bold px-2 py-0.5 rounded-full">⭐ Recommended</span>
-              )}
-              <span className="font-semibold block">{d}-Day Plan</span>
-              <span className={`text-xs mt-0.5 block ${planDuration === d ? 'text-secondary' : 'text-dimmed'}`}>
-                {d === 7 ? 'One week of meals' : 'Maximum variety'}
-              </span>
+              ×
             </button>
-          ))}
+          </div>
+        )}
+
+        {/* ── User card ──────────────────────────────────────────────────── */}
+        <Card padding={16}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {user?.avatar ? (
+              <img src={user.avatar} alt="" style={{ width: 48, height: 48, objectFit: 'cover', flexShrink: 0 }} />
+            ) : (
+              <div style={{
+                width: 48,
+                height: 48,
+                background: s2.accentFill,
+                border: `1px solid ${s2.accent}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                fontFamily: s2.sans,
+                fontSize: 16,
+                fontWeight: 600,
+                color: s2.accent,
+              }}>
+                {initials}
+              </div>
+            )}
+            <div>
+              <div style={{ fontFamily: s2.sans, fontSize: 16, fontWeight: 500, color: s2.text }}>
+                {user?.name || user?.username}
+              </div>
+              <HairLabel style={{ marginTop: 3 }}>{user?.email || `@${user?.username}`}</HairLabel>
+            </div>
+          </div>
+        </Card>
+
+        {/* ── Body stats ─────────────────────────────────────────────────── */}
+        {profile && (
+          <>
+            <div>
+              <HairLabel style={{ marginBottom: 8 }}>BODY STATS</HairLabel>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 10 }}>
+                <StatCard label="CURRENT" value={`${profile.weightKg}`} unit="kg" />
+                <StatCard label="TARGET" value={`${profile.targetWeightKg}`} unit="kg" accent />
+                <StatCard label="BMI" value={`${profile.bmi}`} unit="" />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
+                <DataPair label="GOAL" value={profile.primaryGoal.replace(/_/g, ' ')} />
+                <DataPair label="INTENSITY" value={profile.dietIntensity} />
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <GoalProjectionCard />
+              </div>
+            </div>
+
+            {/* ── Weight tracking ──────────────────────────────────────────── */}
+            <WeightStatsHeader />
+            <ErrorBoundary>
+              <WeightProgressChart />
+            </ErrorBoundary>
+            <WeightLogList />
+
+            {/* ── Daily nutrition targets ──────────────────────────────────── */}
+            <div>
+              <HairLabel style={{ marginBottom: 8 }}>DAILY TARGETS</HairLabel>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8 }}>
+                <NutrientCard label="KCAL" value={Math.round(profile.targetCalories)} color={s2.text} />
+                <NutrientCard label="PRO" value={`${Math.round(profile.proteinTarget)}g`} color={s2.protein} />
+                <NutrientCard label="CARB" value={`${Math.round(profile.carbTarget)}g`} color={s2.carbs} />
+                <NutrientCard label="FAT" value={`${Math.round(profile.fatTarget)}g`} color={s2.fat} />
+                <NutrientCard label="FBRE" value={`${Math.round(profile.fibreTarget)}g`} color={s2.fibre} />
+              </div>
+            </div>
+
+            {/* ── Preferences ─────────────────────────────────────────────── */}
+            <Card padding={14}>
+              <HairLabel style={{ marginBottom: 10 }}>PREFERENCES</HairLabel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <PrefsRow label="DIET" value={profile.mealPreference?.replace(/_/g, ' ')} />
+                <PrefsRow label="CUISINES" value={(profile.cuisinePreferences || []).join(', ')} />
+                <PrefsRow label="MEALS/DAY" value={String(profile.mealsPerDay)} />
+                <PrefsRow label="ACTIVITY" value={profile.activityLevel?.replace(/_/g, ' ')} />
+              </div>
+            </Card>
+          </>
+        )}
+
+        {/* ── Plan duration ──────────────────────────────────────────────── */}
+        <div>
+          <HairLabel style={{ marginBottom: 8 }}>PLAN DURATION</HairLabel>
+          <HairLabel color={s2.textDimmer} style={{ marginBottom: 10, fontSize: 8 }}>
+            CHANGES TAKE EFFECT ON NEXT REGENERATION
+          </HairLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {([7, 14] as const).map(d => {
+              const active = planDuration === d;
+              return (
+                <button
+                  key={d}
+                  onClick={() => handlePlanDurationChange(d)}
+                  style={{
+                    padding: '14px 12px',
+                    border: `1px solid ${active ? s2.accent : s2.line}`,
+                    background: active ? s2.accentFill : s2.surface,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    position: 'relative',
+                  }}
+                >
+                  {d === 14 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: -1,
+                      right: 8,
+                      background: s2.accent,
+                      fontFamily: s2.mono,
+                      fontSize: 7,
+                      letterSpacing: '0.12em',
+                      color: s2.bg,
+                      padding: '2px 6px',
+                      textTransform: 'uppercase',
+                    }}>
+                      REC
+                    </div>
+                  )}
+                  <div style={{ fontFamily: s2.sans, fontSize: 15, fontWeight: 500, color: active ? s2.accent : s2.text, marginBottom: 3 }}>
+                    {d}-Day Plan
+                  </div>
+                  <HairLabel color={active ? s2.accentSoft : s2.textDimmer}>
+                    {d === 7 ? 'ONE WEEK' : 'MAX VARIETY'}
+                  </HairLabel>
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        {/* ── Meal Plan Customiser ────────────────────────────────────────── */}
+        <MealPlanCustomiser
+          initialValue={mealInstructions}
+          onInstructionsChange={handleInstructionsChange}
+          onRegenerate={handleRegenerateClick}
+          isRegenerating={regenerating}
+        />
+
+        {/* ── Logout ─────────────────────────────────────────────────────── */}
+        <button
+          onClick={logout}
+          style={{
+            width: '100%',
+            background: 'transparent',
+            border: `1px solid rgba(255,62,62,0.3)`,
+            padding: '13px 0',
+            fontFamily: s2.mono,
+            fontSize: 10,
+            letterSpacing: '0.2em',
+            color: '#FF3E3E',
+            cursor: 'pointer',
+            textTransform: 'uppercase',
+          }}
+        >
+          LOGOUT
+        </button>
+
+        <div style={{ height: 16 }} />
       </div>
 
-      {/* Meal Plan Customiser + Regenerate */}
-      <MealPlanCustomiser
-        initialValue={mealInstructions}
-        onInstructionsChange={handleInstructionsChange}
-        onRegenerate={handleRegenerateClick}
-        isRegenerating={regenerating}
-      />
-
-      <button onClick={logout}
-        className="w-full bg-surface border border-red-500/30 text-red-400 font-medium py-3 rounded-[14px] font-sans text-sm hover:bg-red-500/10 transition-colors">
-        Logout
-      </button>
-
-      {/* Confirm dialog */}
+      {/* ── Confirm regen dialog ────────────────────────────────────────── */}
       {showConfirm && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-5" style={{ backdropFilter: 'blur(8px)' }}>
-          <div className="bg-surface rounded-2xl p-6 max-w-sm w-full border border-border card-glow">
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.7)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 50,
+          padding: 20,
+        }}>
+          <div style={{
+            background: s2.surface,
+            border: `1px solid ${s2.lineStrong}`,
+            padding: 24,
+            maxWidth: 340,
+            width: '100%',
+          }}>
             {hasInstructions ? (
               <>
-                <h3 className="font-display font-bold text-primary text-lg mb-2">Regenerate with your changes?</h3>
-                <p className="text-sm text-secondary font-sans mb-3">
-                  Your custom instructions will be applied to the new meal plan:
-                </p>
-                <div className="bg-elevated rounded-xl px-3 py-2.5 mb-3 border border-border">
-                  <p className="text-sm text-primary font-sans italic leading-relaxed line-clamp-3">
-                    "{mealInstructions.trim()}"
-                  </p>
+                <HairLabel style={{ marginBottom: 10 }}>REGENERATE WITH CHANGES</HairLabel>
+                <div style={{ fontFamily: s2.sans, fontSize: 15, color: s2.text, marginBottom: 10 }}>
+                  Apply your custom instructions?
                 </div>
-                <p className="text-xs text-dimmed font-sans mb-5">
-                  Your current tracking data will be reset. This cannot be undone.
-                </p>
+                <div style={{ border: `1px solid ${s2.line}`, background: s2.surface2, padding: '10px 12px', marginBottom: 10 }}>
+                  <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, fontStyle: 'italic', lineHeight: 1.5 }}>
+                    "{mealInstructions.trim()}"
+                  </div>
+                </div>
+                <HairLabel color={s2.textDimmer} style={{ marginBottom: 20, fontSize: 8 }}>
+                  CURRENT TRACKING DATA WILL BE RESET — CANNOT BE UNDONE
+                </HairLabel>
               </>
             ) : (
               <>
-                <h3 className="font-display font-bold text-primary text-lg mb-2">Regenerate Plan?</h3>
-                <p className="text-sm text-secondary font-sans mb-5">
-                  This will create a brand new {planDuration}-day plan based on your profile. Your current tracking data will be reset.
-                </p>
+                <HairLabel style={{ marginBottom: 10 }}>REGENERATE PLAN</HairLabel>
+                <div style={{ fontFamily: s2.sans, fontSize: 15, color: s2.text, marginBottom: 6 }}>
+                  Create a new {planDuration}-day plan?
+                </div>
+                <HairLabel color={s2.textDimmer} style={{ marginBottom: 20, fontSize: 8 }}>
+                  CURRENT TRACKING DATA WILL BE RESET — CANNOT BE UNDONE
+                </HairLabel>
               </>
             )}
-            <div className="flex gap-3">
-              <button onClick={() => setShowConfirm(false)}
-                className="flex-1 bg-elevated text-secondary font-medium py-2.5 rounded-[14px] font-sans text-sm border border-border hover:bg-elevated/80 transition-colors">Cancel</button>
-              <button onClick={handleRegenerate}
-                className="flex-1 bg-accent text-white font-semibold py-2.5 rounded-[14px] font-sans text-sm active:scale-95 transition-all">
-                {hasInstructions ? 'Yes, Regenerate' : 'Regenerate'}
-              </button>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Btn onClick={() => setShowConfirm(false)} style={{ flex: 1 }}>CANCEL</Btn>
+              <Btn primary onClick={handleRegenerate} style={{ flex: 1 }}>
+                {hasInstructions ? 'YES, REGEN' : 'REGENERATE'}
+              </Btn>
             </div>
           </div>
         </div>
       )}
 
-      <div className="h-4" />
-
-      {/* Weight Log Modal */}
+      {/* Weight Log Modal (portal) */}
       <WeightLogModal />
     </div>
   );
 }
 
-function StatItem({ label, value }: { label: string; value: string }) {
+// ── Local sub-components ────────────────────────────────────────────────────
+function StatCard({ label, value, unit, accent }: { label: string; value: string; unit: string; accent?: boolean }) {
   return (
-    <div className="text-center">
-      <p className="font-sans font-bold text-primary text-base">{value}</p>
-      <p className="text-xs text-secondary font-sans">{label}</p>
+    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: '12px 10px' }}>
+      <HairLabel>{label}</HairLabel>
+      <div style={{
+        fontFamily: s2.mono,
+        fontSize: 22,
+        fontWeight: 400,
+        color: accent ? s2.accent : s2.text,
+        letterSpacing: '-0.02em',
+        lineHeight: 1,
+        marginTop: 6,
+      }}>
+        {value}<span style={{ fontSize: 11, color: accent ? s2.accentSoft : s2.textDimmer }}>{unit}</span>
+      </div>
     </div>
   );
 }
 
-function NutrientItem({ label, value, color, bgColor }: { label: string; value: string | number; color: string; bgColor: string }) {
+function DataPair({ label, value }: { label: string; value: string }) {
   return (
-    <div className={`text-center rounded-3xl py-1.5 ${bgColor}`}>
-      <p className={`font-bold text-sm font-mono ${color}`}>{value}</p>
-      <p className="text-[10px] text-secondary font-sans">{label}</p>
+    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+      <HairLabel>{label}</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.text, textTransform: 'capitalize' }}>{value}</div>
+    </div>
+  );
+}
+
+function NutrientCard({ label, value, color }: { label: string; value: string | number; color: string }) {
+  return (
+    <div style={{ border: `1px solid ${color}22`, background: `${color}10`, padding: '10px 6px', textAlign: 'center' }}>
+      <div style={{ fontFamily: s2.mono, fontSize: 12, fontWeight: 500, color, lineHeight: 1, marginBottom: 4 }}>{value}</div>
+      <HairLabel style={{ fontSize: 7 }}>{label}</HairLabel>
+    </div>
+  );
+}
+
+function PrefsRow({ label, value }: { label: string; value?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: 6, borderBottom: `1px solid ${s2.line}` }}>
+      <HairLabel>{label}</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.text, textTransform: 'capitalize', textAlign: 'right', maxWidth: '55%' }}>
+        {value || '—'}
+      </div>
     </div>
   );
 }
