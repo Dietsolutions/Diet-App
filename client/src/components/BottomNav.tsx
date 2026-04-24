@@ -20,8 +20,10 @@ export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
       style={{
         position: 'fixed',
         bottom: 0,
-        left: 0,
-        right: 0,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '100%',
+        maxWidth: 480,
         // 28 px base + safe-area on iPhone X+ (home indicator ~34 px)
         paddingBottom: 'max(28px, env(safe-area-inset-bottom, 0px))',
         paddingTop: 10,

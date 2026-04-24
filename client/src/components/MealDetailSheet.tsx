@@ -123,15 +123,16 @@ export function MealDetailSheet({
     <div
       style={{
         position: 'fixed',
-        inset: 0,
+        top: 0,
+        bottom: 0,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '100%',
+        maxWidth: 480,
         background: s2.bg,
         zIndex: 45,
         display: 'flex',
         flexDirection: 'column',
-        maxWidth: 480,
-        margin: '0 auto',
-        left: 0,
-        right: 0,
       }}
     >
       {/* ── Top bar ────────────────────────────────────────────────────────── */}

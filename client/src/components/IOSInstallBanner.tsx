@@ -74,11 +74,11 @@ export function IOSInstallBanner() {
       style={{
         position: 'fixed',
         bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 55,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: '100%',
         maxWidth: 480,
-        margin: '0 auto',
+        zIndex: 55,
         padding: '0 0 max(env(safe-area-inset-bottom, 0px), 12px)',
       }}
     >

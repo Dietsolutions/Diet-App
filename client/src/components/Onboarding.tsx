@@ -270,15 +270,17 @@ export function Onboarding({ onComplete, userName }: Props) {
         <div style={{
           position: 'fixed',
           bottom: 0,
-          left: 0,
-          right: 0,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '100%',
+          maxWidth: 480,
           borderTop: `1px solid ${s2.line}`,
           padding: '12px 20px max(16px, env(safe-area-inset-bottom, 0px))',
           background: 'rgba(12,9,7,0.95)',
           backdropFilter: 'blur(20px)',
           zIndex: 20,
         }}>
-          <div style={{ maxWidth: 480, margin: '0 auto' }}>
+          <div>
             <button
               onClick={() => step === totalSteps ? setShowSummary(true) : setStep(s => s + 1)}
               disabled={!canNext()}

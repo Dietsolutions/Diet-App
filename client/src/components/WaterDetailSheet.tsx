@@ -132,7 +132,12 @@ export function WaterDetailSheet({ date, onClose }: Props) {
   return (
     <div style={{
       position: 'fixed',
-      inset: 0,
+      top: 0,
+      bottom: 0,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      width: '100%',
+      maxWidth: 480,
       background: s2.bg,
       zIndex: 40,
       overflowY: 'auto',
