@@ -1,3 +1,5 @@
+// Onboarding — Strain v2 visual redesign. All data collection, hooks, and API calls preserved.
+
 import { useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
@@ -24,10 +26,103 @@ const INITIAL: OnboardingData = {
   planDuration: 7,
 };
 
+// Generating checklist steps
+const GEN_CHECKLIST = [
+  { label: 'READING YOUR PROFILE',      match: 'Saving your profile' },
+  { label: 'APPLYING PREFERENCES',      match: 'Applying' },
+  { label: 'GENERATING YOUR MENU',      match: 'Generating' },
+  { label: 'WRITING MEALS',             match: 'Writing meals' },
+  { label: 'SAVING MEAL PLAN',          match: 'Saving meal' },
+];
+
+function getGenIdx(step: string): number {
+  for (let i = GEN_CHECKLIST.length - 1; i >= 0; i--) {
+    if (step.toLowerCase().includes(GEN_CHECKLIST[i].match.toLowerCase())) return i;
+  }
+  if (step === 'Done!') return GEN_CHECKLIST.length;
+  return 0;
+}
+
+// ── Shared primitives ──────────────────────────────────────────────────────────
+
+function HairLabel({ children, color, style }: { children: React.ReactNode; color?: string; style?: React.CSSProperties }) {
+  return (
+    <div style={{
+      fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.22em',
+      color: color || s2.textDimmer, textTransform: 'uppercase', fontWeight: 500,
+      ...style,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function BackBtn({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      background: 'transparent',
+      border: `1px solid ${s2.lineStrong}`,
+      width: 36, height: 36,
+      color: disabled ? s2.textDimmer : s2.text,
+      cursor: disabled ? 'default' : 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0,
+    }}>
+      <svg width="11" height="11" viewBox="0 0 11 11">
+        <path d="M7 1 L2 5.5 L7 10" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      </svg>
+    </button>
+  );
+}
+
+// Underline text input (name-style)
+function UnderlineInput({ value, onChange, placeholder, fontSize = 28 }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; fontSize?: number;
+}) {
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{
+        display: 'block', width: '100%',
+        background: 'transparent', border: 'none',
+        borderBottom: `1px solid ${s2.accent}`,
+        fontFamily: s2.sans, fontSize, fontWeight: 300,
+        color: s2.text, letterSpacing: '-0.02em',
+        padding: '8px 0', outline: 'none',
+      }}
+    />
+  );
+}
+
+// S2 bordered selection button
+function SelBtn({ on, onClick, children, style }: {
+  on: boolean; onClick: () => void; children: React.ReactNode; style?: React.CSSProperties;
+}) {
+  return (
+    <button onClick={onClick} style={{
+      background: on ? s2.accentFill : 'transparent',
+      border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
+      color: on ? s2.accent : s2.text,
+      fontFamily: s2.mono, fontSize: 11, fontWeight: 600, letterSpacing: '0.18em',
+      cursor: 'pointer', textTransform: 'uppercase',
+      ...style,
+    }}>
+      {children}
+    </button>
+  );
+}
+
+// ── Props / interfaces ─────────────────────────────────────────────────────────
+
 interface Props {
   onComplete: () => void;
   userName?: string | null;
 }
+
+// ── Main component ─────────────────────────────────────────────────────────────
 
 export function Onboarding({ onComplete, userName }: Props) {
   const { refreshUser, logout } = useAuth();
@@ -70,7 +165,6 @@ export function Onboarding({ onComplete, userName }: Props) {
     try {
       setGenStep('Saving your profile...');
       await axios.post('/api/profile', data, { withCredentials: true });
-
       setGenStep('Generating your personalised meal plan...');
 
       const result = await new Promise<any>((resolve, reject) => {
@@ -79,7 +173,6 @@ export function Onboarding({ onComplete, userName }: Props) {
         xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.withCredentials = true;
         xhr.timeout = 180000;
-
         let processed = 0;
         let settled = false;
         const parseSSE = () => {
@@ -114,15 +207,12 @@ export function Onboarding({ onComplete, userName }: Props) {
       });
 
       if (!result?.success) throw new Error('Generation failed');
-
       setGenStep('Done!');
       await refreshUser();
-      // Show plan overview so the user can review / change meals before entering
       setGenerating(false);
       setShowPlanOverview(true);
     } catch (err: any) {
-      const msg = err?.message || 'Failed to generate meal plan';
-      setError(msg);
+      setError(err?.message || 'Failed to generate meal plan');
       setGenerating(false);
     }
   };
@@ -133,7 +223,6 @@ export function Onboarding({ onComplete, userName }: Props) {
     try {
       setGenStep('Saving your profile...');
       await axios.post('/api/profile', data, { withCredentials: true });
-      // Profile POST marks onboardingDone=true on the server — no extra call needed.
       await refreshUser();
       onComplete();
     } catch {
@@ -142,34 +231,67 @@ export function Onboarding({ onComplete, userName }: Props) {
     }
   };
 
-  // Feature B: show plan review screen after successful generation
+  // Feature B: plan review after generation
   if (showPlanOverview) {
     return <PlanOverviewScreen onComplete={onComplete} />;
   }
 
+  // ── Generating screen (OB5 style) ──────────────────────────────────────────
   if (generating) {
+    const activeIdx = getGenIdx(genStep);
+    const pct = Math.round((activeIdx / GEN_CHECKLIST.length) * 100);
+
     return (
-      <div style={{ minHeight: '100dvh', background: s2.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 20px' }}>
-        <div style={{ textAlign: 'center', maxWidth: 300, width: '100%' }}>
-          <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.22em', color: s2.textDimmer, textTransform: 'uppercase', marginBottom: 20 }}>
-            AI-GENERATING YOUR PLAN
+      <div style={{ minHeight: '100dvh', background: s2.bg, color: s2.text }}>
+        <div style={{ maxWidth: 480, margin: '0 auto', padding: '80px 28px 0', textAlign: 'center' }}>
+          <HairLabel color={s2.accent}>AI · BUILDING YOUR PROTOCOL</HairLabel>
+          <div style={{ fontFamily: s2.sans, fontSize: 36, fontWeight: 300, letterSpacing: '-0.035em', marginTop: 18, lineHeight: 1.1 }}>
+            Welcome,<br />{data.name || 'Friend'}.
           </div>
-          <div style={{ fontFamily: s2.sans, fontSize: 26, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text, marginBottom: 12, lineHeight: 1.2 }}>
-            Building your plan
+          <div style={{ fontFamily: s2.sans, fontSize: 72, fontWeight: 200, color: s2.accent, letterSpacing: '-0.04em', marginTop: 40, lineHeight: 1 }}>
+            {pct}<span style={{ fontSize: 18, color: s2.textDim }}>%</span>
           </div>
-          <div style={{ fontFamily: s2.mono, fontSize: 11, color: s2.accent, letterSpacing: '0.1em', marginBottom: 28, minHeight: 18 }}>
-            {genStep}
-          </div>
-          <div style={{ height: 2, background: s2.line, position: 'relative', overflow: 'hidden' }}>
-            <div style={{
-              position: 'absolute', top: 0, left: '-60%', height: '100%', width: '60%',
-              background: `linear-gradient(90deg, transparent, ${s2.accent}, transparent)`,
-              animation: 'shimmer 1.4s infinite',
-            }} />
-          </div>
-          {error && (
-            <div style={{ marginTop: 24, border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '12px 14px' }}>
-              <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E', marginBottom: 8 }}>{error}</div>
+        </div>
+
+        <div style={{ maxWidth: 480, margin: '0 auto', padding: '48px 20px 0' }}>
+          {GEN_CHECKLIST.map((s, i) => {
+            const done = i < activeIdx;
+            const active = i === activeIdx;
+            return (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                padding: '14px 0',
+                borderBottom: i === GEN_CHECKLIST.length - 1 ? 'none' : `1px solid ${s2.line}`,
+              }}>
+                {/* 16×16 square checkbox */}
+                <div style={{
+                  width: 16, height: 16, flexShrink: 0,
+                  border: `1px solid ${done || active ? s2.accent : s2.lineStrong}`,
+                  background: done ? s2.accent : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {done && (
+                    <svg width="10" height="10" viewBox="0 0 10 10">
+                      <path d="M1.5 5 L4 7.5 L8.5 2.5" stroke="#0C0907" strokeWidth="1.8" fill="none" strokeLinecap="square" />
+                    </svg>
+                  )}
+                  {active && <div style={{ width: 6, height: 6, background: s2.accent }} />}
+                </div>
+                <div style={{
+                  flex: 1, fontFamily: s2.mono, fontSize: 11, letterSpacing: '0.18em', fontWeight: 500,
+                  color: done ? s2.text : active ? s2.accent : s2.textDimmer,
+                }}>
+                  {s.label}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {error && (
+          <div style={{ maxWidth: 480, margin: '24px auto 0', padding: '0 20px' }}>
+            <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '12px 14px' }}>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn, marginBottom: 8 }}>{error}</div>
               <button
                 onClick={() => { setGenerating(false); setShowSummary(true); }}
                 style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.accent, cursor: 'pointer' }}
@@ -177,44 +299,54 @@ export function Onboarding({ onComplete, userName }: Props) {
                 TRY AGAIN
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     );
   }
 
+  // ── Summary screen ──────────────────────────────────────────────────────────
   if (showSummary) {
     return (
-      <div style={{ minHeight: '100dvh', background: s2.bg, color: s2.text, paddingBottom: 40 }}>
-        <div style={{ maxWidth: 480, margin: '0 auto', padding: '24px 20px' }}>
-          <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.22em', color: s2.textDimmer, textTransform: 'uppercase', marginBottom: 10 }}>
-            REVIEW PROFILE
-          </div>
-          <div style={{ fontFamily: s2.sans, fontSize: 26, fontWeight: 400, letterSpacing: '-0.025em', marginBottom: 20, lineHeight: 1 }}>
+      <div style={{ minHeight: '100dvh', background: s2.bg, color: s2.text, paddingBottom: 120 }}>
+        <div style={{ maxWidth: 480, margin: '0 auto', padding: '32px 20px 0' }}>
+          <HairLabel>REVIEW PROFILE</HairLabel>
+          <div style={{ fontFamily: s2.sans, fontSize: 30, fontWeight: 300, letterSpacing: '-0.025em', marginTop: 8, lineHeight: 1 }}>
             Confirm & Generate
           </div>
 
-          <SummaryCard label="PERSONAL" items={[`${data.name}, ${data.age}y, ${data.gender}`, `${data.city}, ${data.country}`]} onEdit={() => { setShowSummary(false); setStep(1); }} />
-          <SummaryCard label="BODY" items={[`${data.weightKg}kg → ${data.targetWeightKg}kg`, `Height: ${data.heightCm}cm`]} onEdit={() => { setShowSummary(false); setStep(2); }} />
-          <SummaryCard label="DIET" items={[data.mealPreference, `${data.mealsPerDay} meals/day`, data.cuisinePreferences.join(', ')]} onEdit={() => { setShowSummary(false); setStep(3); }} />
-          <SummaryCard label="ALLERGIES" items={[data.allergies.length > 0 ? data.allergies.join(', ') : 'None']} onEdit={() => { setShowSummary(false); setStep(4); }} />
-          <SummaryCard label="GOAL" items={[data.primaryGoal, `Intensity: ${data.dietIntensity}`, data.activityLevel]} onEdit={() => { setShowSummary(false); setStep(7); }} />
+          <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <SummaryCard label="PERSONAL" items={[`${data.name}, ${data.age}y, ${data.gender}`, `${data.city}, ${data.country}`]} onEdit={() => { setShowSummary(false); setStep(1); }} />
+            <SummaryCard label="BODY" items={[`${data.weightKg}kg → ${data.targetWeightKg}kg`, `Height: ${data.heightCm}cm`]} onEdit={() => { setShowSummary(false); setStep(2); }} />
+            <SummaryCard label="DIET" items={[data.mealPreference, `${data.mealsPerDay} meals/day`, data.cuisinePreferences.join(', ')]} onEdit={() => { setShowSummary(false); setStep(3); }} />
+            <SummaryCard label="ALLERGIES" items={[data.allergies.length > 0 ? data.allergies.join(', ') : 'None']} onEdit={() => { setShowSummary(false); setStep(4); }} />
+            <SummaryCard label="GOAL" items={[data.primaryGoal, `Intensity: ${data.dietIntensity}`, data.activityLevel]} onEdit={() => { setShowSummary(false); setStep(7); }} />
+          </div>
 
           {error && (
-            <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px', marginBottom: 14 }}>
-              <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{error}</div>
+            <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px', marginTop: 14 }}>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{error}</div>
             </div>
           )}
+        </div>
 
+        {/* Fixed footer */}
+        <div style={{
+          position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+          width: '100%', maxWidth: 480,
+          background: s2.bg, borderTop: `1px solid ${s2.lineStrong}`,
+          padding: '12px 20px max(env(safe-area-inset-bottom, 0px), 16px)',
+          zIndex: 20,
+        }}>
           <button
             onClick={handleGenerate}
             style={{
               width: '100%', padding: '15px 0', background: s2.accent, border: 'none',
-              fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.2em', color: s2.bg,
-              cursor: 'pointer', marginBottom: 10, textTransform: 'uppercase',
+              fontFamily: s2.mono, fontSize: 11, letterSpacing: '0.2em', fontWeight: 600,
+              color: s2.bg, cursor: 'pointer', textTransform: 'uppercase', marginBottom: 10,
             }}
           >
-            GENERATE MY MEAL PLAN ✨
+            GENERATE MY MEAL PLAN →
           </button>
           <button
             onClick={handleSkip}
@@ -222,7 +354,7 @@ export function Onboarding({ onComplete, userName }: Props) {
               width: '100%', padding: '13px 0', background: 'transparent',
               border: `1px solid ${s2.lineStrong}`,
               fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em',
-              color: s2.textDim, cursor: 'pointer', marginBottom: 20, textTransform: 'uppercase',
+              color: s2.textDim, cursor: 'pointer', textTransform: 'uppercase',
             }}
           >
             SKIP — USE DEFAULT PLAN
@@ -232,39 +364,33 @@ export function Onboarding({ onComplete, userName }: Props) {
     );
   }
 
+  // ── Main step screens ───────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100dvh', background: s2.bg, color: s2.text }}>
       <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
 
-        {/* Progress bar area */}
-        <div style={{ padding: '24px 20px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.18em', color: s2.textDimmer, textTransform: 'uppercase' }}>
-              STEP {step} OF {totalSteps}
-            </div>
-            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-              {step > 1 && (
-                <button
-                  onClick={() => setStep(s => s - 1)}
-                  style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.accent, cursor: 'pointer' }}
-                >
-                  ← BACK
-                </button>
-              )}
-              <button
-                onClick={logout}
-                style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.12em', color: s2.textDimmer, cursor: 'pointer' }}
-              >
-                LOGOUT
-              </button>
-            </div>
-          </div>
-          {/* 2px flat progress bar */}
-          <div style={{ height: 2, background: s2.line }}>
-            <div style={{ height: '100%', width: `${(step / totalSteps) * 100}%`, background: s2.accent, transition: 'width 200ms' }} />
+        {/* ── Chrome: back btn + step counter + progress segments ── */}
+        <div style={{ padding: '6px 20px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <BackBtn onClick={() => step > 1 ? setStep(s => s - 1) : undefined} disabled={step <= 1} />
+          <HairLabel>STEP {String(step).padStart(2, '0')} / {String(totalSteps).padStart(2, '0')}</HairLabel>
+          <button
+            onClick={logout}
+            style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.12em', color: s2.textDimmer, cursor: 'pointer', textTransform: 'uppercase' }}
+          >
+            EXIT
+          </button>
+        </div>
+
+        {/* Segment progress bar */}
+        <div style={{ padding: '16px 20px 0' }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {Array.from({ length: totalSteps }, (_, i) => (
+              <div key={i} style={{ flex: 1, height: 2, background: i < step ? s2.accent : s2.line }} />
+            ))}
           </div>
         </div>
 
+        {/* ── Step content ── */}
         <div style={{ flex: 1, padding: '0 20px 100px', overflowY: 'auto' }}>
           {step === 1 && <StepPersonal data={data} update={update} />}
           {step === 2 && <StepBody data={data} update={update} />}
@@ -275,56 +401,43 @@ export function Onboarding({ onComplete, userName }: Props) {
           {step === 7 && <StepGoals data={data} update={update} toggleArr={toggleArr} />}
         </div>
 
-        {/* Fixed bottom CTA */}
+        {/* ── Fixed bottom CTA ── */}
         <div style={{
-          position: 'fixed',
-          bottom: 0,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          width: '100%',
-          maxWidth: 480,
-          borderTop: `1px solid ${s2.line}`,
-          padding: '12px 20px max(16px, env(safe-area-inset-bottom, 0px))',
-          background: 'rgba(12,9,7,0.95)',
-          backdropFilter: 'blur(20px)',
+          position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+          width: '100%', maxWidth: 480,
+          background: s2.bg, borderTop: `1px solid ${s2.lineStrong}`,
+          padding: '12px 20px max(env(safe-area-inset-bottom, 0px), 16px)',
           zIndex: 20,
         }}>
-          <div>
-            <button
-              onClick={() => step === totalSteps ? setShowSummary(true) : setStep(s => s + 1)}
-              disabled={!canNext()}
-              style={{
-                width: '100%',
-                padding: '14px 0',
-                background: canNext() ? s2.accent : s2.surface,
-                border: `1px solid ${canNext() ? s2.accent : s2.line}`,
-                fontFamily: s2.mono,
-                fontSize: 10,
-                letterSpacing: '0.2em',
-                color: canNext() ? s2.bg : s2.textDimmer,
-                cursor: canNext() ? 'pointer' : 'default',
-                textTransform: 'uppercase',
-                transition: 'background 150ms, color 150ms',
-              }}
-            >
-              {step === totalSteps ? 'REVIEW & GENERATE' : 'CONTINUE →'}
-            </button>
-          </div>
+          <button
+            onClick={() => step === totalSteps ? setShowSummary(true) : setStep(s => s + 1)}
+            disabled={!canNext()}
+            style={{
+              width: '100%', padding: '15px 0',
+              background: canNext() ? s2.accent : s2.surface,
+              border: canNext() ? 'none' : `1px solid ${s2.line}`,
+              fontFamily: s2.mono, fontSize: 11, letterSpacing: '0.2em', fontWeight: 600,
+              color: canNext() ? s2.bg : s2.textDimmer,
+              cursor: canNext() ? 'pointer' : 'default',
+              textTransform: 'uppercase',
+              transition: 'background 150ms, color 150ms',
+            }}
+          >
+            {step === totalSteps ? 'REVIEW & GENERATE' : 'CONTINUE →'}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
+// ── SummaryCard ────────────────────────────────────────────────────────────────
 function SummaryCard({ label, items, onEdit }: { label: string; items: string[]; onEdit: () => void }) {
   return (
-    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: '12px 14px', marginBottom: 8 }}>
+    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: '12px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.18em', color: s2.textDimmer, textTransform: 'uppercase' }}>{label}</div>
-        <button
-          onClick={onEdit}
-          style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.accent, cursor: 'pointer' }}
-        >
+        <HairLabel>{label}</HairLabel>
+        <button onClick={onEdit} style={{ background: 'transparent', border: 'none', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.accent, cursor: 'pointer' }}>
           EDIT
         </button>
       </div>
@@ -335,17 +448,14 @@ function SummaryCard({ label, items, onEdit }: { label: string; items: string[];
   );
 }
 
+// ── Step 1 · Personal ─────────────────────────────────────────────────────────
 function StepPersonal({ data, update }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void }) {
   const [countrySearch, setCountrySearch] = useState('');
   const [citySearch, setCitySearch] = useState('');
   const [cityManual, setCityManual] = useState(false);
   const [ageStr, setAgeStr] = useState(data.age > 0 ? String(data.age) : '');
 
-  const filteredCountries = COUNTRIES.filter(c =>
-    c.toLowerCase().includes(countrySearch.toLowerCase())
-  );
-
-  // Get cities for selected country using country-state-city
+  const filteredCountries = COUNTRIES.filter(c => c.toLowerCase().includes(countrySearch.toLowerCase()));
   const countryIso = data.countryCode || COUNTRY_CODES[data.country] || '';
   const allCities = countryIso ? (City.getCitiesOfCountry(countryIso) || []) : [];
   const filteredCities = citySearch.length >= 1
@@ -361,84 +471,104 @@ function StepPersonal({ data, update }: { data: OnboardingData; update: (p: Part
   };
 
   return (
-    <div className="space-y-4">
-      <h2 className="font-display text-2xl font-bold text-primary">Personal Details</h2>
-      <Field label="Name" value={data.name} onChange={v => update({ name: v })} placeholder="Your name" />
+    <div style={{ paddingTop: 30 }}>
+      <HairLabel>WELCOME</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em', marginTop: 10, lineHeight: 1.1, marginBottom: 36 }}>
+        What should<br />we call you?
+      </div>
 
-      {/* Age — string state to avoid stuck-zero */}
-      <div>
-        <label className="block text-sm font-medium text-primary mb-1.5 font-sans">Age</label>
-        <input
-          type="text"
-          inputMode="numeric"
-          value={ageStr}
-          placeholder="e.g. 28"
-          onChange={e => {
-            const val = e.target.value.replace(/[^0-9]/g, '');
-            setAgeStr(val);
-            const n = parseInt(val, 10);
-            if (!isNaN(n)) update({ age: n });
-          }}
-          onBlur={() => {
-            const n = parseInt(ageStr, 10);
-            if (isNaN(n) || n < 10 || n > 100) { setAgeStr(''); update({ age: 0 }); }
-            else setAgeStr(String(n));
-          }}
-          className="w-full border-[1.5px] border-border rounded-xl px-4 py-3 font-sans text-base bg-surface text-primary placeholder-dimmed focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+      {/* Name */}
+      <div style={{ marginBottom: 30 }}>
+        <HairLabel style={{ marginBottom: 8 }}>NAME</HairLabel>
+        <UnderlineInput
+          value={data.name}
+          onChange={v => update({ name: v })}
+          placeholder="Your name"
         />
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-primary mb-1.5 font-sans">Gender</label>
-        <div className="grid grid-cols-4 gap-2">
-          {['male', 'female', 'other', 'prefer_not_to_say'].map(g => (
-            <button key={g} onClick={() => update({ gender: g })}
-              className={`py-2 rounded-xl text-sm font-sans font-medium transition-all ${
-                data.gender === g ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}>
-              {g === 'prefer_not_to_say' ? 'Skip' : g.charAt(0).toUpperCase() + g.slice(1)}
-            </button>
+      {/* Gender */}
+      <div style={{ marginBottom: 28 }}>
+        <HairLabel style={{ marginBottom: 10 }}>SEX (FOR ENERGY CALCULATIONS)</HairLabel>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {[
+            { val: 'male',   label: 'MALE' },
+            { val: 'female', label: 'FEMALE' },
+            { val: 'other',  label: 'OTHER' },
+            { val: 'prefer_not_to_say', label: 'SKIP' },
+          ].map(g => (
+            <SelBtn key={g.val} on={data.gender === g.val} onClick={() => update({ gender: g.val })}
+              style={{ padding: '16px 8px', width: '100%' }}>
+              {g.label}
+            </SelBtn>
           ))}
         </div>
       </div>
 
-      {/* Country with search */}
-      <div>
-        <label className="block text-sm font-medium text-primary mb-1.5 font-sans">Country</label>
+      {/* Age */}
+      <div style={{ marginBottom: 28 }}>
+        <HairLabel style={{ marginBottom: 10 }}>AGE</HairLabel>
+        <div style={{ textAlign: 'center' }}>
+          <input
+            type="text" inputMode="numeric"
+            value={ageStr}
+            placeholder="28"
+            onChange={e => {
+              const val = e.target.value.replace(/[^0-9]/g, '');
+              setAgeStr(val);
+              const n = parseInt(val, 10);
+              if (!isNaN(n)) update({ age: n });
+            }}
+            onBlur={() => {
+              const n = parseInt(ageStr, 10);
+              if (isNaN(n) || n < 10 || n > 100) { setAgeStr(''); update({ age: 0 }); }
+              else setAgeStr(String(n));
+            }}
+            style={{
+              fontFamily: s2.sans, fontSize: 72, fontWeight: 200,
+              color: s2.accent, letterSpacing: '-0.04em', lineHeight: 1,
+              background: 'transparent', border: 'none', outline: 'none',
+              textAlign: 'center', width: '100%', padding: 0,
+            }}
+          />
+          <HairLabel style={{ marginTop: 4 }}>YEARS</HairLabel>
+        </div>
+      </div>
+
+      {/* Country */}
+      <div style={{ marginBottom: 20 }}>
+        <HairLabel style={{ marginBottom: 8 }}>COUNTRY</HairLabel>
         <input
           type="text"
           value={countrySearch !== '' ? countrySearch : data.country}
-          onChange={e => { setCountrySearch(e.target.value); }}
+          onChange={e => setCountrySearch(e.target.value)}
           onFocus={() => setCountrySearch(data.country)}
-          className="w-full border-[1.5px] border-border rounded-xl px-4 py-3 font-sans text-base bg-surface text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
           placeholder="Search country..."
+          style={inputStyle}
         />
         {countrySearch && filteredCountries.length > 0 && (
-          <div className="bg-surface border border-border rounded-xl mt-1 max-h-40 overflow-y-auto">
+          <div style={dropdownStyle}>
             {filteredCountries.slice(0, 8).map(c => (
-              <button key={c} onClick={() => handleCountrySelect(c)}
-                className="w-full text-left px-4 py-2 text-sm font-sans text-primary hover:bg-elevated">{c}</button>
+              <button key={c} onClick={() => handleCountrySelect(c)} style={dropdownItemStyle}>{c}</button>
             ))}
           </div>
         )}
       </div>
 
-      {/* City — linked to country */}
-      <div>
-        <label className="block text-sm font-medium text-primary mb-1.5 font-sans">City</label>
+      {/* City */}
+      <div style={{ marginBottom: 20 }}>
+        <HairLabel style={{ marginBottom: 8 }}>CITY</HairLabel>
         {cityManual || allCities.length === 0 ? (
           <>
             <input
-              type="text"
-              value={data.city}
+              type="text" value={data.city}
               onChange={e => update({ city: e.target.value })}
               disabled={!data.country}
-              className="w-full border-[1.5px] border-border rounded-xl px-4 py-3 font-sans text-base bg-surface text-primary placeholder-dimmed focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
               placeholder={data.country ? 'Type your city' : 'Select a country first'}
+              style={{ ...inputStyle, opacity: !data.country ? 0.4 : 1 }}
             />
             {allCities.length > 0 && (
-              <button onClick={() => setCityManual(false)} className="text-accent text-xs font-sans mt-1 underline underline-offset-2">
-                ← Search from list
-              </button>
+              <button onClick={() => setCityManual(false)} style={linkBtnStyle}>← Search from list</button>
             )}
           </>
         ) : (
@@ -446,23 +576,20 @@ function StepPersonal({ data, update }: { data: OnboardingData; update: (p: Part
             <input
               type="text"
               value={citySearch !== '' ? citySearch : data.city}
-              onChange={e => { setCitySearch(e.target.value); }}
+              onChange={e => setCitySearch(e.target.value)}
               onFocus={() => setCitySearch(data.city)}
               disabled={!data.country}
-              className="w-full border-[1.5px] border-border rounded-xl px-4 py-3 font-sans text-base bg-surface text-primary placeholder-dimmed focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 disabled:opacity-50"
               placeholder={data.country ? 'Search city...' : 'Select a country first'}
+              style={{ ...inputStyle, opacity: !data.country ? 0.4 : 1 }}
             />
             {citySearch && filteredCities.length > 0 && (
-              <div className="bg-surface border border-border rounded-xl mt-1 max-h-40 overflow-y-auto">
+              <div style={dropdownStyle}>
                 {filteredCities.map(c => (
-                  <button key={c.name + c.stateCode} onClick={() => { update({ city: c.name }); setCitySearch(''); }}
-                    className="w-full text-left px-4 py-2 text-sm font-sans text-primary hover:bg-elevated">{c.name}</button>
+                  <button key={c.name + c.stateCode} onClick={() => { update({ city: c.name }); setCitySearch(''); }} style={dropdownItemStyle}>{c.name}</button>
                 ))}
               </div>
             )}
-            <button onClick={() => setCityManual(true)} className="text-dimmed text-xs font-sans mt-1 underline underline-offset-2">
-              City not listed? Type it manually
-            </button>
+            <button onClick={() => setCityManual(true)} style={linkBtnStyle}>City not listed? Type it manually</button>
           </>
         )}
       </div>
@@ -470,95 +597,143 @@ function StepPersonal({ data, update }: { data: OnboardingData; update: (p: Part
   );
 }
 
+// ── Step 2 · Body ─────────────────────────────────────────────────────────────
 function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void }) {
   const [weightStr, setWeightStr] = useState(data.weightKg > 0 ? String(data.weightKg) : '');
   const [heightStr, setHeightStr] = useState(data.heightCm > 0 ? String(data.heightCm) : '');
   const [targetStr, setTargetStr] = useState(data.targetWeightKg > 0 ? String(data.targetWeightKg) : '');
 
   const bmiVal = data.weightKg > 0 && data.heightCm > 0
-    ? (data.weightKg / ((data.heightCm / 100) ** 2)).toFixed(1)
-    : null;
+    ? (data.weightKg / ((data.heightCm / 100) ** 2)).toFixed(1) : null;
   const weightDiff = data.weightKg > 0 && data.targetWeightKg > 0
-    ? (data.weightKg - data.targetWeightKg).toFixed(1)
-    : null;
+    ? (data.weightKg - data.targetWeightKg).toFixed(1) : null;
 
-  function makeNumHandler(
-    setter: (s: string) => void,
-    updater: (n: number) => void,
-    allowDecimal = true
-  ) {
+  function numHandler(setter: (s: string) => void, updater: (n: number) => void) {
     return {
       onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
-        const pattern = allowDecimal ? /^\d*\.?\d*$/ : /^\d*$/;
-        if (pattern.test(val)) { setter(val); const n = parseFloat(val); if (!isNaN(n) && n > 0) updater(n); }
+        if (/^\d*\.?\d*$/.test(val)) { setter(val); const n = parseFloat(val); if (!isNaN(n) && n > 0) updater(n); }
       },
-      onBlur: (val: string, setter: (s: string) => void, updater: (n: number) => void) => {
+      onBlur: (val: string) => {
         const n = parseFloat(val);
-        if (!isNaN(n) && n > 0) { setter(String(n)); updater(n); }
-        else { setter(''); updater(0); }
+        if (!isNaN(n) && n > 0) { setter(String(n)); updater(n); } else { setter(''); updater(0); }
       }
     };
   }
 
-  const wh = makeNumHandler(setWeightStr, v => update({ weightKg: v }));
-  const hh = makeNumHandler(setHeightStr, v => update({ heightCm: v }));
-  const th = makeNumHandler(setTargetStr, v => update({ targetWeightKg: v }));
+  const wh = numHandler(setWeightStr, v => update({ weightKg: v }));
+  const hh = numHandler(setHeightStr, v => update({ heightCm: v }));
+  const th = numHandler(setTargetStr, v => update({ targetWeightKg: v }));
+
+  const ACTIVITY_OPTIONS = [
+    { val: 'sedentary',         label: 'SEDENTARY',  desc: 'Desk job, little exercise' },
+    { val: 'lightly_active',    label: 'LIGHT',       desc: 'Light exercise 1–3 days/week' },
+    { val: 'moderately_active', label: 'MODERATE',    desc: 'Exercise 3–5 days/week' },
+    { val: 'very_active',       label: 'ACTIVE',      desc: 'Hard exercise 6–7 days/week' },
+  ];
 
   return (
-    <div className="space-y-4">
-      <h2 className="font-display text-2xl font-bold text-primary">Body Stats</h2>
+    <div style={{ paddingTop: 30 }}>
+      <HairLabel>STATS</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em', marginTop: 10, lineHeight: 1.1, marginBottom: 36 }}>
+        Your body<br />today.
+      </div>
 
-      {(['Current Weight (kg)', 'Height (cm)', 'Target Weight (kg)'] as const).map((label, i) => {
-        const [str, setter, handler, updater] = [
-          [weightStr, setWeightStr, wh, (v: number) => update({ weightKg: v })],
-          [heightStr, setHeightStr, hh, (v: number) => update({ heightCm: v })],
-          [targetStr, setTargetStr, th, (v: number) => update({ targetWeightKg: v })],
-        ][i] as [string, (s: string) => void, ReturnType<typeof makeNumHandler>, (n: number) => void];
-
-        return (
-          <div key={label}>
-            <label className="block text-sm font-medium text-primary mb-1.5 font-sans">{label}</label>
+      {/* Height + Weight side-by-side panels */}
+      <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
+        {[
+          { label: 'HEIGHT', unit: 'CM', str: heightStr, handlers: hh },
+          { label: 'WEIGHT', unit: 'KG', str: weightStr, handlers: wh },
+        ].map(({ label, unit, str, handlers }) => (
+          <div key={label} style={{ flex: 1, border: `1px solid ${s2.line}`, padding: 16 }}>
+            <HairLabel>{label}</HairLabel>
             <input
-              type="text"
-              inputMode="decimal"
-              value={str}
-              placeholder={i === 1 ? 'e.g. 170' : 'e.g. 70'}
-              onChange={handler.onChange}
-              onBlur={() => handler.onBlur(str, setter, updater)}
-              className="w-full border-[1.5px] border-border rounded-xl px-4 py-3 font-sans text-base bg-surface text-primary placeholder-dimmed focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
+              type="text" inputMode="decimal" value={str}
+              placeholder="0"
+              onChange={handlers.onChange}
+              onBlur={() => handlers.onBlur(str)}
+              style={{
+                fontFamily: s2.sans, fontSize: 46, fontWeight: 200,
+                color: s2.accent, letterSpacing: '-0.03em', lineHeight: 1,
+                background: 'transparent', border: 'none', outline: 'none',
+                marginTop: 10, padding: 0, width: '100%',
+              }}
             />
+            <HairLabel style={{ marginTop: 4 }}>{unit}</HairLabel>
           </div>
-        );
-      })}
+        ))}
+      </div>
 
+      {/* Target weight panel */}
+      <div style={{ border: `1px solid ${s2.line}`, padding: 16, marginBottom: 20 }}>
+        <HairLabel>TARGET WEIGHT</HairLabel>
+        <input
+          type="text" inputMode="decimal" value={targetStr}
+          placeholder="0"
+          onChange={th.onChange}
+          onBlur={() => th.onBlur(targetStr)}
+          style={{
+            fontFamily: s2.sans, fontSize: 46, fontWeight: 200,
+            color: s2.accent, letterSpacing: '-0.03em', lineHeight: 1,
+            background: 'transparent', border: 'none', outline: 'none',
+            marginTop: 10, padding: 0, width: '100%',
+          }}
+        />
+        <HairLabel style={{ marginTop: 4 }}>KG</HairLabel>
+      </div>
+
+      {/* BMI / diff row */}
       {bmiVal && weightDiff && (
-        <div className="bg-accent-fill rounded-xl p-4 border border-accent/20">
-          <div className="flex justify-between mb-1">
-            <span className="text-sm font-sans text-primary font-medium">BMI</span>
-            <span className="text-sm font-mono font-bold text-accent">{bmiVal}</span>
+        <div style={{ background: s2.accentFill, border: `1px solid ${s2.lineStrong}`, padding: '10px 14px', marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <HairLabel>BMI</HairLabel>
+            <HairLabel color={s2.accent}>{bmiVal}</HairLabel>
           </div>
-          <div className="flex justify-between">
-            <span className="text-sm font-sans text-primary font-medium">{parseFloat(weightDiff) > 0 ? 'To lose' : 'To gain'}</span>
-            <span className="text-sm font-mono font-bold text-accent">{Math.abs(parseFloat(weightDiff))} kg</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <HairLabel>{parseFloat(weightDiff) > 0 ? 'TO LOSE' : 'TO GAIN'}</HairLabel>
+            <HairLabel color={s2.accent}>{Math.abs(parseFloat(weightDiff))} KG</HairLabel>
           </div>
         </div>
       )}
+
+      {/* Activity radio list */}
+      <HairLabel style={{ marginBottom: 10 }}>ACTIVITY LEVEL</HairLabel>
+      {ACTIVITY_OPTIONS.map((o, i) => (
+        <div
+          key={o.val}
+          onClick={() => update({ activityLevel: o.val })}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '14px 0',
+            borderBottom: i === ACTIVITY_OPTIONS.length - 1 ? 'none' : `1px solid ${s2.line}`,
+            cursor: 'pointer',
+          }}
+        >
+          <div>
+            <div style={{ fontFamily: s2.mono, fontSize: 11, fontWeight: 600, letterSpacing: '0.18em', color: data.activityLevel === o.val ? s2.accent : s2.text }}>{o.label}</div>
+            <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.textDim, marginTop: 4 }}>{o.desc}</div>
+          </div>
+          <div style={{
+            width: 18, height: 18, borderRadius: '50%',
+            border: `1px solid ${data.activityLevel === o.val ? s2.accent : s2.lineStrong}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            {data.activityLevel === o.val && <div style={{ width: 8, height: 8, background: s2.accent, borderRadius: '50%' }} />}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
+// ── Step 3 · Diet ─────────────────────────────────────────────────────────────
 function StepDiet({ data, update, toggleArr }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void; toggleArr: (f: keyof OnboardingData, v: string, max: number) => void }) {
   const [cuisineSearch, setCuisineSearch] = useState('');
-  const [eatingHoursStr, setEatingHoursStr] = useState(
-    String(data.eatingWindowHours ?? 8)
-  );
-
+  const [eatingHoursStr, setEatingHoursStr] = useState(String(data.eatingWindowHours ?? 8));
   const isIF = data.eatingWindow === 'intermittent_fasting';
   const eatingHours = parseInt(eatingHoursStr, 10) || 8;
   const fastingHours = 24 - eatingHours;
 
-  // Calculate end time from start + eatingHours
   function calcEndTime(start: string, hours: number): string {
     const [h, m] = start.split(':').map(Number);
     const endH = (h + hours) % 24;
@@ -580,77 +755,84 @@ function StepDiet({ data, update, toggleArr }: { data: OnboardingData; update: (
     update({ eatingStartTime: start, eatingEndTime: endTime });
   };
 
-  const regions = CUISINE_REGIONS;
   const filteredOptions = cuisineSearch
     ? CUISINE_OPTIONS.filter(c => c.label.toLowerCase().includes(cuisineSearch.toLowerCase()))
     : CUISINE_OPTIONS;
-
-  // Group by region
   const grouped: Record<string, typeof CUISINE_OPTIONS[number][]> = {};
-  filteredOptions.forEach(c => {
-    if (!grouped[c.region]) grouped[c.region] = [];
-    grouped[c.region].push(c);
-  });
-  const visibleRegions = cuisineSearch
-    ? Object.keys(grouped)
-    : regions.filter(r => grouped[r]?.length > 0);
+  filteredOptions.forEach(c => { if (!grouped[c.region]) grouped[c.region] = []; grouped[c.region].push(c); });
+  const visibleRegions = cuisineSearch ? Object.keys(grouped) : CUISINE_REGIONS.filter(r => grouped[r]?.length > 0);
+
+  const DIET_OPTIONS = [
+    { val: 'non_vegetarian', label: 'NON-VEG' },
+    { val: 'vegetarian',     label: 'VEGETARIAN' },
+    { val: 'eggetarian',     label: 'EGGETARIAN' },
+    { val: 'vegan',          label: 'VEGAN' },
+    { val: 'pescatarian',    label: 'PESCATARIAN' },
+  ];
 
   return (
-    <div className="space-y-4">
-      <h2 className="font-display text-2xl font-bold text-primary">Diet Preferences</h2>
+    <div style={{ paddingTop: 30 }}>
+      <HairLabel>DIET</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em', marginTop: 10, lineHeight: 1.1, marginBottom: 30 }}>
+        How do<br />you eat?
+      </div>
 
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Meal Preference</label>
-        <div className="flex flex-wrap gap-2">
-          {['vegetarian', 'non_vegetarian', 'vegan', 'eggetarian', 'pescatarian'].map(p => (
-            <button key={p} onClick={() => update({ mealPreference: p })}
-              className={`px-4 py-2 rounded-3xl text-sm font-sans font-medium transition-all ${
-                data.mealPreference === p ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}>
-              {p.replace('_', '-').replace(/\b\w/g, l => l.toUpperCase())}
-            </button>
+      {/* Diet style grid */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>STYLE</HairLabel>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          {DIET_OPTIONS.map(o => (
+            <SelBtn key={o.val} on={data.mealPreference === o.val} onClick={() => update({ mealPreference: o.val })}
+              style={{ padding: '14px 8px', width: '100%' }}>
+              {o.label}
+            </SelBtn>
           ))}
         </div>
       </div>
 
-      {/* Cuisine — grouped + searchable */}
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">
-          Cuisine Preference <span className="text-secondary">(up to 3)</span>
-        </label>
+      {/* Cuisine chips */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>CUISINES (PICK UP TO 3)</HairLabel>
         {data.cuisinePreferences.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
             {data.cuisinePreferences.map(c => (
-              <span key={c} className="bg-accent text-white text-xs px-3 py-1 rounded-full font-sans font-medium flex items-center gap-1">
-                {c}
-                <button onClick={() => toggleArr('cuisinePreferences', c, 3)} className="text-white/70 hover:text-white ml-0.5">×</button>
-              </span>
+              <button key={c} onClick={() => toggleArr('cuisinePreferences', c, 3)} style={{
+                background: s2.accent, border: 'none', color: s2.bg,
+                fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.15em', fontWeight: 600,
+                padding: '6px 10px', cursor: 'pointer', textTransform: 'uppercase',
+              }}>
+                {c} ×
+              </button>
             ))}
           </div>
         )}
         <input
-          type="text"
-          value={cuisineSearch}
+          type="text" value={cuisineSearch}
           onChange={e => setCuisineSearch(e.target.value)}
           placeholder="Search cuisines..."
-          className="w-full border-[1.5px] border-border rounded-xl px-4 py-2.5 font-sans text-sm bg-surface text-primary placeholder-dimmed focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 mb-2"
+          style={{ ...inputStyle, marginBottom: 8 }}
         />
-        <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
+        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
           {visibleRegions.map(region => (
-            <div key={region}>
-              <p className="text-[10px] font-sans font-bold text-dimmed uppercase tracking-wider mb-1 px-1">{region}</p>
-              <div className="flex flex-wrap gap-1.5">
+            <div key={region} style={{ marginBottom: 10 }}>
+              <HairLabel style={{ marginBottom: 6, paddingLeft: 2 }}>{region}</HairLabel>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {(grouped[region] || []).map(c => {
                   const sel = data.cuisinePreferences.includes(c.value);
                   const maxed = !sel && data.cuisinePreferences.length >= 3;
                   return (
-                    <button
-                      key={c.value}
+                    <button key={c.value}
                       onClick={() => !maxed && toggleArr('cuisinePreferences', c.value, 3)}
                       disabled={maxed}
-                      className={`px-3 py-1.5 rounded-3xl text-xs font-sans font-medium transition-all ${
-                        sel ? 'bg-accent text-white' : maxed ? 'bg-surface border border-border text-dimmed opacity-50 cursor-not-allowed' : 'bg-surface border border-border text-secondary'}`}>
-                      {c.label}
-                    </button>
+                      style={{
+                        background: sel ? s2.accent : 'transparent',
+                        border: `1px solid ${sel ? s2.accent : s2.lineStrong}`,
+                        color: sel ? s2.bg : maxed ? s2.textDimmer : s2.text,
+                        fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.12em', fontWeight: 600,
+                        padding: '6px 10px', cursor: maxed ? 'default' : 'pointer',
+                        textTransform: 'uppercase', opacity: maxed ? 0.5 : 1,
+                      }}
+                    >{c.label}</button>
                   );
                 })}
               </div>
@@ -659,96 +841,61 @@ function StepDiet({ data, update, toggleArr }: { data: OnboardingData; update: (
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Meals per day</label>
-        <div className="flex gap-2">
+      {/* Meals per day */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>MEALS PER DAY</HairLabel>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
           {[3, 4, 5].map(n => (
-            <button key={n} onClick={() => update({ mealsPerDay: n })}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-sans font-medium transition-all ${
-                data.mealsPerDay === n ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}>
+            <SelBtn key={n} on={data.mealsPerDay === n} onClick={() => update({ mealsPerDay: n })}
+              style={{ padding: '14px 8px', width: '100%', fontSize: 14 }}>
               {n}
-            </button>
+            </SelBtn>
           ))}
         </div>
       </div>
 
-      {/* Eating Window — Standard / IF */}
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Eating Window &amp; Fasting Schedule</label>
-        <div className="space-y-2">
-          {/* Standard */}
-          <button
-            onClick={() => update({ eatingWindow: 'standard', eatingWindowHours: undefined, fastingWindowHours: undefined, eatingStartTime: undefined, eatingEndTime: undefined })}
-            className={`w-full text-left px-4 py-3 rounded-xl text-sm font-sans font-medium transition-all ${
-              !isIF ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}
-          >
-            Standard — No fasting window (eat any time)
-          </button>
-
-          {/* Intermittent Fasting */}
-          <button
-            onClick={() => {
-              const start = data.eatingStartTime || '07:00';
-              const hours = data.eatingWindowHours || 8;
-              update({
-                eatingWindow: 'intermittent_fasting',
-                eatingWindowHours: hours,
-                fastingWindowHours: 24 - hours,
-                eatingStartTime: start,
-                eatingEndTime: calcEndTime(start, hours),
-              });
-            }}
-            className={`w-full text-left px-4 py-3 rounded-xl text-sm font-sans font-medium transition-all ${
-              isIF ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}
-          >
-            Intermittent Fasting — Custom windows
-          </button>
+      {/* Eating Window */}
+      <div style={{ marginBottom: 8 }}>
+        <HairLabel style={{ marginBottom: 10 }}>EATING WINDOW</HairLabel>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <SelBtn on={!isIF} onClick={() => update({ eatingWindow: 'standard', eatingWindowHours: undefined, fastingWindowHours: undefined, eatingStartTime: undefined, eatingEndTime: undefined })}
+            style={{ padding: '14px 16px', textAlign: 'left', width: '100%', fontSize: 10 }}>
+            STANDARD — NO FASTING WINDOW
+          </SelBtn>
+          <SelBtn on={isIF} onClick={() => {
+            const start = data.eatingStartTime || '07:00';
+            const hours = data.eatingWindowHours || 8;
+            update({ eatingWindow: 'intermittent_fasting', eatingWindowHours: hours, fastingWindowHours: 24 - hours, eatingStartTime: start, eatingEndTime: calcEndTime(start, hours) });
+          }} style={{ padding: '14px 16px', textAlign: 'left', width: '100%', fontSize: 10 }}>
+            INTERMITTENT FASTING — CUSTOM WINDOWS
+          </SelBtn>
         </div>
 
-        {/* IF detail panel */}
         {isIF && (
-          <div className="mt-2 bg-elevated rounded-xl p-4 border border-border space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+          <div style={{ marginTop: 8, border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
               <div>
-                <label className="block text-xs font-medium text-secondary mb-1 font-sans">Eating Window (hours)</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={eatingHoursStr}
+                <HairLabel style={{ marginBottom: 6 }}>EATING WINDOW (HRS)</HairLabel>
+                <input type="text" inputMode="numeric" value={eatingHoursStr}
                   onChange={e => handleEatingHoursChange(e.target.value)}
-                  onBlur={() => {
-                    const n = parseInt(eatingHoursStr, 10);
-                    if (isNaN(n) || n < 4) { setEatingHoursStr('8'); update({ eatingWindowHours: 8, fastingWindowHours: 16 }); }
-                    else if (n > 20) { setEatingHoursStr('20'); update({ eatingWindowHours: 20, fastingWindowHours: 4 }); }
-                  }}
-                  className="w-full border-[1.5px] border-border rounded-xl px-3 py-2 font-mono text-sm bg-surface text-primary focus:outline-none focus:border-accent"
+                  onBlur={() => { const n = parseInt(eatingHoursStr, 10); if (isNaN(n) || n < 4) { setEatingHoursStr('8'); update({ eatingWindowHours: 8, fastingWindowHours: 16 }); } else if (n > 20) { setEatingHoursStr('20'); } }}
+                  style={inputStyle}
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-secondary mb-1 font-sans">Fasting Window (hours)</label>
-                <div className="w-full border-[1.5px] border-border/50 rounded-xl px-3 py-2 font-mono text-sm bg-surface/50 text-dimmed">
-                  {isNaN(fastingHours) ? '–' : fastingHours}
-                </div>
+                <HairLabel style={{ marginBottom: 6 }}>FASTING (HRS)</HairLabel>
+                <div style={{ ...inputStyle, color: s2.textDimmer, opacity: 0.6 }}>{isNaN(fastingHours) ? '–' : fastingHours}</div>
               </div>
             </div>
-            {(parseInt(eatingHoursStr, 10) < 4 || parseInt(eatingHoursStr, 10) > 20) && eatingHoursStr !== '' && (
-              <p className="text-xs text-red-400 font-sans">Eating window must be between 4 and 20 hours</p>
-            )}
-            <div className="grid grid-cols-2 gap-3">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label className="block text-xs font-medium text-secondary mb-1 font-sans">Eating start time</label>
-                <input
-                  type="time"
-                  value={data.eatingStartTime || '07:00'}
-                  onChange={e => handleStartTimeChange(e.target.value)}
-                  className="w-full border-[1.5px] border-border rounded-xl px-3 py-2 font-sans text-sm bg-surface text-primary focus:outline-none focus:border-accent"
-                />
+                <HairLabel style={{ marginBottom: 6 }}>START TIME</HairLabel>
+                <input type="time" value={data.eatingStartTime || '07:00'}
+                  onChange={e => handleStartTimeChange(e.target.value)} style={{ ...inputStyle, colorScheme: 'dark' }} />
               </div>
               <div>
-                <label className="block text-xs font-medium text-secondary mb-1 font-sans">Eating end time</label>
-                <div className="w-full border-[1.5px] border-border/50 rounded-xl px-3 py-2 font-mono text-sm bg-surface/50 text-dimmed">
-                  {data.eatingEndTime || '–'}
-                </div>
+                <HairLabel style={{ marginBottom: 6 }}>END TIME</HairLabel>
+                <div style={{ ...inputStyle, color: s2.textDimmer, opacity: 0.6 }}>{data.eatingEndTime || '–'}</div>
               </div>
             </div>
           </div>
@@ -758,75 +905,104 @@ function StepDiet({ data, update, toggleArr }: { data: OnboardingData; update: (
   );
 }
 
+// ── Step 4 · Allergies ────────────────────────────────────────────────────────
 function StepAllergies({ data, toggleArr, update }: { data: OnboardingData; toggleArr: (f: keyof OnboardingData, v: string) => void; update: (p: Partial<OnboardingData>) => void }) {
   return (
-    <div className="space-y-4">
-      <h2 className="font-display text-2xl font-bold text-primary">Allergies & Intolerances</h2>
-      <p className="text-sm text-secondary font-sans">Tap to select any that apply</p>
-      <div className="grid grid-cols-3 gap-2.5">
+    <div style={{ paddingTop: 30 }}>
+      <HairLabel>ALLERGIES</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em', marginTop: 10, lineHeight: 1.1, marginBottom: 8 }}>
+        Any intolerances?
+      </div>
+      <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, marginBottom: 24, lineHeight: 1.5 }}>
+        Tap to select any that apply. These are strictly excluded.
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 24 }}>
         {ALLERGENS.map(a => {
           const selected = data.allergies.includes(a);
           return (
-            <button key={a} onClick={() => toggleArr('allergies', a)}
-              className={`relative flex flex-col items-center justify-center rounded-2xl py-4 px-2 transition-all active:scale-97 ${
-                selected ? 'bg-red-500/20 border-[1.5px] border-red-500/50' : 'bg-surface border-[1.5px] border-border'}`}>
+            <button key={a} onClick={() => toggleArr('allergies', a)} style={{
+              position: 'relative',
+              background: selected ? 'rgba(255,62,62,0.12)' : s2.surface,
+              border: `1px solid ${selected ? 'rgba(255,62,62,0.5)' : s2.line}`,
+              padding: '16px 8px',
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              cursor: 'pointer',
+            }}>
               {selected && (
-                <div className="absolute top-2 right-2 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                  <span className="text-white text-[10px] font-bold">✓</span>
+                <div style={{
+                  position: 'absolute', top: 6, right: 6,
+                  width: 14, height: 14,
+                  background: s2.warn,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <span style={{ color: '#fff', fontSize: 8, fontWeight: 700, lineHeight: 1 }}>✓</span>
                 </div>
               )}
-              <span className="text-2xl mb-1.5">{ALLERGEN_ICONS[a] || '⚠️'}</span>
-              <span className={`text-xs font-sans font-medium text-center leading-tight ${selected ? 'text-red-400' : 'text-secondary'}`}>{a}</span>
+              <span style={{ fontSize: 22, marginBottom: 6 }}>{ALLERGEN_ICONS[a] || '⚠️'}</span>
+              <span style={{ fontFamily: s2.sans, fontSize: 11, color: selected ? s2.warn : s2.textDim, textAlign: 'center', lineHeight: 1.2 }}>{a}</span>
             </button>
           );
         })}
       </div>
+
       <div>
-        <label className="block text-sm font-medium text-primary mb-1.5 font-sans">Any other allergies?</label>
+        <HairLabel style={{ marginBottom: 8 }}>OTHER ALLERGIES</HairLabel>
         <input type="text" value={data.allergyOther} onChange={e => update({ allergyOther: e.target.value })}
-          className="w-full border-[1.5px] border-border rounded-xl px-4 py-3 font-sans text-base bg-surface text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
-          placeholder="E.g. citrus, certain spices..." />
+          placeholder="E.g. citrus, certain spices..." style={inputStyle} />
       </div>
     </div>
   );
 }
 
+// ── Step 5 · Preferred ────────────────────────────────────────────────────────
 function StepPreferred({ data, toggleArr }: { data: OnboardingData; toggleArr: (f: keyof OnboardingData, v: string) => void }) {
   const count = data.preferredIngredients.length;
   const met = count >= 5;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="font-display text-2xl font-bold text-primary">Choose your staples</h2>
-        <p className="text-sm text-secondary font-sans mt-1">Tap ingredients you love. At least 5 required.</p>
+    <div style={{ paddingTop: 30 }}>
+      <HairLabel>STAPLES</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em', marginTop: 10, lineHeight: 1.1, marginBottom: 8 }}>
+        Ingredients<br />you love.
       </div>
-      <div className={`rounded-xl px-3 py-2.5 text-xs font-sans font-medium border ${
-        met
-          ? 'bg-success-fill border-success/20 text-success'
-          : 'bg-accent-fill border-accent/20 text-accent'
-      }`}>
-        {met
-          ? `${count} selected ✓ — great variety for your plan`
-          : `Select at least 5 ingredients (${count}/5 selected)`}
+
+      <div style={{
+        background: met ? 'rgba(124,224,196,0.1)' : s2.accentFill,
+        border: `1px solid ${met ? 'rgba(124,224,196,0.3)' : s2.lineStrong}`,
+        padding: '8px 12px', marginBottom: 24,
+      }}>
+        <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.18em', color: met ? '#7CE0C4' : s2.accent }}>
+          {met ? `${count} SELECTED ✓ — GREAT VARIETY` : `SELECT AT LEAST 5 INGREDIENTS (${count}/5)`}
+        </div>
       </div>
+
       {INGREDIENT_CATEGORIES.map(cat => (
-        <div key={cat.name}>
-          <label className="block text-sm font-semibold text-secondary uppercase tracking-wide mb-2.5 font-sans">{cat.name}</label>
-          <div className="grid grid-cols-3 gap-2.5">
+        <div key={cat.name} style={{ marginBottom: 20 }}>
+          <HairLabel style={{ marginBottom: 10 }}>{cat.name}</HairLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
             {cat.items.map(item => {
               const selected = data.preferredIngredients.includes(item);
               return (
-                <button key={item} onClick={() => toggleArr('preferredIngredients', item)}
-                  className={`relative flex flex-col items-center justify-center rounded-2xl py-4 px-2 transition-all active:scale-97 ${
-                    selected ? 'bg-success/15 border-[1.5px] border-success/40' : 'bg-surface border-[1.5px] border-border'}`}>
+                <button key={item} onClick={() => toggleArr('preferredIngredients', item)} style={{
+                  position: 'relative',
+                  background: selected ? 'rgba(124,224,196,0.1)' : s2.surface,
+                  border: `1px solid ${selected ? 'rgba(124,224,196,0.4)' : s2.line}`,
+                  padding: '14px 8px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  cursor: 'pointer',
+                }}>
                   {selected && (
-                    <div className="absolute top-2 right-2 w-5 h-5 bg-success rounded-full flex items-center justify-center">
-                      <span className="text-white text-[10px] font-bold">✓</span>
+                    <div style={{
+                      position: 'absolute', top: 6, right: 6, width: 14, height: 14,
+                      background: '#7CE0C4',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <span style={{ color: '#0C0907', fontSize: 8, fontWeight: 700 }}>✓</span>
                     </div>
                   )}
-                  <span className="text-2xl mb-1.5">{INGREDIENT_ICONS[item] || '🍽️'}</span>
-                  <span className={`text-xs font-sans font-medium text-center leading-tight ${selected ? 'text-success' : 'text-secondary'}`}>{item}</span>
+                  <span style={{ fontSize: 22, marginBottom: 6 }}>{INGREDIENT_ICONS[item] || '🍽️'}</span>
+                  <span style={{ fontFamily: s2.sans, fontSize: 11, color: selected ? '#7CE0C4' : s2.textDim, textAlign: 'center', lineHeight: 1.2 }}>{item}</span>
                 </button>
               );
             })}
@@ -837,60 +1013,66 @@ function StepPreferred({ data, toggleArr }: { data: OnboardingData; toggleArr: (
   );
 }
 
+// ── Step 6 · Avoid ────────────────────────────────────────────────────────────
 function StepAvoid({ data, toggleArr, update }: { data: OnboardingData; toggleArr: (f: keyof OnboardingData, v: string) => void; update: (p: Partial<OnboardingData>) => void }) {
   const hasSelections = data.avoidIngredients.filter(v => v !== '__none__').length > 0;
   const optedOut = data.avoidNone === true;
 
   const handleToggle = (item: string) => {
-    // Clear opt-out when user selects an ingredient
     if (optedOut) update({ avoidNone: false, avoidIngredients: [] });
     toggleArr('avoidIngredients', item);
   };
-
-  const handleOptOut = () => {
-    update({ avoidIngredients: ['__none__'], avoidNone: true });
-  };
+  const handleOptOut = () => update({ avoidIngredients: ['__none__'], avoidNone: true });
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="font-display text-2xl font-bold text-primary">Ingredients to Avoid</h2>
-        <p className="text-sm text-secondary font-sans mt-1">Select at least one, or confirm you have none.</p>
+    <div style={{ paddingTop: 30 }}>
+      <HairLabel>EXCLUDE</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em', marginTop: 10, lineHeight: 1.1, marginBottom: 8 }}>
+        Anything to<br />avoid?
+      </div>
+      <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, marginBottom: 24, lineHeight: 1.5 }}>
+        Select at least one, or confirm you have none.
       </div>
 
       {optedOut && (
-        <div className="bg-success-fill border border-success/20 rounded-xl px-3 py-2.5 text-xs text-success font-sans font-medium">
-          ✓ No ingredients to avoid — we'll include everything
+        <div style={{ background: 'rgba(124,224,196,0.1)', border: '1px solid rgba(124,224,196,0.3)', padding: '8px 12px', marginBottom: 16 }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.18em', color: '#7CE0C4' }}>
+            ✓ NO INGREDIENTS TO AVOID — EVERYTHING INCLUDED
+          </div>
         </div>
       )}
 
       {INGREDIENT_CATEGORIES.map(cat => (
-        <div key={cat.name}>
-          <label className="block text-sm font-semibold text-secondary uppercase tracking-wide mb-2.5 font-sans">{cat.name}</label>
-          <div className="grid grid-cols-3 gap-2.5">
+        <div key={cat.name} style={{ marginBottom: 20 }}>
+          <HairLabel style={{ marginBottom: 10 }}>{cat.name}</HairLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
             {cat.items.map(item => {
               const isAllergen = data.allergies.some(a => item.toLowerCase().includes(a.toLowerCase()));
               const selected = data.avoidIngredients.includes(item);
               return (
-                <button key={item} onClick={() => !isAllergen && handleToggle(item)}
+                <button key={item} onClick={() => !isAllergen && !optedOut && handleToggle(item)}
                   disabled={isAllergen || optedOut}
-                  className={`relative flex flex-col items-center justify-center rounded-2xl py-4 px-2 transition-all active:scale-97 ${
-                    isAllergen ? 'bg-red-500/10 border-[1.5px] border-red-500/30 cursor-not-allowed opacity-50' :
-                    optedOut ? 'bg-surface border-[1.5px] border-border opacity-40 cursor-not-allowed' :
-                    selected ? 'bg-red-500/15 border-[1.5px] border-red-500/40' : 'bg-surface border-[1.5px] border-border'}`}>
+                  style={{
+                    position: 'relative',
+                    background: isAllergen ? 'rgba(255,62,62,0.06)' : selected && !optedOut ? 'rgba(255,62,62,0.1)' : s2.surface,
+                    border: `1px solid ${isAllergen ? 'rgba(255,62,62,0.3)' : selected && !optedOut ? 'rgba(255,62,62,0.4)' : s2.line}`,
+                    padding: '14px 8px',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    cursor: isAllergen || optedOut ? 'default' : 'pointer',
+                    opacity: optedOut && !isAllergen ? 0.4 : 1,
+                  }}>
                   {selected && !isAllergen && !optedOut && (
-                    <div className="absolute top-2 right-2 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-[10px] font-bold">✓</span>
+                    <div style={{ position: 'absolute', top: 6, right: 6, width: 14, height: 14, background: s2.warn, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ color: '#fff', fontSize: 8, fontWeight: 700 }}>✓</span>
                     </div>
                   )}
                   {isAllergen && (
-                    <div className="absolute top-2 right-2 w-5 h-5 bg-red-500/60 rounded-full flex items-center justify-center">
-                      <span className="text-white text-[10px]">⚠</span>
+                    <div style={{ position: 'absolute', top: 6, right: 6, width: 14, height: 14, background: 'rgba(255,62,62,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ color: '#fff', fontSize: 9 }}>⚠</span>
                     </div>
                   )}
-                  <span className="text-2xl mb-1.5">{INGREDIENT_ICONS[item] || '🍽️'}</span>
-                  <span className={`text-xs font-sans font-medium text-center leading-tight ${
-                    isAllergen ? 'text-red-400/60' : selected && !optedOut ? 'text-red-400' : 'text-secondary'}`}>{item}</span>
+                  <span style={{ fontSize: 22, marginBottom: 6 }}>{INGREDIENT_ICONS[item] || '🍽️'}</span>
+                  <span style={{ fontFamily: s2.sans, fontSize: 11, color: isAllergen ? 'rgba(255,62,62,0.5)' : selected && !optedOut ? s2.warn : s2.textDim, textAlign: 'center', lineHeight: 1.2 }}>{item}</span>
                 </button>
               );
             })}
@@ -899,186 +1081,246 @@ function StepAvoid({ data, toggleArr, update }: { data: OnboardingData; toggleAr
       ))}
 
       {!hasSelections && (
-        <button
-          onClick={handleOptOut}
-          className={`w-full py-3 rounded-[14px] font-sans text-sm font-medium border transition-all ${
-            optedOut
-              ? 'bg-success-fill border-success/30 text-success'
-              : 'bg-surface border-border text-secondary hover:bg-elevated'
-          }`}
-        >
-          {optedOut ? '✓ I have no ingredients to avoid' : 'I have no ingredients to avoid — continue'}
+        <button onClick={handleOptOut} style={{
+          width: '100%', padding: '14px 0',
+          background: optedOut ? 'rgba(124,224,196,0.1)' : 'transparent',
+          border: `1px solid ${optedOut ? 'rgba(124,224,196,0.3)' : s2.lineStrong}`,
+          fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.18em', fontWeight: 600,
+          color: optedOut ? '#7CE0C4' : s2.textDim,
+          cursor: 'pointer', textTransform: 'uppercase', marginBottom: 16,
+        }}>
+          {optedOut ? '✓ NO INGREDIENTS TO AVOID' : 'I HAVE NO INGREDIENTS TO AVOID →'}
         </button>
       )}
 
       <div>
-        <label className="block text-sm font-medium text-primary mb-1.5 font-sans">Any other ingredients to avoid?</label>
+        <HairLabel style={{ marginBottom: 8 }}>OTHER INGREDIENTS TO AVOID</HairLabel>
         <input type="text" value={data.avoidOther} onChange={e => update({ avoidOther: e.target.value })}
-          className="w-full border-[1.5px] border-border rounded-xl px-4 py-3 font-sans text-base bg-surface text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30"
-          placeholder="E.g. bitter gourd, liver..." />
+          placeholder="E.g. bitter gourd, liver..." style={inputStyle} />
       </div>
     </div>
   );
 }
 
+// ── Step 7 · Goals ────────────────────────────────────────────────────────────
 function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void; toggleArr: (f: keyof OnboardingData, v: string) => void }) {
+  const GOALS = [
+    { val: 'lose_weight',    label: 'LOSE FAT',      desc: 'Calorie deficit with protein priority' },
+    { val: 'maintain',       label: 'MAINTAIN',       desc: 'Stay at current weight, recomp' },
+    { val: 'gain_muscle',    label: 'GAIN MUSCLE',    desc: 'Small surplus, high protein' },
+    { val: 'improve_fitness',label: 'ATHLETIC PERF',  desc: 'Energy dense, timed carbs' },
+    { val: 'manage_health',  label: 'MANAGE HEALTH',  desc: 'Condition-specific nutrition' },
+  ];
+  const INTENSITY = [
+    { val: 'low',      label: 'GENTLE',     sub: '0.25kg/w' },
+    { val: 'moderate', label: 'STEADY',     sub: '0.5kg/w' },
+    { val: 'high',     label: 'AGGRESSIVE', sub: '0.75kg/w' },
+  ];
+
   return (
-    <div className="space-y-4">
-      <h2 className="font-display text-2xl font-bold text-primary">Goals & Lifestyle</h2>
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Primary Goal</label>
-        <div className="space-y-2">
+    <div style={{ paddingTop: 30 }}>
+      <HairLabel>GOAL</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em', marginTop: 10, lineHeight: 1.1, marginBottom: 28 }}>
+        What are you<br />building toward?
+      </div>
+
+      {/* Goal cards */}
+      <div style={{ marginBottom: 24 }}>
+        {GOALS.map(g => {
+          const on = data.primaryGoal === g.val;
+          return (
+            <div key={g.val} onClick={() => update({ primaryGoal: g.val })} style={{
+              padding: 18, marginBottom: 8,
+              border: `1px solid ${on ? s2.accent : s2.line}`,
+              background: on ? s2.accentFill : 'transparent',
+              cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <div>
+                <div style={{ fontFamily: s2.sans, fontSize: 16, fontWeight: 500, color: on ? s2.accent : s2.text, letterSpacing: '-0.01em' }}>{g.label}</div>
+                <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.textDim, marginTop: 4 }}>{g.desc}</div>
+              </div>
+              {on && <div style={{ color: s2.accent, fontFamily: s2.mono, fontSize: 16, flexShrink: 0 }}>✓</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Plan length 2-col with REC badge */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>PLAN LENGTH</HairLabel>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {[
-            { val: 'lose_weight', label: 'Lose Weight' },
-            { val: 'maintain', label: 'Maintain Weight' },
-            { val: 'gain_muscle', label: 'Gain Muscle' },
-            { val: 'improve_fitness', label: 'Improve Fitness' },
-            { val: 'manage_health', label: 'Manage Health Condition' }
-          ].map(g => (
-            <button key={g.val} onClick={() => update({ primaryGoal: g.val })}
-              className={`w-full text-left px-4 py-3 rounded-xl text-sm font-sans font-medium transition-all ${
-                data.primaryGoal === g.val ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}>
-              {g.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Plan Duration</label>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { val: 7, label: '7-Day Plan', desc: 'One week of meals' },
-            { val: 14, label: '14-Day Plan', desc: 'Maximum variety', badge: '⭐ Recommended' },
-          ].map(o => (
-            <button key={o.val} onClick={() => update({ planDuration: o.val })}
-              className={`relative text-left px-4 py-3 rounded-xl text-sm font-sans transition-all ${
-                data.planDuration === o.val ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}>
-              {o.badge && (
-                <span className="absolute -top-2 right-2 bg-accent text-white text-[9px] font-bold px-2 py-0.5 rounded-full">{o.badge}</span>
-              )}
-              <span className="font-semibold block">{o.label}</span>
-              <span className={`text-xs mt-0.5 block ${data.planDuration === o.val ? 'text-secondary' : 'text-dimmed'}`}>{o.desc}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Diet Intensity</label>
-        {[
-          { val: 'low', emoji: '🟢', label: 'Low', desc: 'Mild deficit (~300 kcal). Gradual, sustainable.' },
-          { val: 'moderate', emoji: '🟡', label: 'Moderate', desc: 'Standard deficit (~500 kcal). Steady 0.5kg/week. Recommended.' },
-          { val: 'high', emoji: '🔴', label: 'High', desc: 'Aggressive deficit (~750 kcal). Fast results, requires discipline.' }
-        ].map(i => (
-          <button key={i.val} onClick={() => update({ dietIntensity: i.val })}
-            className={`w-full text-left px-4 py-3 rounded-xl text-sm font-sans mb-2 transition-all ${
-              data.dietIntensity === i.val ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}>
-            <span className="font-medium">{i.emoji} {i.label}</span>
-            <p className={`text-xs mt-0.5 ${data.dietIntensity === i.val ? 'text-secondary' : 'text-dimmed'}`}>{i.desc}</p>
-          </button>
-        ))}
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Activity Level</label>
-        {[
-          { val: 'sedentary', label: 'Sedentary (desk job)' },
-          { val: 'lightly_active', label: 'Lightly Active (1–2 workouts/week)' },
-          { val: 'moderately_active', label: 'Moderately Active (3–4 workouts/week)' },
-          { val: 'very_active', label: 'Very Active (5+ workouts/week)' }
-        ].map(a => (
-          <button key={a.val} onClick={() => update({ activityLevel: a.val })}
-            className={`w-full text-left px-4 py-3 rounded-xl text-sm font-sans font-medium mb-2 transition-all ${
-              data.activityLevel === a.val ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}>
-            {a.label}
-          </button>
-        ))}
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Health Conditions</label>
-        <div className="flex flex-wrap gap-2">
-          {HEALTH_CONDITIONS.map(h => (
-            <button key={h} onClick={() => {
-              if (h === 'None') update({ healthConditions: ['None'] });
-              else { const arr = data.healthConditions.filter(x => x !== 'None'); toggleArr('healthConditions', h); }
-            }}
-              className={`px-4 py-2 rounded-3xl text-sm font-sans font-medium transition-all ${
-                data.healthConditions.includes(h) ? 'bg-accent text-white' : 'bg-surface border border-border text-secondary'}`}>
-              {h}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-primary mb-1 font-sans">Wake Up</label>
-          <input type="time" value={data.wakeUpTime} onChange={e => update({ wakeUpTime: e.target.value })}
-            className="w-full border-[1.5px] border-border rounded-xl px-3 py-2.5 font-sans text-sm bg-surface text-primary focus:outline-none focus:border-accent" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-primary mb-1 font-sans">Sleep</label>
-          <input type="time" value={data.sleepTime} onChange={e => update({ sleepTime: e.target.value })}
-            className="w-full border-[1.5px] border-border rounded-xl px-3 py-2.5 font-sans text-sm bg-surface text-primary focus:outline-none focus:border-accent" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Cooking Style</label>
-        <div className="flex gap-2">
-          {[{ val: 'home', label: 'Home' }, { val: 'mix', label: 'Mix' }, { val: 'outside', label: 'Mostly Outside' }].map(c => (
-            <button key={c.val} onClick={() => update({ cookingStyle: c.val })}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-sans font-medium transition-all ${
-                data.cookingStyle === c.val ? 'bg-elevated text-primary border border-accent/40' : 'bg-surface border border-border text-secondary'}`}>
-              {c.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-primary mb-2 font-sans">Kitchen Equipment</label>
-        <div className="grid grid-cols-3 gap-2.5">
-          {KITCHEN_EQUIPMENT.map(e => {
-            const selected = data.kitchenEquipment.includes(e);
+            { val: 7,  label: '7-DAY' },
+            { val: 14, label: '14-DAY', rec: true },
+          ].map(o => {
+            const on = data.planDuration === o.val;
             return (
-              <button key={e} onClick={() => toggleArr('kitchenEquipment', e)}
-                className={`relative flex flex-col items-center justify-center rounded-2xl py-4 px-2 transition-all active:scale-97 ${
-                  selected ? 'bg-success/15 border-[1.5px] border-success/40' : 'bg-surface border-[1.5px] border-border'}`}>
-                {selected && (
-                  <div className="absolute top-2 right-2 w-5 h-5 bg-success rounded-full flex items-center justify-center">
-                    <span className="text-white text-[10px] font-bold">✓</span>
-                  </div>
+              <div key={o.val} onClick={() => update({ planDuration: o.val })} style={{
+                position: 'relative',
+                border: `1px solid ${o.rec ? s2.accent : on ? s2.accent : s2.lineStrong}`,
+                background: o.rec || on ? s2.accentFill : 'transparent',
+                padding: 14, cursor: 'pointer',
+              }}>
+                {o.rec && (
+                  <div style={{
+                    position: 'absolute', top: -8, right: 8,
+                    fontFamily: s2.mono, fontSize: 8, fontWeight: 700, letterSpacing: '0.15em',
+                    background: s2.accent, color: s2.bg, padding: '2px 6px',
+                  }}>REC</div>
                 )}
-                <span className="text-2xl mb-1.5">{EQUIPMENT_ICONS[e] || '🔧'}</span>
-                <span className={`text-xs font-sans font-medium text-center leading-tight ${selected ? 'text-success' : 'text-secondary'}`}>{e}</span>
+                <div style={{ fontFamily: s2.sans, fontSize: 16, fontWeight: 500, color: o.rec || on ? s2.accent : s2.text }}>{o.label}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Intensity 3-col */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>INTENSITY</HairLabel>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+          {INTENSITY.map(x => {
+            const on = data.dietIntensity === x.val;
+            return (
+              <button key={x.val} onClick={() => update({ dietIntensity: x.val })} style={{
+                background: on ? s2.accentFill : 'transparent',
+                border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
+                color: on ? s2.accent : s2.text,
+                padding: '12px 6px', cursor: 'pointer',
+              }}>
+                <div style={{ fontFamily: s2.mono, fontSize: 10, fontWeight: 600, letterSpacing: '0.15em' }}>{x.label}</div>
+                <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDim, marginTop: 4 }}>{x.sub}</div>
               </button>
             );
           })}
         </div>
       </div>
-      <div>
-        <label className="block text-sm font-medium text-primary mb-1 font-sans">Water Intake Goal (glasses/day)</label>
+
+      {/* Health conditions */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>HEALTH CONDITIONS</HairLabel>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {HEALTH_CONDITIONS.map(h => {
+            const on = data.healthConditions.includes(h);
+            return (
+              <button key={h} onClick={() => {
+                if (h === 'None') update({ healthConditions: ['None'] });
+                else { toggleArr('healthConditions', h); }
+              }} style={{
+                background: on ? s2.accent : 'transparent',
+                border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
+                color: on ? s2.bg : s2.text,
+                fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.12em', fontWeight: 600,
+                padding: '7px 12px', cursor: 'pointer', textTransform: 'uppercase',
+              }}>
+                {h}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Wake / sleep */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
+        {[
+          { label: 'WAKE UP', val: data.wakeUpTime, key: 'wakeUpTime' },
+          { label: 'SLEEP', val: data.sleepTime, key: 'sleepTime' },
+        ].map(t => (
+          <div key={t.key}>
+            <HairLabel style={{ marginBottom: 6 }}>{t.label}</HairLabel>
+            <input type="time" value={t.val} onChange={e => update({ [t.key]: e.target.value } as any)}
+              style={{ ...inputStyle, colorScheme: 'dark' }} />
+          </div>
+        ))}
+      </div>
+
+      {/* Cooking style */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>COOKING STYLE</HairLabel>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+          {[{ val: 'home', label: 'HOME' }, { val: 'mix', label: 'MIX' }, { val: 'outside', label: 'OUTSIDE' }].map(c => (
+            <SelBtn key={c.val} on={data.cookingStyle === c.val} onClick={() => update({ cookingStyle: c.val })}
+              style={{ padding: '14px 8px', width: '100%', fontSize: 10 }}>
+              {c.label}
+            </SelBtn>
+          ))}
+        </div>
+      </div>
+
+      {/* Kitchen equipment */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>KITCHEN EQUIPMENT</HairLabel>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+          {KITCHEN_EQUIPMENT.map(e => {
+            const selected = data.kitchenEquipment.includes(e);
+            return (
+              <button key={e} onClick={() => toggleArr('kitchenEquipment', e)} style={{
+                position: 'relative',
+                background: selected ? 'rgba(124,224,196,0.1)' : s2.surface,
+                border: `1px solid ${selected ? 'rgba(124,224,196,0.4)' : s2.line}`,
+                padding: '14px 8px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer',
+              }}>
+                {selected && (
+                  <div style={{ position: 'absolute', top: 6, right: 6, width: 14, height: 14, background: '#7CE0C4', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ color: '#0C0907', fontSize: 8, fontWeight: 700 }}>✓</span>
+                  </div>
+                )}
+                <span style={{ fontSize: 22, marginBottom: 6 }}>{EQUIPMENT_ICONS[e] || '🔧'}</span>
+                <span style={{ fontFamily: s2.sans, fontSize: 11, color: selected ? '#7CE0C4' : s2.textDim, textAlign: 'center', lineHeight: 1.2 }}>{e}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Water intake */}
+      <div style={{ marginBottom: 8 }}>
+        <HairLabel style={{ marginBottom: 10 }}>WATER INTAKE GOAL</HairLabel>
         <input type="range" min={4} max={16} value={data.waterIntakeGoal}
           onChange={e => update({ waterIntakeGoal: parseInt(e.target.value) })}
-          className="w-full accent-accent" />
-        <span className="text-sm font-mono text-accent font-bold">{data.waterIntakeGoal} glasses</span>
+          style={{ width: '100%', accentColor: s2.accent } as any} />
+        <div style={{ fontFamily: s2.mono, fontSize: 13, color: s2.accent, marginTop: 6, fontWeight: 500 }}>
+          {data.waterIntakeGoal} GLASSES / DAY
+        </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-primary mb-1.5 font-sans">{label}</label>
-      <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full border-[1.5px] border-border rounded-xl px-4 py-3 font-sans text-base bg-surface text-primary placeholder-dimmed focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30" />
-    </div>
-  );
-}
+// ── Shared style objects ───────────────────────────────────────────────────────
+const inputStyle: React.CSSProperties = {
+  display: 'block', width: '100%',
+  background: s2.surface,
+  border: `1px solid ${s2.line}`,
+  fontFamily: s2.sans, fontSize: 14,
+  color: s2.text,
+  padding: '11px 12px',
+  outline: 'none',
+  boxSizing: 'border-box',
+};
 
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-primary mb-1.5 font-sans">{label}</label>
-      <input type="number" value={value} onChange={e => onChange(parseFloat(e.target.value) || 0)}
-        className="w-full border-[1.5px] border-border rounded-xl px-4 py-3 font-sans text-base bg-surface text-primary focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30" />
-    </div>
-  );
-}
+const dropdownStyle: React.CSSProperties = {
+  background: s2.surface,
+  border: `1px solid ${s2.lineStrong}`,
+  marginTop: 2,
+  maxHeight: 160,
+  overflowY: 'auto',
+  zIndex: 10,
+  position: 'relative',
+};
+
+const dropdownItemStyle: React.CSSProperties = {
+  display: 'block', width: '100%', textAlign: 'left',
+  padding: '10px 12px',
+  fontFamily: s2.sans, fontSize: 13, color: s2.text,
+  background: 'transparent', border: 'none', cursor: 'pointer',
+  borderBottom: `1px solid ${s2.line}`,
+};
+
+const linkBtnStyle: React.CSSProperties = {
+  background: 'transparent', border: 'none',
+  fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.12em',
+  color: s2.accent, cursor: 'pointer', marginTop: 6,
+  textTransform: 'uppercase',
+};
