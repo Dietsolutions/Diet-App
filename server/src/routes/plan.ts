@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { MEAL_PLAN } from '../data/mealPlan';
+import { regenerateShoppingList } from '../utils/shoppingListUtils';
 
 const router = Router();
 
@@ -271,10 +272,41 @@ router.patch('/replace-meal', requireAuth, async (req: AuthRequest, res: Respons
       data: { meals: JSON.stringify(meals), totalCalories, totalProtein, totalCarbs, totalFat, totalFibre },
     });
 
+    // Fire-and-forget shopping list sync — does not block the response
+    regenerateShoppingList(userId, activePlan.id).catch(() => {});
+
     res.json({ success: true, updatedMeal: meals[mealIndex] });
   } catch (err) {
     console.error('Update meal error:', err instanceof Error ? err.message : 'unknown');
     res.status(500).json({ error: 'Failed to update meal' });
+  }
+});
+
+// ── POST /api/plan/confirm-overview — final shopping list sync for Feature B ─
+// Called when the user taps START MY PLAN on PlanOverviewScreen.
+// Triggers one definitive shopping list regeneration covering all accumulated
+// meal changes (individual PATCHes may have already fired partial regens).
+router.post('/confirm-overview', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+
+    const activePlan = await prisma.mealPlan.findFirst({
+      where: { userId, isActive: true },
+      orderBy: { generatedAt: 'desc' },
+    });
+
+    if (!activePlan) {
+      res.json({ success: true }); // no active plan — nothing to confirm
+      return;
+    }
+
+    // Fire-and-forget so the response is instant
+    regenerateShoppingList(userId, activePlan.id).catch(() => {});
+
+    res.json({ success: true, mealPlanId: activePlan.id });
+  } catch (err) {
+    console.error('confirm-overview error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'server_error' });
   }
 });
 

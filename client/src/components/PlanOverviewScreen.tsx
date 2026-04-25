@@ -8,6 +8,7 @@ import axios from 'axios';
 import { s2 } from '../theme/tokens';
 import { HairLabel } from './ui';
 import { Meal, DayPlan } from '../types';
+import { useAppStore } from '../store/appStore';
 import { ChangeMealSheet } from './ChangeMealSheet';
 import { DayAccordion } from './DayAccordion';
 
@@ -23,6 +24,7 @@ interface PendingChange {
 }
 
 export function PlanOverviewScreen({ onComplete }: PlanOverviewScreenProps) {
+  const { setLastShoppingUpdateTime } = useAppStore();
   const [days, setDays]               = useState<DayPlan[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState('');
@@ -175,7 +177,12 @@ export function PlanOverviewScreen({ onComplete }: PlanOverviewScreenProps) {
         padding: '12px 20px max(env(safe-area-inset-bottom, 0px), 16px)',
       }}>
         <button
-          onClick={onComplete}
+          onClick={() => {
+            // Trigger final shopping list sync (fire-and-forget)
+            axios.post('/api/plan/confirm-overview', {}, { withCredentials: true }).catch(() => {});
+            setLastShoppingUpdateTime(Date.now());
+            onComplete();
+          }}
           style={{
             width: '100%',
             padding: '15px 0',
@@ -193,7 +200,11 @@ export function PlanOverviewScreen({ onComplete }: PlanOverviewScreenProps) {
         </button>
         <div style={{ marginTop: 10, textAlign: 'center' }}>
           <button
-            onClick={onComplete}
+            onClick={() => {
+              axios.post('/api/plan/confirm-overview', {}, { withCredentials: true }).catch(() => {});
+              setLastShoppingUpdateTime(Date.now());
+              onComplete();
+            }}
             style={{
               background: 'none',
               border: 'none',

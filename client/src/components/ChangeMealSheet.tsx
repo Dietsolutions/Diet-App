@@ -132,7 +132,7 @@ export function ChangeMealSheet({
   onClose,
   onMealUpdated,
 }: ChangeMealSheetProps) {
-  const { profile } = useAppStore();
+  const { profile, setLastShoppingUpdateTime } = useAppStore();
 
   // ── State ──
   type Screen = 'rules' | 'options';
@@ -190,6 +190,8 @@ export function ChangeMealSheet({
         mealIndex,
         meal: option,
       }, { withCredentials: true });
+      // Signal that shopping list is being regenerated in the background
+      setLastShoppingUpdateTime(Date.now());
       onMealUpdated(dayIndex, mealIndex, res.data.updatedMeal || option);
       onClose();
     } catch (err: any) {

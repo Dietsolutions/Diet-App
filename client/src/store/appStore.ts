@@ -40,6 +40,9 @@ interface AppState {
   // Water tracking
   waterByDate: Record<string, number>; // date → glasses
 
+  // Shopping update signal (epoch ms, set when a meal change triggers a regen)
+  lastShoppingUpdateTime: number | null;
+
   // Actions
   setActiveTab: (tab: TabId) => void;
   setSelectedDayIndex: (index: number | null) => void;
@@ -59,6 +62,7 @@ interface AppState {
   resetShopping: () => void;
   setPeopleCount: (n: number) => void;
   setProfile: (profile: UserProfile | null) => void;
+  setLastShoppingUpdateTime: (t: number | null) => void;
   setWater: (date: string, glasses: number) => void;
   navigateToMealsFromTracker: (dayIndex: number, date: string) => void;
 }
@@ -84,6 +88,7 @@ export const useAppStore = create<AppState>((set) => ({
   peopleCount: 1,
   profile: null,
   waterByDate: {},
+  lastShoppingUpdateTime: null,
 
   setActiveTab: (activeTab) => set({ activeTab }),
   setSelectedDayIndex: (selectedDayIndex) => set({ selectedDayIndex }),
@@ -131,6 +136,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   setPeopleCount: (peopleCount) => set({ peopleCount }),
   setProfile: (profile) => set({ profile }),
+  setLastShoppingUpdateTime: (lastShoppingUpdateTime) => set({ lastShoppingUpdateTime }),
 
   navigateToMealsFromTracker: (dayIndex, date) =>
     set({ activeTab: 'meals', selectedDayIndex: dayIndex, calendarContextDate: date, selectedDate: date }),

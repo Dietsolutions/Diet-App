@@ -1,6 +1,8 @@
 // ShoppingTab — Strain v2 visual, all hook logic preserved.
 
+import { useEffect, useState } from 'react';
 import { useShopping } from '../hooks/useShopping';
+import { useAppStore } from '../store/appStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card, Bar, Check } from './ui';
 
@@ -20,10 +22,68 @@ export function ShoppingTab() {
     toggleItem, reset, updatePeopleCount,
   } = useShopping();
 
+  const { lastShoppingUpdateTime } = useAppStore();
+  const [showUpdateBanner, setShowUpdateBanner] = useState(false);
+
+  // Show update banner when a meal change triggered a shopping list regen recently
+  useEffect(() => {
+    if (!lastShoppingUpdateTime) return;
+    const age = Date.now() - lastShoppingUpdateTime;
+    if (age < 60_000) {
+      setShowUpdateBanner(true);
+      const timer = setTimeout(() => setShowUpdateBanner(false), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastShoppingUpdateTime]);
+
   const progress = totalItems > 0 ? boughtItems / totalItems : 0;
 
   return (
     <div style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 90 }}>
+
+      {/* ── Meal-change update banner ─────────────────────────────────────── */}
+      {showUpdateBanner && (
+        <div style={{
+          padding: '10px 20px',
+          background: s2.accentFill,
+          borderBottom: `1px solid ${s2.lineStrong}`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}>
+          <div style={{
+            width: 6, height: 6,
+            borderRadius: '50%',
+            background: s2.accent,
+            flexShrink: 0,
+          }} />
+          <div style={{
+            fontFamily: s2.sans,
+            fontSize: 12,
+            color: s2.textDim,
+            lineHeight: 1.4,
+          }}>
+            Shopping list updated to reflect your meal changes
+          </div>
+          <button
+            onClick={() => setShowUpdateBanner(false)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              padding: 0,
+              color: s2.textDimmer,
+              fontSize: 16,
+              cursor: 'pointer',
+              marginLeft: 'auto',
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* ── Section header ─────────────────────────────────────────────────── */}
       <div style={{ padding: '14px 20px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
