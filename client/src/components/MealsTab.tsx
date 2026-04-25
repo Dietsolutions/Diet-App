@@ -8,6 +8,7 @@ import { usePlan } from '../hooks/usePlan';
 import { Meal, MealReplacement } from '../types';
 import { MealReplacerSheet } from './MealReplacerSheet';
 import { MealDetailSheet } from './MealDetailSheet';
+import { ChangeMealSheet } from './ChangeMealSheet';
 import { WaterIntakeCard } from './WaterIntakeCard';
 import { WaterDetailSheet } from './WaterDetailSheet';
 import { MacroAchievementCard } from './MacroAchievementCard';
@@ -74,6 +75,7 @@ function NavArrow({
 export function MealsTab() {
   const [showWaterDetail, setShowWaterDetail]   = useState(false);
   const [detailMealIdx,   setDetailMealIdx]     = useState<number | null>(null);
+  const [changeMealIdx,   setChangeMealIdx]     = useState<number | null>(null);
 
   const {
     selectedDate,
@@ -86,7 +88,7 @@ export function MealsTab() {
     profile,
   } = useAppStore();
   const { weekData, toggleMeal } = useTracker();
-  const { planDays: planDaysFromPlan } = usePlan();
+  const { planDays: planDaysFromPlan, loadPlan } = usePlan();
   const { replacements, openReplacer, undoReplacement, fetchReplacementsForWeek } =
     useMealReplacerStore();
   const { fetchForDate, getForDate } = useAdditionalMealsStore();
@@ -458,8 +460,8 @@ export function MealsTab() {
                           <span style={{ color: s2.fibre   }}>Fi{fibr}</span>
                         </div>
 
-                        {/* Swap / undo link */}
-                        <div style={{ marginTop: 8 }}>
+                        {/* Action links row */}
+                        <div style={{ marginTop: 8, display: 'flex', gap: 14, alignItems: 'center' }}>
                           {isReplaced ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); undoReplacement(selectedDate, mealIdx); }}
@@ -495,6 +497,23 @@ export function MealsTab() {
                               ↻ SWAP MEAL
                             </button>
                           )}
+                          {/* ✎ CHANGE MEAL — permanently replaces in plan */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setChangeMealIdx(mealIdx); }}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              padding: 0,
+                              fontFamily: s2.mono,
+                              fontSize: 9,
+                              letterSpacing: '0.15em',
+                              color: s2.textDimmer,
+                              cursor: 'pointer',
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            ✎ CHANGE
+                          </button>
                         </div>
                       </div>
 
@@ -603,6 +622,24 @@ export function MealsTab() {
             onToggleEaten={() => handleToggle(mIdx)}
             onOpenReplacer={() => { setDetailMealIdx(null); handleOpenReplacer(mIdx); }}
             onUndoReplacement={() => { undoReplacement(selectedDate, mIdx); setDetailMealIdx(null); }}
+          />
+        );
+      })()}
+
+      {/* ✎ Change Meal — permanently replaces plan meal in DB */}
+      {changeMealIdx !== null && meals[changeMealIdx] && (() => {
+        const mIdx = changeMealIdx;
+        const dayIdx = planDay?.dayIndex ?? planDayIdx;
+        return (
+          <ChangeMealSheet
+            meal={meals[mIdx]}
+            mealIndex={mIdx}
+            dayIndex={dayIdx}
+            onClose={() => setChangeMealIdx(null)}
+            onMealUpdated={async () => {
+              setChangeMealIdx(null);
+              await loadPlan(); // refresh plan from DB so UI reflects the change
+            }}
           />
         );
       })()}

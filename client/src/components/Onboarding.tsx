@@ -6,6 +6,7 @@ import { OnboardingData } from '../types';
 import { Country, City } from 'country-state-city';
 import { COUNTRIES, COUNTRY_CODES, ALLERGENS, ALLERGEN_ICONS, INGREDIENT_CATEGORIES, INGREDIENT_ICONS, CUISINE_OPTIONS, CUISINE_REGIONS, KITCHEN_EQUIPMENT, EQUIPMENT_ICONS, HEALTH_CONDITIONS } from '../data/onboarding';
 import { s2 } from '../theme/tokens';
+import { PlanOverviewScreen } from './PlanOverviewScreen';
 
 const INITIAL: OnboardingData = {
   name: '', age: 25, gender: 'male', country: 'India', city: '',
@@ -36,6 +37,7 @@ export function Onboarding({ onComplete, userName }: Props) {
   const [genStep, setGenStep] = useState('');
   const [error, setError] = useState('');
   const [showSummary, setShowSummary] = useState(false);
+  const [showPlanOverview, setShowPlanOverview] = useState(false);
 
   const totalSteps = 7;
   const update = (partial: Partial<OnboardingData>) => setData(d => ({ ...d, ...partial }));
@@ -115,7 +117,9 @@ export function Onboarding({ onComplete, userName }: Props) {
 
       setGenStep('Done!');
       await refreshUser();
-      onComplete();
+      // Show plan overview so the user can review / change meals before entering
+      setGenerating(false);
+      setShowPlanOverview(true);
     } catch (err: any) {
       const msg = err?.message || 'Failed to generate meal plan';
       setError(msg);
@@ -137,6 +141,11 @@ export function Onboarding({ onComplete, userName }: Props) {
       setGenerating(false);
     }
   };
+
+  // Feature B: show plan review screen after successful generation
+  if (showPlanOverview) {
+    return <PlanOverviewScreen onComplete={onComplete} />;
+  }
 
   if (generating) {
     return (
