@@ -1,38 +1,55 @@
 // useAudioGuide — Web Speech API hook for cooking audio guide.
 // Uses browser's built-in speechSynthesis — zero cost, no file storage.
+//
+// Key design choices:
+//  • play/pause/stop are plain functions (not useCallback) so they always
+//    read the latest React state — no stale-closure bugs.
+//  • setIsPlaying(true) is called immediately when speak() fires, not inside
+//    utterance.onstart, because iOS Safari delays or drops onstart events.
+//  • onerror ignores 'interrupted'/'canceled' — those fire when cancel() is
+//    called before a fresh start and must not reset the playing state.
+//  • script and estimatedSecs are stored in refs so the interval closure
+//    always has current values without recreating itself.
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export function useAudioGuide(script: string | null) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused,  setIsPaused]  = useState(false);
   const [progress,  setProgress]  = useState(0);
 
-  const progressRef  = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startTimeRef = useRef<number>(0);
-  const elapsedRef   = useRef<number>(0); // accumulated elapsed seconds before any pause
+  // Refs so closures always read the latest value without useCallback deps
+  const scriptRef        = useRef<string | null>(script);
+  const estimatedSecsRef = useRef<number>(1);
+  const timerRef         = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef     = useRef<number>(0);
+  const elapsedRef       = useRef<number>(0);
 
-  // Rough duration estimate: ~130 words/min, ~5 chars/word
-  const estimatedSecs = script ? Math.max(1, Math.round((script.split(/\s+/).length / 130) * 60)) : 1;
+  // Keep refs in sync whenever the prop changes
+  useEffect(() => {
+    scriptRef.current        = script;
+    estimatedSecsRef.current = script
+      ? Math.max(1, Math.round((script.split(/\s+/).length / 130) * 60))
+      : 1;
+  }, [script]);
 
-  function clearProgressTimer() {
-    if (progressRef.current) {
-      clearInterval(progressRef.current);
-      progressRef.current = null;
-    }
+  // ── helpers ────────────────────────────────────────────────────────────────
+
+  function clearTimer() {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   }
 
-  function startProgressTimer() {
-    clearProgressTimer();
+  function startTimer() {
+    clearTimer();
     startTimeRef.current = Date.now();
-    progressRef.current = setInterval(() => {
-      const now = Date.now();
-      const totalElapsed = elapsedRef.current + (now - startTimeRef.current) / 1000;
-      setProgress(Math.min((totalElapsed / estimatedSecs) * 100, 99));
+    timerRef.current = setInterval(() => {
+      const totalElapsed = elapsedRef.current + (Date.now() - startTimeRef.current) / 1000;
+      setProgress(Math.min((totalElapsed / estimatedSecsRef.current) * 100, 99));
     }, 300);
   }
 
   function getBestVoice(): SpeechSynthesisVoice | null {
+    if (typeof speechSynthesis === 'undefined') return null;
     const voices = speechSynthesis.getVoices();
     return (
       voices.find(v => v.name.includes('Google') && v.lang.startsWith('en')) ||
@@ -44,82 +61,89 @@ export function useAudioGuide(script: string | null) {
     );
   }
 
-  const play = useCallback(() => {
-    if (!script) return;
+  // ── public controls ────────────────────────────────────────────────────────
 
-    // Resume if paused
+  function play() {
+    if (typeof speechSynthesis === 'undefined') return;
+    const currentScript = scriptRef.current;
+    if (!currentScript) return;
+
+    // Resume a paused utterance
     if (isPaused && speechSynthesis.paused) {
       speechSynthesis.resume();
       setIsPaused(false);
       setIsPlaying(true);
-      startProgressTimer();
+      startTimer();
       return;
     }
 
-    // Fresh start
+    // Cancel whatever is playing, then start fresh.
+    // NOTE: cancel() will fire onerror('interrupted') on the old utterance —
+    // that's expected and must NOT reset our new playing state.
     speechSynthesis.cancel();
     elapsedRef.current = 0;
     setProgress(0);
 
-    const utterance = new SpeechSynthesisUtterance(script);
+    const utterance = new SpeechSynthesisUtterance(currentScript);
     utterance.rate   = 0.88;
     utterance.pitch  = 1.0;
     utterance.volume = 1.0;
     const voice = getBestVoice();
     if (voice) utterance.voice = voice;
 
-    utterance.onstart = () => {
-      setIsPlaying(true);
-      setIsPaused(false);
-      startProgressTimer();
-    };
+    // Set playing state BEFORE speak() — don't rely on onstart which iOS drops
+    setIsPlaying(true);
+    setIsPaused(false);
+    startTimer();
 
     utterance.onend = () => {
       setIsPlaying(false);
       setIsPaused(false);
       setProgress(100);
-      clearProgressTimer();
+      clearTimer();
       elapsedRef.current = 0;
     };
 
-    utterance.onerror = () => {
+    utterance.onerror = (e) => {
+      // 'interrupted' and 'canceled' are normal side-effects of cancel() —
+      // ignore them so they don't clobber the playing state we just set.
+      if (e.error === 'interrupted' || e.error === 'canceled') return;
       setIsPlaying(false);
       setIsPaused(false);
-      clearProgressTimer();
+      clearTimer();
     };
 
     speechSynthesis.speak(utterance);
-  }, [script, isPaused, estimatedSecs]);
+  }
 
-  const pause = useCallback(() => {
+  function pause() {
+    if (typeof speechSynthesis === 'undefined') return;
     if (!speechSynthesis.speaking) return;
-    // accumulate elapsed time before pausing
     elapsedRef.current += (Date.now() - startTimeRef.current) / 1000;
     speechSynthesis.pause();
     setIsPaused(true);
     setIsPlaying(false);
-    clearProgressTimer();
-  }, []);
+    clearTimer();
+  }
 
-  const stop = useCallback(() => {
-    speechSynthesis.cancel();
+  function stop() {
+    if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel();
     setIsPlaying(false);
     setIsPaused(false);
     setProgress(0);
-    clearProgressTimer();
+    clearTimer();
     elapsedRef.current = 0;
-  }, []);
+  }
 
-  // Stop on unmount and pre-load voices
+  // Pre-load voices list + cleanup on unmount
   useEffect(() => {
-    // Pre-load voices list (needed on some browsers)
+    if (typeof speechSynthesis === 'undefined') return;
     speechSynthesis.getVoices();
     const onVoicesChanged = () => speechSynthesis.getVoices();
     speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
-
     return () => {
       speechSynthesis.cancel();
-      clearProgressTimer();
+      clearTimer();
       speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
     };
   }, []);

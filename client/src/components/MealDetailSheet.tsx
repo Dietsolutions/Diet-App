@@ -543,7 +543,7 @@ export function MealDetailSheet({
 
                       {cookInstr.audioScript ? (
                         <>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isPlaying ? 8 : 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: (isPlaying || isPaused) ? 8 : 0 }}>
                             <div style={{ flex: 1, fontFamily: s2.sans, fontSize: 12, color: s2.textDim }}>
                               {isPlaying ? 'Playing…' : isPaused ? 'Paused' : 'Listen while you cook'}
                             </div>
@@ -553,15 +553,17 @@ export function MealDetailSheet({
                                   <button onClick={pause} style={audioBtn}>⏸</button>
                                   <button onClick={stop}  style={{ ...audioBtn, color: s2.textDimmer }}>⏹</button>
                                 </>
+                              ) : isPaused ? (
+                                <>
+                                  <button onClick={play} style={{ ...audioBtn, borderColor: s2.accent, color: s2.accent }}>▶</button>
+                                  <button onClick={stop} style={{ ...audioBtn, color: s2.textDimmer }}>⏹</button>
+                                </>
                               ) : (
-                                <button onClick={play} style={{ ...audioBtn, borderColor: s2.accent, color: s2.accent }}>▶</button>
-                              )}
-                              {isPaused && (
                                 <button onClick={play} style={{ ...audioBtn, borderColor: s2.accent, color: s2.accent }}>▶</button>
                               )}
                             </div>
                           </div>
-                          {isPlaying && (
+                          {(isPlaying || isPaused) && (
                             <div style={{ height: 3, background: s2.line, position: 'relative' }}>
                               <div style={{
                                 position: 'absolute', top: 0, left: 0,
