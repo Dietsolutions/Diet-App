@@ -19,7 +19,7 @@ import { HairLabel, Pill, Card, Check } from './ui';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return format(new Date(), 'yyyy-MM-dd');
 }
 
 function getWeekDates(weekOffset: number): string[] {
@@ -27,7 +27,7 @@ function getWeekDates(weekOffset: number): string[] {
   const monday = startOfWeek(today, { weekStartsOn: 1 });
   const targetMonday = addWeeks(monday, weekOffset);
   return Array.from({ length: 7 }, (_, i) =>
-    addDays(targetMonday, i).toISOString().split('T')[0]
+    format(addDays(targetMonday, i), 'yyyy-MM-dd')
   );
 }
 
@@ -86,6 +86,7 @@ export function MealsTab() {
     mealsPerDay,
     planDuration,
     profile,
+    activePlanId,
   } = useAppStore();
   const { weekData, toggleMeal } = useTracker();
   const { planDays: planDaysFromPlan, loadPlan } = usePlan();
@@ -618,6 +619,8 @@ export function MealsTab() {
             allMeals={meals}
             eatenMask={meals.map((_, i) => getMealEaten(i))}
             replacements={replacements as Record<string, MealReplacement | undefined>}
+            mealPlanId={activePlanId}
+            dayIndex={planDay?.dayIndex ?? planDayIdx}
             onClose={() => setDetailMealIdx(null)}
             onToggleEaten={() => handleToggle(mIdx)}
             onOpenReplacer={() => { setDetailMealIdx(null); handleOpenReplacer(mIdx); }}

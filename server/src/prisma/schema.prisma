@@ -35,6 +35,7 @@ model User {
   recentFoodLogs   RecentFoodLog[]
   waterLogs        WaterLog[]
   additionalMealLogs AdditionalMealLog[]
+  cookingInstructions MealCookingInstructions[]
 }
 
 model WeightLog {
@@ -280,4 +281,37 @@ model WaterLog {
   @@unique([userId, date])
   @@index([userId, date])
   @@map("water_logs")
+}
+
+model MealCookingInstructions {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  mealPlanId   String
+  dayIndex     Int
+  mealIndex    Int
+
+  mealName     String
+
+  // Structured content (JSON arrays)
+  ingredients  Json     // [{ group, name, quantity, unit, notes }]
+  steps        Json     // [{ stepNumber, title, instruction, duration, tip }]
+  totalTime    String
+  prepTime     String
+  cookTime     String
+  servings     Int      @default(1)
+  tips         String[]
+  substitution String?
+
+  // Audio — Web Speech API: store the script, browser plays it
+  audioScript      String?
+  audioDuration    Int?
+  audioGeneratedAt DateTime?
+
+  generatedAt  DateTime @default(now())
+
+  @@unique([userId, mealPlanId, dayIndex, mealIndex])
+  @@index([userId, mealPlanId])
+  @@map("meal_cooking_instructions")
 }

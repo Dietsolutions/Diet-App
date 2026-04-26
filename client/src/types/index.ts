@@ -292,3 +292,38 @@ export interface MealPrepGuide {
   intro: string;
   sections: MealPrepSection[];
 }
+
+// ── Cooking instructions (on-demand generation) ──────────────────────────────
+
+export interface CookingIngredient {
+  group: string;
+  name: string;
+  quantity: string;
+  unit: string;
+  notes: string;
+}
+
+export interface CookingStep {
+  stepNumber: number;
+  title: string;
+  instruction: string;
+  duration?: string;
+  tip?: string;
+}
+
+export interface MealCookingInstructions {
+  id: string;
+  mealName: string;
+  prepTime: string;
+  cookTime: string;
+  totalTime: string;
+  servings: number;
+  ingredients: CookingIngredient[];
+  steps: CookingStep[];
+  tips: string[];
+  substitution?: string | null;
+  audioScript?: string | null;
+  audioDuration?: number | null;
+  audioGeneratedAt?: string | null;
+  generatedAt: string;
+}

@@ -1,6 +1,9 @@
 import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
+import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
 
 const router = Router();
 
@@ -333,6 +336,229 @@ router.patch('/additional/:id', requireAuth, async (req: AuthRequest, res: Respo
   } catch (err: any) {
     console.error('Update additional meal error:', err?.message || err);
     res.status(500).json({ error: 'Failed to update additional meal' });
+  }
+});
+
+// ── Cooking Instructions ──────────────────────────────────────────────────
+
+// GET /api/meals/instructions?mealPlanId=&dayIndex=&mealIndex=
+router.get('/instructions', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { mealPlanId, dayIndex, mealIndex } = req.query as Record<string, string>;
+    if (!mealPlanId || dayIndex === undefined || mealIndex === undefined) {
+      res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex are required' }); return;
+    }
+    const instructions = await prisma.mealCookingInstructions.findUnique({
+      where: { userId_mealPlanId_dayIndex_mealIndex: { userId, mealPlanId, dayIndex: Number(dayIndex), mealIndex: Number(mealIndex) } },
+    });
+    res.json({ instructions: instructions || null });
+  } catch (err: any) {
+    console.error('Get cooking instructions error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to load instructions' });
+  }
+});
+
+// POST /api/meals/instructions/generate
+router.post('/instructions/generate', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { mealPlanId, dayIndex, mealIndex } = req.body;
+    if (!mealPlanId || typeof dayIndex !== 'number' || typeof mealIndex !== 'number') {
+      res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex are required' }); return;
+    }
+
+    // Rate limit: 20 text generations per user per day
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    const todayCount = await prisma.mealCookingInstructions.count({ where: { userId, generatedAt: { gte: dayStart } } });
+    if (todayCount >= 20) { res.status(429).json({ error: 'Daily generation limit reached (20/day). Try again tomorrow.' }); return; }
+
+    // Fetch the meal from the plan
+    const planDay = await prisma.mealPlanDay.findFirst({ where: { mealPlanId, dayIndex } });
+    if (!planDay) { res.status(404).json({ error: 'Plan day not found' }); return; }
+
+    const mealsArr = JSON.parse(planDay.meals as string) as any[];
+    const meal = mealsArr[mealIndex];
+    if (!meal) { res.status(404).json({ error: 'Meal not found at that index' }); return; }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) { res.status(500).json({ error: 'AI service not configured' }); return; }
+    const client = new Anthropic({ apiKey });
+
+    const ingredientsList = Array.isArray(meal.ingredients) ? meal.ingredients.join('\n') : 'Based on the meal name and description';
+
+    const prompt = `You are a professional chef and culinary instructor. Generate extremely detailed, beginner-friendly cooking instructions for the following meal.
+
+MEAL: ${meal.name}
+DESCRIPTION: ${meal.description || ''}
+MEAL TYPE: ${meal.type || 'Meal'} (${meal.time || ''})
+SERVINGS: 1 person
+
+KNOWN INGREDIENTS (from meal plan):
+${ingredientsList}
+
+REQUIREMENTS:
+1. List ALL ingredients with precise quantities for 1 serving
+   - Use standard measurements (grams, ml, tsp, tbsp, cups)
+   - Include preparation notes on each ingredient (e.g. "finely chopped", "at room temperature")
+   - Group ingredients into: Main ingredients, Spices & seasonings, For cooking
+
+2. Step-by-step instructions must be:
+   - Extremely detailed — assume the cook has never made this before
+   - Each step must describe exactly what to do, what it should look like, smell like, or feel like when done correctly
+   - Include temperature settings, pan types, heat levels
+   - Include timing for each step
+   - Warn about common mistakes at critical steps
+   - Mention what "done" looks like for each step
+
+3. Include:
+   - Prep time, cook time, total time
+   - 3-5 pro cooking tips specific to this dish
+   - One substitution suggestion for the main protein or key ingredient
+
+Respond ONLY with valid JSON matching this exact structure:
+{
+  "mealName": string,
+  "prepTime": string,
+  "cookTime": string,
+  "totalTime": string,
+  "servings": 1,
+  "ingredients": [
+    { "group": string, "name": string, "quantity": string, "unit": string, "notes": string }
+  ],
+  "steps": [
+    { "stepNumber": number, "title": string, "instruction": string, "duration": string, "tip": string }
+  ],
+  "tips": string[],
+  "substitution": string
+}`;
+
+    const aiRes = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const rawText = aiRes.content[0].type === 'text' ? aiRes.content[0].text : '';
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) { res.status(500).json({ error: 'AI returned invalid format. Please try again.' }); return; }
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Upsert instructions
+    const instructions = await prisma.mealCookingInstructions.upsert({
+      where: { userId_mealPlanId_dayIndex_mealIndex: { userId, mealPlanId, dayIndex, mealIndex } },
+      update: {
+        mealName: parsed.mealName || meal.name,
+        ingredients: parsed.ingredients || [],
+        steps: parsed.steps || [],
+        totalTime: parsed.totalTime || '',
+        prepTime: parsed.prepTime || '',
+        cookTime: parsed.cookTime || '',
+        servings: parsed.servings || 1,
+        tips: parsed.tips || [],
+        substitution: parsed.substitution || null,
+        audioScript: null,
+        audioDuration: null,
+        audioGeneratedAt: null,
+        generatedAt: new Date(),
+      },
+      create: {
+        userId,
+        mealPlanId,
+        dayIndex,
+        mealIndex,
+        mealName: parsed.mealName || meal.name,
+        ingredients: parsed.ingredients || [],
+        steps: parsed.steps || [],
+        totalTime: parsed.totalTime || '',
+        prepTime: parsed.prepTime || '',
+        cookTime: parsed.cookTime || '',
+        servings: parsed.servings || 1,
+        tips: parsed.tips || [],
+        substitution: parsed.substitution || null,
+      },
+    });
+
+    res.json({ instructions });
+  } catch (err: any) {
+    console.error('Generate cooking instructions error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to generate instructions. Please try again.' });
+  }
+});
+
+// POST /api/meals/instructions/generate-audio
+// Builds a speech-friendly script from existing instructions and stores it.
+// The frontend plays it using the Web Speech API (no file storage needed).
+router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { mealPlanId, dayIndex, mealIndex } = req.body;
+    if (!mealPlanId || typeof dayIndex !== 'number' || typeof mealIndex !== 'number') {
+      res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex are required' }); return;
+    }
+
+    const existing = await prisma.mealCookingInstructions.findUnique({
+      where: { userId_mealPlanId_dayIndex_mealIndex: { userId, mealPlanId, dayIndex, mealIndex } },
+    });
+    if (!existing) { res.status(404).json({ error: 'Generate text instructions first before creating audio.' }); return; }
+
+    // Rate limit: 10 audio scripts per user per day
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    const audioCount = await prisma.mealCookingInstructions.count({
+      where: { userId, audioGeneratedAt: { gte: dayStart } },
+    });
+    if (audioCount >= 10) { res.status(429).json({ error: 'Daily audio limit reached (10/day). Try again tomorrow.' }); return; }
+
+    // Build the speech script
+    const ingredients = existing.ingredients as any[];
+    const steps = existing.steps as any[];
+    const lines: string[] = [];
+
+    lines.push(`Let's cook ${existing.mealName}.`);
+    lines.push(`This will take about ${existing.totalTime} — ${existing.prepTime} to prep and ${existing.cookTime} to cook.`);
+    lines.push('');
+    lines.push("Here's what you'll need.");
+
+    const groups = [...new Set(ingredients.map((i: any) => i.group))];
+    groups.forEach((group) => {
+      lines.push(`${group}:`);
+      ingredients.filter((i: any) => i.group === group).forEach((i: any) => {
+        const notes = i.notes ? `, ${i.notes}` : '';
+        lines.push(`${i.quantity} ${i.unit} ${i.name}${notes}.`);
+      });
+      lines.push('');
+    });
+
+    lines.push("Got everything? Let's begin.");
+    lines.push('');
+
+    steps.forEach((step: any) => {
+      lines.push(`Step ${step.stepNumber}. ${step.title}.`);
+      lines.push(step.instruction);
+      if (step.duration) lines.push(`This should take about ${step.duration}.`);
+      if (step.tip) lines.push(`Chef's tip: ${step.tip}`);
+      lines.push('');
+    });
+
+    lines.push("And that's it! Your meal is ready.");
+    if (existing.tips.length > 0) {
+      lines.push(`One final tip: ${existing.tips[0]}`);
+    }
+
+    const audioScript = lines.join('\n');
+    // Rough duration estimate: ~130 words per minute, ~5 chars per word
+    const wordCount = audioScript.split(/\s+/).length;
+    const audioDuration = Math.round((wordCount / 130) * 60);
+
+    const instructions = await prisma.mealCookingInstructions.update({
+      where: { userId_mealPlanId_dayIndex_mealIndex: { userId, mealPlanId, dayIndex, mealIndex } },
+      data: { audioScript, audioDuration, audioGeneratedAt: new Date() },
+    });
+
+    res.json({ instructions });
+  } catch (err: any) {
+    console.error('Generate audio script error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to generate audio guide. Please try again.' });
   }
 });
 

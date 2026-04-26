@@ -1,9 +1,13 @@
 import { create } from 'zustand';
 import { TabId, DayTrackerState, TrackerStats, ShoppingCategoryData, DayPlan, UserProfile } from '../types';
 
-// Compute today as YYYY-MM-DD
+// Compute today as YYYY-MM-DD in local time (not UTC, to avoid timezone shifts)
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm   = String(d.getMonth() + 1).padStart(2, '0');
+  const dd   = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 interface AppState {
@@ -43,6 +47,9 @@ interface AppState {
   // Shopping update signal (epoch ms, set when a meal change triggers a regen)
   lastShoppingUpdateTime: number | null;
 
+  // Active plan ID (populated when plan loads — needed for cooking instructions)
+  activePlanId: string | null;
+
   // Plan review overlay (shown after generation / re-generation)
   showPlanReview: boolean;
   planReviewMealPlanId: string | null;
@@ -66,6 +73,7 @@ interface AppState {
   resetShopping: () => void;
   setPeopleCount: (n: number) => void;
   setProfile: (profile: UserProfile | null) => void;
+  setActivePlanId: (id: string | null) => void;
   setLastShoppingUpdateTime: (t: number | null) => void;
   setWater: (date: string, glasses: number) => void;
   navigateToMealsFromTracker: (dayIndex: number, date: string) => void;
@@ -95,6 +103,7 @@ export const useAppStore = create<AppState>((set) => ({
   profile: null,
   waterByDate: {},
   lastShoppingUpdateTime: null,
+  activePlanId: null,
   showPlanReview: false,
   planReviewMealPlanId: null,
 
@@ -144,6 +153,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   setPeopleCount: (peopleCount) => set({ peopleCount }),
   setProfile: (profile) => set({ profile }),
+  setActivePlanId: (activePlanId) => set({ activePlanId }),
   setLastShoppingUpdateTime: (lastShoppingUpdateTime) => set({ lastShoppingUpdateTime }),
 
   navigateToMealsFromTracker: (dayIndex, date) =>
