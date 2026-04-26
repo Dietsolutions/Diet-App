@@ -8,6 +8,7 @@ import { s2 } from '../theme/tokens';
 import { HairLabel, VBar, DataRow, TopBar, Bar } from './ui';
 import { Meal, MealReplacement, UserProfile, MealCookingInstructions } from '../types';
 import { AudioGuidePlayer } from './AudioGuidePlayer';
+import { MealShareSheet } from './MealShareSheet';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,7 @@ export function MealDetailSheet({
   const [cookError,       setCookError]       = useState('');
   const [audioError,      setAudioError]      = useState('');
   const [cookExpanded,    setCookExpanded]    = useState(false);
+  const [shareOpen,       setShareOpen]       = useState(false);
 
   // Fetch existing instructions on open (only if mealPlanId is known)
   useEffect(() => {
@@ -181,6 +183,7 @@ export function MealDetailSheet({
 
   // ── Render ──
   return (
+    <>
     <div
       style={{
         position: 'fixed',
@@ -201,20 +204,43 @@ export function MealDetailSheet({
         onBack={onClose}
         kicker={kicker}
         right={
-          isReplaced ? (
-            <div
-              style={{
-                fontFamily: s2.mono,
-                fontSize: 8,
-                letterSpacing: '0.12em',
-                color: s2.accentSoft,
-                textAlign: 'center',
-                lineHeight: 1.3,
-              }}
-            >
-              ↻<br />SWAPPED
-            </div>
-          ) : null
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Share button — only when cooking instructions have been generated */}
+            {cookInstr && (
+              <button
+                onClick={() => setShareOpen(true)}
+                style={{
+                  background:    'transparent',
+                  border:        `1px solid ${s2.lineStrong}`,
+                  padding:       '5px 10px',
+                  fontFamily:    s2.mono,
+                  fontSize:      8,
+                  letterSpacing: '0.14em',
+                  color:         s2.textDim,
+                  cursor:        'pointer',
+                  textTransform: 'uppercase',
+                  lineHeight:    1,
+                }}
+              >
+                ↗ SHARE
+              </button>
+            )}
+            {/* Swapped indicator */}
+            {isReplaced && (
+              <div
+                style={{
+                  fontFamily:    s2.mono,
+                  fontSize:      8,
+                  letterSpacing: '0.12em',
+                  color:         s2.accentSoft,
+                  textAlign:     'center',
+                  lineHeight:    1.3,
+                }}
+              >
+                ↻<br />SWAPPED
+              </div>
+            )}
+          </div>
         }
       />
 
@@ -743,5 +769,17 @@ export function MealDetailSheet({
         )}
       </div>
     </div>
+
+    {/* Share sheet — rendered above the detail sheet (zIndex 46/47) */}
+    {cookInstr && (
+      <MealShareSheet
+        isOpen={shareOpen}
+        onClose={() => setShareOpen(false)}
+        mealName={name}
+        instructions={cookInstr}
+        audioUrl={cookInstr.audioUrl ?? null}
+      />
+    )}
+    </>
   );
 }
