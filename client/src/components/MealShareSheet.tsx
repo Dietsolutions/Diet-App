@@ -18,7 +18,9 @@ interface MealShareSheetProps {
 export function MealShareSheet({
   isOpen, onClose, mealName, instructions, audioUrl,
 }: MealShareSheetProps) {
-  const [copied, setCopied] = useState(false);
+  const [copied,         setCopied]         = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [audioLinkCopied, setAudioLinkCopied] = useState(false);
 
   if (!isOpen) return null;
 
@@ -89,6 +91,49 @@ export function MealShareSheet({
       });
     } catch {
       // user cancelled — do nothing
+    }
+  }
+
+  async function handleShareAudioFile() {
+    if (!audioUrl) return;
+    setIsLoadingAudio(true);
+    try {
+      const response = await fetch(audioUrl);
+      if (!response.ok) throw new Error('Failed to fetch audio file');
+      const blob      = await response.blob();
+      const safeName  = mealName.toLowerCase().replace(/\s+/g, '_');
+      const audioFile = new File([blob], `${safeName}_cooking_guide.mp3`, { type: 'audio/mpeg' });
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [audioFile] })) {
+        // Share as actual file attachment (iOS/Android)
+        await navigator.share({
+          title: `${mealName} — Audio Cooking Guide`,
+          text:  `Here are the audio cooking instructions for ${mealName}`,
+          files: [audioFile],
+        });
+      } else if (navigator.share) {
+        // File sharing not supported — fall back to sharing the URL
+        await navigator.share({
+          title: `${mealName} — Audio Cooking Guide`,
+          text:  `Listen to the cooking instructions for ${mealName}:\n${audioUrl}`,
+        });
+      } else {
+        // No Web Share API — copy the audio URL to clipboard
+        await navigator.clipboard.writeText(audioUrl);
+        setAudioLinkCopied(true);
+        setTimeout(() => setAudioLinkCopied(false), 2000);
+      }
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        // User didn't cancel — copy URL as fallback
+        try {
+          await navigator.clipboard.writeText(audioUrl);
+          setAudioLinkCopied(true);
+          setTimeout(() => setAudioLinkCopied(false), 2000);
+        } catch { /* silent */ }
+      }
+    } finally {
+      setIsLoadingAudio(false);
     }
   }
 
@@ -182,6 +227,45 @@ export function MealShareSheet({
                 </div>
               </div>
             </button>
+          )}
+
+          {/* Audio file share — only when audio has been generated */}
+          {audioUrl && (
+            <>
+              <button
+                onClick={handleShareAudioFile}
+                disabled={isLoadingAudio}
+                style={{
+                  ...rowStyle,
+                  opacity: isLoadingAudio ? 0.6 : 1,
+                  cursor:  isLoadingAudio ? 'default' : 'pointer',
+                }}
+              >
+                <div style={{ ...iconBoxStyle, color: isLoadingAudio ? s2.textDimmer : s2.accent }}>
+                  {isLoadingAudio ? '⟳' : '🔊'}
+                </div>
+                <div>
+                  <div style={{ fontFamily: s2.sans, fontSize: 14, fontWeight: 500, color: s2.text, marginBottom: 2 }}>
+                    {isLoadingAudio ? 'Preparing audio…' : 'Share Audio Guide'}
+                  </div>
+                  <div style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer }}>
+                    Send the mp3 file to WhatsApp, iMessage or any app
+                  </div>
+                </div>
+              </button>
+              {audioLinkCopied && (
+                <div style={{
+                  fontFamily:    s2.mono,
+                  fontSize:      9,
+                  letterSpacing: '0.14em',
+                  color:         s2.accent,
+                  padding:       '4px 0 8px',
+                  textAlign:     'center',
+                }}>
+                  ✓ AUDIO LINK COPIED
+                </div>
+              )}
+            </>
           )}
 
           {/* WhatsApp */}
