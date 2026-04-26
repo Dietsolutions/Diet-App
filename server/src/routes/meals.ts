@@ -2,6 +2,8 @@ import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { generateAudio } from '../services/ttsService';
+import { storeAudioFile } from '../services/storageService';
 
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
 
@@ -487,8 +489,9 @@ Respond ONLY with valid JSON matching this exact structure:
 });
 
 // POST /api/meals/instructions/generate-audio
-// Builds a speech-friendly script from existing instructions and stores it.
-// The frontend plays it using the Web Speech API (no file storage needed).
+// Generates a real .mp3 via TTS (ElevenLabs / Unreal Speech / OpenAI / Play.ht),
+// stores it in Vercel Blob, and saves the public URL.
+// Reuses an existing file if the same user already has audio for this meal name.
 router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
@@ -497,21 +500,57 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
       res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex are required' }); return;
     }
 
+    // Fetch the text instructions record (must exist first)
     const existing = await prisma.mealCookingInstructions.findUnique({
       where: { userId_mealPlanId_dayIndex_mealIndex: { userId, mealPlanId, dayIndex, mealIndex } },
     });
-    if (!existing) { res.status(404).json({ error: 'Generate text instructions first before creating audio.' }); return; }
+    if (!existing) {
+      res.status(404).json({ error: 'Generate text instructions first before creating audio.' }); return;
+    }
 
-    // Rate limit: 10 audio scripts per user per day
+    // Already has audio — return immediately (no re-generation)
+    if (existing.audioUrl) {
+      res.json({ instructions: existing }); return;
+    }
+
+    // ── Reuse check: same meal name in any other record for this user ─────────
+    const reusable = await prisma.mealCookingInstructions.findFirst({
+      where: {
+        userId,
+        mealName:  { equals: existing.mealName, mode: 'insensitive' },
+        audioUrl:  { not: null },
+        id:        { not: existing.id },
+      },
+      orderBy: { audioGeneratedAt: 'desc' },
+    });
+
+    if (reusable?.audioUrl) {
+      // Reuse — copy the URL to this record and return
+      const instructions = await prisma.mealCookingInstructions.update({
+        where: { id: existing.id },
+        data: {
+          audioUrl:          reusable.audioUrl,
+          audioScript:       reusable.audioScript,
+          audioDuration:     reusable.audioDuration,
+          audioProviderUsed: reusable.audioProviderUsed,
+          audioGeneratedAt:  new Date(),
+        },
+      });
+      res.json({ instructions }); return;
+    }
+
+    // ── Rate limit: 10 new TTS calls per user per day ─────────────────────────
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
     const audioCount = await prisma.mealCookingInstructions.count({
       where: { userId, audioGeneratedAt: { gte: dayStart } },
     });
-    if (audioCount >= 10) { res.status(429).json({ error: 'Daily audio limit reached (10/day). Try again tomorrow.' }); return; }
+    if (audioCount >= 10) {
+      res.status(429).json({ error: 'Daily audio generation limit reached (10/day). Try again tomorrow.' }); return;
+    }
 
-    // Build the speech script
+    // ── Build the narration script ────────────────────────────────────────────
     const ingredients = existing.ingredients as any[];
-    const steps = existing.steps as any[];
+    const steps       = existing.steps       as any[];
     const lines: string[] = [];
 
     lines.push(`Let's cook ${existing.mealName}.`);
@@ -536,29 +575,40 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
       lines.push(`Step ${step.stepNumber}. ${step.title}.`);
       lines.push(step.instruction);
       if (step.duration) lines.push(`This should take about ${step.duration}.`);
-      if (step.tip) lines.push(`Chef's tip: ${step.tip}`);
+      if (step.tip)      lines.push(`Chef's tip: ${step.tip}`);
       lines.push('');
     });
 
     lines.push("And that's it! Your meal is ready.");
-    if (existing.tips.length > 0) {
-      lines.push(`One final tip: ${existing.tips[0]}`);
-    }
+    if (existing.tips.length > 0) lines.push(`One final tip: ${existing.tips[0]}`);
 
-    const audioScript = lines.join('\n');
-    // Rough duration estimate: ~130 words per minute, ~5 chars per word
-    const wordCount = audioScript.split(/\s+/).length;
+    const audioScript   = lines.join('\n');
+    const wordCount     = audioScript.split(/\s+/).length;
     const audioDuration = Math.round((wordCount / 130) * 60);
 
+    // ── Call TTS and store the file ───────────────────────────────────────────
+    const { buffer, provider } = await generateAudio(audioScript);
+
+    const safeName = existing.mealName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_');
+    const filename  = `audio/${userId}/${safeName}_${Date.now()}.mp3`;
+    const audioUrl  = await storeAudioFile(buffer, filename);
+
+    // ── Persist and return ────────────────────────────────────────────────────
     const instructions = await prisma.mealCookingInstructions.update({
-      where: { userId_mealPlanId_dayIndex_mealIndex: { userId, mealPlanId, dayIndex, mealIndex } },
-      data: { audioScript, audioDuration, audioGeneratedAt: new Date() },
+      where: { id: existing.id },
+      data: {
+        audioUrl,
+        audioScript,
+        audioDuration,
+        audioProviderUsed: provider,
+        audioGeneratedAt:  new Date(),
+      },
     });
 
     res.json({ instructions });
   } catch (err: any) {
-    console.error('Generate audio script error:', err?.message || err);
-    res.status(500).json({ error: 'Failed to generate audio guide. Please try again.' });
+    console.error('Generate audio error:', err?.message || err);
+    res.status(500).json({ error: err?.message || 'Failed to generate audio. Please try again.' });
   }
 });
 

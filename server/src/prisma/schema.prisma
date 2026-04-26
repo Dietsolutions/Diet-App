@@ -304,14 +304,17 @@ model MealCookingInstructions {
   tips         String[]
   substitution String?
 
-  // Audio — Web Speech API: store the script, browser plays it
-  audioScript      String?
-  audioDuration    Int?
+  // Audio — server-side TTS, file stored in Vercel Blob
+  audioUrl         String?   // public URL to the stored .mp3 file
+  audioScript      String?   // text sent to TTS (kept for re-generation)
+  audioDuration    Int?      // seconds
   audioGeneratedAt DateTime?
+  audioProviderUsed String?  // "elevenlabs" | "unreal_speech" | "openai" | "playht"
 
   generatedAt  DateTime @default(now())
 
   @@unique([userId, mealPlanId, dayIndex, mealIndex])
   @@index([userId, mealPlanId])
+  @@index([userId, mealName])   // reuse lookup: same meal name across plans
   @@map("meal_cooking_instructions")
 }

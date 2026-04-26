@@ -7,7 +7,7 @@ import axios from 'axios';
 import { s2 } from '../theme/tokens';
 import { HairLabel, VBar, DataRow, TopBar, Bar } from './ui';
 import { Meal, MealReplacement, UserProfile, MealCookingInstructions } from '../types';
-import { useAudioGuide } from '../hooks/useAudioGuide';
+import { AudioGuidePlayer } from './AudioGuidePlayer';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -89,13 +89,12 @@ export function MealDetailSheet({
 
   // ── Cooking instructions state ─────────────────────────────────────────────
   const [cookInstr,       setCookInstr]       = useState<MealCookingInstructions | null>(null);
-  const [cookLoading,     setCookLoading]     = useState(true);   // initial fetch
-  const [cookGenerating,  setCookGenerating]  = useState(false);  // text generation in progress
-  const [audioGenerating, setAudioGenerating] = useState(false);  // audio script generation
+  const [cookLoading,     setCookLoading]     = useState(true);
+  const [cookGenerating,  setCookGenerating]  = useState(false);
+  const [audioGenerating, setAudioGenerating] = useState(false);
   const [cookError,       setCookError]       = useState('');
-  const [cookExpanded,    setCookExpanded]    = useState(false);  // accordion open/close
-
-  const { isPlaying, isPaused, progress: audioProgress, play, pause, stop } = useAudioGuide(cookInstr?.audioScript ?? null);
+  const [audioError,      setAudioError]      = useState('');
+  const [cookExpanded,    setCookExpanded]    = useState(false);
 
   // Fetch existing instructions on open (only if mealPlanId is known)
   useEffect(() => {
@@ -128,12 +127,12 @@ export function MealDetailSheet({
   const handleGenerateAudio = useCallback(async () => {
     if (!mealPlanId) return;
     setAudioGenerating(true);
-    setCookError('');
+    setAudioError('');
     try {
       const r = await axios.post('/api/meals/instructions/generate-audio', { mealPlanId, dayIndex, mealIndex }, { withCredentials: true });
       setCookInstr(r.data.instructions);
     } catch (err: any) {
-      setCookError(err?.response?.data?.error || 'Failed to generate audio. Try again.');
+      setAudioError(err?.response?.data?.error || 'Failed to generate audio. Try again.');
     } finally {
       setAudioGenerating(false);
     }
@@ -179,17 +178,6 @@ export function MealDetailSheet({
 
   // ── Ingredients ──
   const ingredients = meal.ingredients ?? [];
-
-  // ── Audio button shared style ──
-  const audioBtn: React.CSSProperties = {
-    width: 34, height: 34, flexShrink: 0,
-    background: 'transparent',
-    border: `1px solid ${s2.lineStrong}`,
-    color: s2.textDim,
-    fontFamily: s2.mono, fontSize: 13,
-    cursor: 'pointer',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  };
 
   // ── Render ──
   return (
@@ -538,69 +526,12 @@ export function MealDetailSheet({
                     </div>
 
                     {/* Audio guide */}
-                    <div style={{ padding: '12px 14px', borderBottom: `1px solid ${s2.line}` }}>
-                      <HairLabel style={{ marginBottom: 8 }}>AUDIO GUIDE</HairLabel>
-
-                      {cookInstr.audioScript ? (
-                        <>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: (isPlaying || isPaused) ? 8 : 0 }}>
-                            <div style={{ flex: 1, fontFamily: s2.sans, fontSize: 12, color: s2.textDim }}>
-                              {isPlaying ? 'Playing…' : isPaused ? 'Paused' : 'Listen while you cook'}
-                            </div>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              {isPlaying ? (
-                                <>
-                                  <button onClick={pause} style={audioBtn}>⏸</button>
-                                  <button onClick={stop}  style={{ ...audioBtn, color: s2.textDimmer }}>⏹</button>
-                                </>
-                              ) : isPaused ? (
-                                <>
-                                  <button onClick={play} style={{ ...audioBtn, borderColor: s2.accent, color: s2.accent }}>▶</button>
-                                  <button onClick={stop} style={{ ...audioBtn, color: s2.textDimmer }}>⏹</button>
-                                </>
-                              ) : (
-                                <button onClick={play} style={{ ...audioBtn, borderColor: s2.accent, color: s2.accent }}>▶</button>
-                              )}
-                            </div>
-                          </div>
-                          {(isPlaying || isPaused) && (
-                            <div style={{ height: 3, background: s2.line, position: 'relative' }}>
-                              <div style={{
-                                position: 'absolute', top: 0, left: 0,
-                                height: '100%', background: s2.accent,
-                                width: `${audioProgress}%`, transition: 'width 0.3s linear',
-                              }} />
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          {cookError && (
-                            <div style={{
-                              marginBottom: 8, padding: '6px 10px',
-                              border: `1px solid rgba(255,62,62,0.35)`,
-                              background: 'rgba(255,62,62,0.07)',
-                              fontFamily: s2.sans, fontSize: 11, color: s2.warn,
-                            }}>{cookError}</div>
-                          )}
-                          <button
-                            onClick={handleGenerateAudio}
-                            disabled={audioGenerating}
-                            style={{
-                              width: '100%', padding: '10px 0',
-                              background: 'transparent',
-                              border: `1px solid ${s2.lineStrong}`,
-                              fontFamily: s2.mono, fontSize: 9,
-                              letterSpacing: '0.18em', color: s2.textDim,
-                              cursor: audioGenerating ? 'default' : 'pointer',
-                              textTransform: 'uppercase',
-                            }}
-                          >
-                            {audioGenerating ? 'BUILDING AUDIO GUIDE…' : '♪ BUILD AUDIO GUIDE'}
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    <AudioGuidePlayer
+                      audioUrl={cookInstr.audioUrl ?? null}
+                      isGenerating={audioGenerating}
+                      error={audioError}
+                      onGenerate={handleGenerateAudio}
+                    />
 
                     {/* Ingredients */}
                     <div style={{ padding: '12px 14px', borderBottom: `1px solid ${s2.line}` }}>

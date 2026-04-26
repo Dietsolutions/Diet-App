@@ -322,8 +322,10 @@ export interface MealCookingInstructions {
   steps: CookingStep[];
   tips: string[];
   substitution?: string | null;
-  audioScript?: string | null;
+  audioUrl?: string | null;          // public URL to stored .mp3 (Option B)
+  audioScript?: string | null;       // narration text (kept for reference)
   audioDuration?: number | null;
   audioGeneratedAt?: string | null;
+  audioProviderUsed?: string | null; // "elevenlabs"|"unreal_speech"|"openai"|"playht"
   generatedAt: string;
 }
