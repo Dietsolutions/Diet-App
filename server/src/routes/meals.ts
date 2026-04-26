@@ -351,10 +351,14 @@ router.get('/instructions', requireAuth, async (req: AuthRequest, res: Response)
     if (!mealPlanId || dayIndex === undefined || mealIndex === undefined) {
       res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex are required' }); return;
     }
-    const instructions = await prisma.mealCookingInstructions.findUnique({
+    const record = await prisma.mealCookingInstructions.findUnique({
       where: { userId_mealPlanId_dayIndex_mealIndex: { userId, mealPlanId, dayIndex: Number(dayIndex), mealIndex: Number(mealIndex) } },
     });
-    res.json({ instructions: instructions || null });
+    if (!record) { res.json({ instructions: null }); return; }
+    // Strip the condensed audioScript — frontend only needs audioUrl for playback
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { audioScript: _audioScript, ...instructionsForClient } = record;
+    res.json({ instructions: instructionsForClient });
   } catch (err: any) {
     console.error('Get cooking instructions error:', err?.message || err);
     res.status(500).json({ error: 'Failed to load instructions' });
@@ -510,7 +514,9 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
 
     // Already has audio — return immediately (no re-generation)
     if (existing.audioUrl) {
-      res.json({ instructions: existing }); return;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { audioScript: _s, ...instrForClient } = existing;
+      res.json({ instructions: instrForClient }); return;
     }
 
     // ── Reuse check: same meal name in any other record for this user ─────────
@@ -526,7 +532,7 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
 
     if (reusable?.audioUrl) {
       // Reuse — copy the URL to this record and return
-      const instructions = await prisma.mealCookingInstructions.update({
+      const updated = await prisma.mealCookingInstructions.update({
         where: { id: existing.id },
         data: {
           audioUrl:          reusable.audioUrl,
@@ -536,7 +542,9 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
           audioGeneratedAt:  new Date(),
         },
       });
-      res.json({ instructions }); return;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { audioScript: _s2, ...instrForClient } = updated;
+      res.json({ instructions: instrForClient }); return;
     }
 
     // ── Rate limit: 10 new TTS calls per user per day ─────────────────────────
@@ -548,41 +556,23 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
       res.status(429).json({ error: 'Daily audio generation limit reached (10/day). Try again tomorrow.' }); return;
     }
 
-    // ── Build the narration script ────────────────────────────────────────────
+    // ── Build the narration script (concise — keeps most meals under 2800 chars) ─
     const ingredients = existing.ingredients as any[];
     const steps       = existing.steps       as any[];
-    const lines: string[] = [];
+    const parts: string[] = [];
 
-    lines.push(`Let's cook ${existing.mealName}.`);
-    lines.push(`This will take about ${existing.totalTime} — ${existing.prepTime} to prep and ${existing.cookTime} to cook.`);
-    lines.push('');
-    lines.push("Here's what you'll need.");
-
-    const groups = [...new Set(ingredients.map((i: any) => i.group))];
-    groups.forEach((group) => {
-      lines.push(`${group}:`);
-      ingredients.filter((i: any) => i.group === group).forEach((i: any) => {
-        const notes = i.notes ? `, ${i.notes}` : '';
-        lines.push(`${i.quantity} ${i.unit} ${i.name}${notes}.`);
-      });
-      lines.push('');
+    parts.push(`Let's cook ${existing.mealName}. Total time: ${existing.totalTime}.`);
+    parts.push('You will need:');
+    ingredients.forEach((i: any) => {
+      parts.push(`${i.quantity} ${i.unit} ${i.name}.`);
     });
-
-    lines.push("Got everything? Let's begin.");
-    lines.push('');
-
+    parts.push("Let's begin.");
     steps.forEach((step: any) => {
-      lines.push(`Step ${step.stepNumber}. ${step.title}.`);
-      lines.push(step.instruction);
-      if (step.duration) lines.push(`This should take about ${step.duration}.`);
-      if (step.tip)      lines.push(`Chef's tip: ${step.tip}`);
-      lines.push('');
+      parts.push(`Step ${step.stepNumber}: ${step.title}. ${step.instruction}`);
     });
+    parts.push(`Your ${existing.mealName} is ready. Enjoy your meal.`);
 
-    lines.push("And that's it! Your meal is ready.");
-    if (existing.tips.length > 0) lines.push(`One final tip: ${existing.tips[0]}`);
-
-    const audioScript   = lines.join('\n');
+    const audioScript   = parts.join(' ');
     const wordCount     = audioScript.split(/\s+/).length;
     const audioDuration = Math.round((wordCount / 130) * 60);
 
@@ -593,19 +583,20 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
     const filename  = `audio/${userId}/${safeName}_${Date.now()}.mp3`;
     const audioUrl  = await storeAudioFile(buffer, filename);
 
-    // ── Persist and return ────────────────────────────────────────────────────
-    const instructions = await prisma.mealCookingInstructions.update({
+    // ── Persist and return (only audio fields — never touch ingredients/steps) ──
+    const saved = await prisma.mealCookingInstructions.update({
       where: { id: existing.id },
       data: {
         audioUrl,
-        audioScript,
+        audioScript,       // stored server-side only; stripped before sending to client
         audioDuration,
         audioProviderUsed: provider,
         audioGeneratedAt:  new Date(),
       },
     });
-
-    res.json({ instructions });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { audioScript: _s3, ...instrForClient } = saved;
+    res.json({ instructions: instrForClient });
   } catch (err: any) {
     console.error('Generate audio error:', err?.message || err);
     res.status(500).json({ error: err?.message || 'Failed to generate audio. Please try again.' });

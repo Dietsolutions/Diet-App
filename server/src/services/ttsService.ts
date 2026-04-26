@@ -58,8 +58,31 @@ async function generateWithElevenLabs(script: string): Promise<Buffer> {
 }
 
 // ── Unreal Speech (best free tier — 250 k chars/month) ────────────────────────
+// Hard limit: 3000 chars per request. We split on sentence boundaries and
+// concatenate the resulting buffers so long scripts always succeed.
 
-async function generateWithUnrealSpeech(script: string): Promise<Buffer> {
+const UNREAL_SPEECH_MAX_CHARS = 2800; // safely under the 3000-char limit
+
+function splitScriptIntoChunks(script: string): string[] {
+  // Split on sentence boundaries — never cut mid-sentence
+  const sentences = script.split(/(?<=[.!?])\s+/);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const sentence of sentences) {
+    const candidate = current ? `${current} ${sentence}` : sentence;
+    if (candidate.length > UNREAL_SPEECH_MAX_CHARS) {
+      if (current.trim()) chunks.push(current.trim());
+      current = sentence;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
+async function generateUnrealSpeechChunk(text: string): Promise<Buffer> {
   const res = await fetch('https://api.v7.unrealspeech.com/speech', {
     method: 'POST',
     headers: {
@@ -67,8 +90,8 @@ async function generateWithUnrealSpeech(script: string): Promise<Buffer> {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      Text:    script,
-      VoiceId: 'Scarlett',
+      Text:    text,
+      VoiceId: process.env.UNREAL_SPEECH_VOICE_ID || 'Scarlett',
       Bitrate: '192k',
       Speed:   '-0.1',
       Pitch:   '1',
@@ -79,10 +102,20 @@ async function generateWithUnrealSpeech(script: string): Promise<Buffer> {
     throw new Error(`Unreal Speech error ${res.status}: ${errText}`);
   }
   const data = await res.json() as { OutputUri: string };
-  // Unreal Speech returns a URL pointing to the generated audio file
   const audioRes = await fetch(data.OutputUri);
   if (!audioRes.ok) throw new Error(`Unreal Speech fetch error: ${audioRes.status}`);
   return Buffer.from(await audioRes.arrayBuffer());
+}
+
+async function generateWithUnrealSpeech(script: string): Promise<Buffer> {
+  const chunks = splitScriptIntoChunks(script);
+  if (chunks.length === 1) return generateUnrealSpeechChunk(chunks[0]);
+  // Multiple chunks — generate sequentially (avoid hammering the API) then concat
+  const buffers: Buffer[] = [];
+  for (const chunk of chunks) {
+    buffers.push(await generateUnrealSpeechChunk(chunk));
+  }
+  return Buffer.concat(buffers);
 }
 
 // ── OpenAI TTS ────────────────────────────────────────────────────────────────
