@@ -204,43 +204,20 @@ export function MealDetailSheet({
         onBack={onClose}
         kicker={kicker}
         right={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Share button — only when cooking instructions have been generated */}
-            {cookInstr && (
-              <button
-                onClick={() => setShareOpen(true)}
-                style={{
-                  background:    'transparent',
-                  border:        `1px solid ${s2.lineStrong}`,
-                  padding:       '5px 10px',
-                  fontFamily:    s2.mono,
-                  fontSize:      8,
-                  letterSpacing: '0.14em',
-                  color:         s2.textDim,
-                  cursor:        'pointer',
-                  textTransform: 'uppercase',
-                  lineHeight:    1,
-                }}
-              >
-                ↗ SHARE
-              </button>
-            )}
-            {/* Swapped indicator */}
-            {isReplaced && (
-              <div
-                style={{
-                  fontFamily:    s2.mono,
-                  fontSize:      8,
-                  letterSpacing: '0.12em',
-                  color:         s2.accentSoft,
-                  textAlign:     'center',
-                  lineHeight:    1.3,
-                }}
-              >
-                ↻<br />SWAPPED
-              </div>
-            )}
-          </div>
+          isReplaced ? (
+            <div
+              style={{
+                fontFamily:    s2.mono,
+                fontSize:      8,
+                letterSpacing: '0.12em',
+                color:         s2.accentSoft,
+                textAlign:     'center',
+                lineHeight:    1.3,
+              }}
+            >
+              ↻<br />SWAPPED
+            </div>
+          ) : null
         }
       />
 
@@ -534,21 +511,49 @@ export function MealDetailSheet({
                 {/* ── Instructions loaded ── */}
                 {!cookLoading && !cookGenerating && cookInstr && (
                   <>
-                    {/* Time strip */}
-                    <div style={{ display: 'flex', borderBottom: `1px solid ${s2.line}` }}>
+                    {/* Time strip + share button */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr 1fr auto',
+                      borderBottom: `1px solid ${s2.line}`,
+                    }}>
                       {[
                         { label: 'PREP',  value: cookInstr.prepTime  },
                         { label: 'COOK',  value: cookInstr.cookTime  },
                         { label: 'TOTAL', value: cookInstr.totalTime },
                       ].map((s, i) => (
                         <div key={i} style={{
-                          flex: 1, padding: '12px 0', textAlign: 'center',
-                          borderRight: i < 2 ? `1px solid ${s2.line}` : 'none',
+                          padding: '12px 0', textAlign: 'center',
+                          borderRight: `1px solid ${s2.line}`,
                         }}>
                           <HairLabel style={{ marginBottom: 4, fontSize: 7 }}>{s.label}</HairLabel>
                           <div style={{ fontFamily: s2.mono, fontSize: 12, color: s2.text }}>{s.value}</div>
                         </div>
                       ))}
+                      {/* Share button — 4th column */}
+                      <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        padding: '0 12px',
+                      }}>
+                        <button
+                          onClick={() => setShareOpen(true)}
+                          style={{
+                            background:    'transparent',
+                            border:        `1px solid ${s2.lineStrong}`,
+                            padding:       '5px 9px',
+                            fontFamily:    s2.mono,
+                            fontSize:      8,
+                            letterSpacing: '0.14em',
+                            color:         s2.textDim,
+                            cursor:        'pointer',
+                            textTransform: 'uppercase',
+                            lineHeight:    1,
+                            whiteSpace:    'nowrap',
+                          }}
+                        >
+                          ↗ SHARE
+                        </button>
+                      </div>
                     </div>
 
                     {/* Audio guide */}
