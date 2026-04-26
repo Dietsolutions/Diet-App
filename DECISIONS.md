@@ -742,3 +742,53 @@ No `lockedMeals` field exists. `↻ CHANGE` always visible. `reviewConfirmed` re
 
 ### Build
 TypeScript: 0 errors | Vite: ✓ built in 4.94s
+
+---
+
+## On-Demand Cooking Instructions + Audio Guide
+
+### Date
+2026-04-26
+
+### Files created
+- `client/src/hooks/useAudioGuide.ts` — Web Speech API hook with play/pause/stop and progress tracking
+
+### Files modified
+- `server/src/prisma/schema.prisma` — added `MealCookingInstructions` model + `User.cookingInstructions` relation
+- `server/src/routes/meals.ts` — added 3 endpoints (GET instructions, POST generate, POST generate-audio)
+- `client/src/types/index.ts` — added `MealCookingInstructions`, `CookingIngredient`, `CookingStep` interfaces
+- `client/src/store/appStore.ts` — added `activePlanId: string | null` + `setActivePlanId`
+- `client/src/hooks/usePlan.ts` — captures `mealPlanId` from `/api/plan` response, stores in `activePlanId`
+- `client/src/components/MealDetailSheet.tsx` — added COOKING INSTRUCTIONS accordion section
+- `client/src/components/MealsTab.tsx` — passes `mealPlanId={activePlanId}` and `dayIndex` to MealDetailSheet
+
+### Audio approach
+**Option A — Web Speech API** (as specified). No file storage, no TTS API costs.  
+`POST /api/meals/instructions/generate-audio` builds a speech-friendly plain-text script  
+and stores it in `audioScript` (DB). The frontend `useAudioGuide` hook feeds that text into  
+`window.speechSynthesis`, with play/pause/stop controls and a linear progress bar.  
+`audioUrl` field was omitted from the schema entirely (not needed for Option A).
+
+### Three sheet states in MealDetailSheet
+1. **Not generated** — "GENERATE INSTRUCTIONS" button (shown while `cookInstr === null && !cookLoading`)
+2. **Generating** — "GENERATING… About 10 seconds" (shown while `cookGenerating === true`)
+3. **Loaded** — Full accordion: time strip, audio player, grouped ingredients, numbered steps, tips, substitution, regenerate link
+
+State lives in local `useState` hooks inside `MealDetailSheet` (no Zustand store needed — not persisted cross-session, fetched fresh each open).
+
+### Rate limits
+- Text instructions: 20 per user per day (daily count via Prisma)
+- Audio scripts: 10 per user per day
+
+### DB unique key
+`@@unique([userId, mealPlanId, dayIndex, mealIndex])` — upsert-safe; regeneration overwrites existing text, resets `audioScript` to `null` forcing re-generation of audio.
+
+### Migration
+`npx prisma db push --schema src/prisma/schema.prisma` applied successfully.  
+New table: `meal_cooking_instructions`.
+
+### Build
+TypeScript (client): 0 errors  
+TypeScript (server): 0 errors  
+Vite: ✓ built in 4.77s  
+Commit: dc01611 — pushed to main → Vercel deploy triggered
