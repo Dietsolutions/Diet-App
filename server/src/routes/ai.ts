@@ -312,10 +312,11 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       planDates.push(d.toISOString().split('T')[0]);
     }
 
+    // onboardingDone is now set in POST /api/plan/confirm-review once the user
+    // reviews and confirms their plan. Only reset logs/items here.
     await Promise.all([
       prisma.mealLog.deleteMany({ where: { userId, date: { in: planDates } } }),
       prisma.shoppingItem.deleteMany({ where: { userId } }),
-      prisma.user.update({ where: { id: userId }, data: { onboardingDone: true } })
     ]);
 
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);

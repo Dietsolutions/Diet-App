@@ -712,3 +712,33 @@ FROM meal_plans
 ORDER BY "generatedAt" DESC
 LIMIT 20;
 ```
+
+---
+
+## Plan Review Screen — no-lock implementation (2026-04-26)
+
+### Files Created
+- `client/src/components/PlanReviewScreen.tsx` — Review screen shown after generation and re-generation. Fetches `GET /api/plan/review/:mealPlanId`, renders day accordions with ↻ CHANGE buttons and a CONFIRM PLAN footer.
+- `client/src/components/SingleMealRegenerateSheet.tsx` — Slide-up sheet. Screen 1: instructions + quick hints → `POST /api/plan/regenerate-single-meal` (3 options). Screen 2: pick option → `PATCH /api/plan/select-meal`.
+
+### Files Modified
+| File | Change |
+|---|---|
+| `server/src/prisma/schema.prisma` | Added `reviewConfirmed Boolean @default(false)` and `reviewConfirmedAt DateTime?` to `MealPlan`. |
+| `server/src/routes/ai.ts` | Removed `onboardingDone: true` from generation. It is now set exclusively by `confirm-review`. |
+| `server/src/routes/plan.ts` | Added `GET /review/:mealPlanId`, `POST /regenerate-single-meal`, `PATCH /select-meal`, `POST /confirm-review`. |
+| `client/src/store/appStore.ts` | Added `showPlanReview`, `planReviewMealPlanId`, `openPlanReview()`, `closePlanReview()`. |
+| `client/src/components/Onboarding.tsx` | Switched to `PlanReviewScreen` after generation; defers `refreshUser` until after `confirm-review`. |
+| `client/src/components/ProfileTab.tsx` | Shows `PlanReviewScreen` instead of old success screen after re-generation. |
+
+### changedMeals tracking
+Local `Record<string, boolean>` in `PlanReviewScreen` keyed by `"dayIndex-mealIndex"`. Session-only — not persisted, resets on unmount. Provides ✓ CHANGED indicator only.
+
+### No locking
+No `lockedMeals` field exists. `↻ CHANGE` always visible. `reviewConfirmed` records that the user finished their review session — no meal-level semantics.
+
+### Migration
+`npx prisma db push --schema src/prisma/schema.prisma` — backward-compatible nullable fields.
+
+### Build
+TypeScript: 0 errors | Vite: ✓ built in 4.94s

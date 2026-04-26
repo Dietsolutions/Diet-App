@@ -8,6 +8,7 @@ import { useAppStore } from '../store/appStore';
 import { useWeightStore } from '../store/weightStore';
 import { UserProfile } from '../types';
 import { MealPlanCustomiser } from './MealPlanCustomiser';
+import { PlanReviewScreen } from './PlanReviewScreen';
 import { WeightStatsHeader } from './weight/WeightStatsHeader';
 import { GoalProjectionCard } from './weight/GoalProjectionCard';
 import { WeightProgressChart } from './weight/WeightProgressChart';
@@ -26,6 +27,8 @@ export function ProfileTab() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
+  const [showPlanReview, setShowPlanReview] = useState(false);
+  const [reviewMealPlanId, setReviewMealPlanId] = useState<string>('active');
   const [error, setError] = useState('');
   const [mealInstructions, setMealInstructions] = useState('');
   const [planDuration, setPlanDuration] = useState<7 | 14>(7);
@@ -109,15 +112,29 @@ export function ProfileTab() {
       });
       if (!result?.success) throw new Error('Failed');
       setRegenStep('Done!');
-      await refreshUser();
       setRegenerating(false);
-      setShowSuccess(true);
-      if (instructionsRef.current.trim()) setShowBanner(true);
+      // Show plan review screen instead of the old success screen
+      setReviewMealPlanId(result?.mealPlanId || 'active');
+      setShowPlanReview(true);
     } catch (err: any) {
       setError(err?.message || 'Failed to regenerate');
       setRegenerating(false);
     }
   };
+
+  // ── Plan review screen — shown after re-generation ────────────────────
+  if (showPlanReview) {
+    return (
+      <PlanReviewScreen
+        mealPlanId={reviewMealPlanId}
+        onComplete={async () => {
+          await refreshUser();
+          setShowPlanReview(false);
+          setActiveTab('meals');
+        }}
+      />
+    );
+  }
 
   // ── Regenerating screen ────────────────────────────────────────────────
   if (regenerating) {

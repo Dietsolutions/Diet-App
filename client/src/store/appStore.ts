@@ -43,6 +43,10 @@ interface AppState {
   // Shopping update signal (epoch ms, set when a meal change triggers a regen)
   lastShoppingUpdateTime: number | null;
 
+  // Plan review overlay (shown after generation / re-generation)
+  showPlanReview: boolean;
+  planReviewMealPlanId: string | null;
+
   // Actions
   setActiveTab: (tab: TabId) => void;
   setSelectedDayIndex: (index: number | null) => void;
@@ -65,6 +69,8 @@ interface AppState {
   setLastShoppingUpdateTime: (t: number | null) => void;
   setWater: (date: string, glasses: number) => void;
   navigateToMealsFromTracker: (dayIndex: number, date: string) => void;
+  openPlanReview: (mealPlanId?: string | null) => void;
+  closePlanReview: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -89,6 +95,8 @@ export const useAppStore = create<AppState>((set) => ({
   profile: null,
   waterByDate: {},
   lastShoppingUpdateTime: null,
+  showPlanReview: false,
+  planReviewMealPlanId: null,
 
   setActiveTab: (activeTab) => set({ activeTab }),
   setSelectedDayIndex: (selectedDayIndex) => set({ selectedDayIndex }),
@@ -140,4 +148,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   navigateToMealsFromTracker: (dayIndex, date) =>
     set({ activeTab: 'meals', selectedDayIndex: dayIndex, calendarContextDate: date, selectedDate: date }),
+
+  openPlanReview: (mealPlanId = null) => set({ showPlanReview: true, planReviewMealPlanId: mealPlanId }),
+  closePlanReview: () => set({ showPlanReview: false, planReviewMealPlanId: null }),
 }));

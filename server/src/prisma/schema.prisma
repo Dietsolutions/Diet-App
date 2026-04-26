@@ -98,17 +98,19 @@ model UserProfile {
 }
 
 model MealPlan {
-  id            String        @id @default(cuid())
-  userId        String
-  user          User          @relation(fields: [userId], references: [id])
-  weekStartDate DateTime
-  generatedAt   DateTime      @default(now())
-  isActive      Boolean       @default(true)
-  weekSummary   String        @default("{}")
-  planDuration  Int           @default(7)
-  mealPrepGuide Json?
-  days          MealPlanDay[]
-  shoppingLists GeneratedShoppingList[]
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id])
+  weekStartDate     DateTime
+  generatedAt       DateTime      @default(now())
+  isActive          Boolean       @default(true)
+  weekSummary       String        @default("{}")
+  planDuration      Int           @default(7)
+  mealPrepGuide     Json?
+  reviewConfirmed   Boolean       @default(false)
+  reviewConfirmedAt DateTime?
+  days              MealPlanDay[]
+  shoppingLists     GeneratedShoppingList[]
 }
 
 model MealPlanDay {

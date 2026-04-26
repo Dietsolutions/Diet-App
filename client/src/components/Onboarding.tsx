@@ -8,7 +8,7 @@ import { OnboardingData } from '../types';
 import { Country, City } from 'country-state-city';
 import { COUNTRIES, COUNTRY_CODES, ALLERGENS, ALLERGEN_ICONS, INGREDIENT_CATEGORIES, INGREDIENT_ICONS, CUISINE_OPTIONS, CUISINE_REGIONS, KITCHEN_EQUIPMENT, EQUIPMENT_ICONS, HEALTH_CONDITIONS } from '../data/onboarding';
 import { s2 } from '../theme/tokens';
-import { PlanOverviewScreen } from './PlanOverviewScreen';
+import { PlanReviewScreen } from './PlanReviewScreen';
 
 const INITIAL: OnboardingData = {
   name: '', age: 25, gender: 'male', country: 'India', city: '',
@@ -132,7 +132,8 @@ export function Onboarding({ onComplete, userName }: Props) {
   const [genStep, setGenStep] = useState('');
   const [error, setError] = useState('');
   const [showSummary, setShowSummary] = useState(false);
-  const [showPlanOverview, setShowPlanOverview] = useState(false);
+  const [showPlanReview, setShowPlanReview] = useState(false);
+  const [reviewMealPlanId, setReviewMealPlanId] = useState<string>('active');
 
   const totalSteps = 7;
   const update = (partial: Partial<OnboardingData>) => setData(d => ({ ...d, ...partial }));
@@ -208,9 +209,11 @@ export function Onboarding({ onComplete, userName }: Props) {
 
       if (!result?.success) throw new Error('Generation failed');
       setGenStep('Done!');
-      await refreshUser();
+      // onboardingDone is NOT set yet — confirm-review sets it.
+      // Don't call refreshUser here; the plan review screen handles that via onComplete.
+      setReviewMealPlanId(result?.mealPlanId || 'active');
       setGenerating(false);
-      setShowPlanOverview(true);
+      setShowPlanReview(true);
     } catch (err: any) {
       setError(err?.message || 'Failed to generate meal plan');
       setGenerating(false);
@@ -231,9 +234,17 @@ export function Onboarding({ onComplete, userName }: Props) {
     }
   };
 
-  // Feature B: plan review after generation
-  if (showPlanOverview) {
-    return <PlanOverviewScreen onComplete={onComplete} />;
+  // Show plan review screen after generation — onComplete will refreshUser + exit onboarding
+  if (showPlanReview) {
+    return (
+      <PlanReviewScreen
+        mealPlanId={reviewMealPlanId}
+        onComplete={async () => {
+          await refreshUser(); // now onboardingDone=true — App.tsx exits Onboarding
+          onComplete();
+        }}
+      />
+    );
   }
 
   // ── Generating screen (OB5 style) ──────────────────────────────────────────

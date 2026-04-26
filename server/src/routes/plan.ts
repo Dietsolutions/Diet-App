@@ -310,4 +310,270 @@ router.post('/confirm-overview', requireAuth, async (req: AuthRequest, res: Resp
   }
 });
 
+// ── GET /api/plan/review/:mealPlanId ─────────────────────────────────────────
+// Returns full plan for the review screen. Accepts 'active' as mealPlanId.
+router.get('/review/:mealPlanId', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId     = req.userId!;
+    const { mealPlanId } = req.params;
+
+    const where = mealPlanId === 'active'
+      ? { userId, isActive: true }
+      : { id: mealPlanId, userId };
+
+    const plan = await prisma.mealPlan.findFirst({
+      where,
+      include: { days: { orderBy: { dayIndex: 'asc' } } },
+      orderBy: { generatedAt: 'desc' },
+    });
+
+    if (!plan) {
+      res.status(404).json({ error: 'plan_not_found' });
+      return;
+    }
+
+    let weekSummary: any = {};
+    try { weekSummary = JSON.parse(plan.weekSummary || '{}'); } catch { weekSummary = {}; }
+
+    const days = plan.days.map(d => ({
+      id:            d.id,
+      dayIndex:      d.dayIndex,
+      dayName:       d.dayName,
+      totalCalories: d.totalCalories,
+      totalProtein:  d.totalProtein,
+      totalCarbs:    d.totalCarbs,
+      totalFat:      d.totalFat,
+      totalFibre:    d.totalFibre,
+      meals: (() => { try { return JSON.parse(d.meals || '[]'); } catch { return []; } })(),
+    }));
+
+    res.json({
+      plan: {
+        id:               plan.id,
+        planDuration:     plan.planDuration,
+        weekStartDate:    plan.weekStartDate.toISOString().split('T')[0],
+        reviewConfirmed:  plan.reviewConfirmed,
+        weekSummary,
+        days,
+      }
+    });
+  } catch (err) {
+    console.error('plan review fetch error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// ── POST /api/plan/regenerate-single-meal ─────────────────────────────────────
+// Generates 3 AI alternatives for a specific meal.
+router.post('/regenerate-single-meal', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { mealPlanId, dayIndex, mealIndex, instructions, hints } = req.body;
+
+    if (!mealPlanId || typeof dayIndex !== 'number' || typeof mealIndex !== 'number') {
+      res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex are required' });
+      return;
+    }
+
+    const day = await prisma.mealPlanDay.findFirst({
+      where: { mealPlanId, dayIndex },
+    });
+    if (!day) { res.status(404).json({ error: 'day_not_found' }); return; }
+
+    let meals: any[];
+    try { meals = JSON.parse(day.meals || '[]'); } catch { meals = []; }
+    const currentMeal = meals[mealIndex];
+    if (!currentMeal) { res.status(400).json({ error: 'meal_not_found' }); return; }
+
+    const profile = await prisma.userProfile.findUnique({ where: { userId } });
+    if (!profile) { res.status(400).json({ error: 'profile_not_found' }); return; }
+
+    const allergies: string[]  = JSON.parse(profile.allergies || '[]');
+    const avoid: string[]      = JSON.parse(profile.avoidIngredients || '[]').filter((a: string) => a !== '__none__');
+    const cuisines: string[]   = JSON.parse(profile.cuisinePreferences || '[]');
+
+    const QUICK_HINTS = [
+      'Something light', 'Quick · under 15 min', 'No dairy', 'High protein',
+      'Spicy', 'South Indian', 'No cooking required', 'Budget friendly',
+      'High fibre', 'Low carb', 'Vegetarian', 'One pot meal',
+    ];
+    const hintLines = ((hints as string[]) || [])
+      .filter(h => QUICK_HINTS.includes(h))
+      .map(h => `- ${h}`);
+
+    const cal  = Math.round(currentMeal.calories ?? 0);
+    const prot = parseFloat((currentMeal.protein ?? 0).toFixed(1));
+    const carb = parseFloat((currentMeal.carbs   ?? 0).toFixed(1));
+    const fat  = parseFloat((currentMeal.fat     ?? 0).toFixed(1));
+    const fibr = parseFloat((currentMeal.fibre   ?? 0).toFixed(1));
+
+    const prompt = `You are a professional nutritionist. A user wants to replace one meal in their plan with a different option.
+
+MEAL BEING REPLACED:
+Name: ${currentMeal.name}
+Type: ${currentMeal.type} (${currentMeal.time})
+Calories: ${cal} kcal
+Protein: ${prot}g | Carbs: ${carb}g | Fat: ${fat}g | Fibre: ${fibr}g
+
+USER PROFILE:
+Diet preference: ${profile.mealPreference}
+Cuisine preferences: ${cuisines.join(', ') || 'Any'}
+Allergies: ${allergies.join(', ') || 'None'}
+Avoid: ${avoid.join(', ') || 'None'}
+
+USER INSTRUCTIONS:
+${(instructions as string)?.trim() || 'No specific instructions'}
+
+SELECTED HINTS:
+${hintLines.join('\n') || 'None'}
+
+MACRO TARGETS (stay within ±20%):
+Calories: ${Math.round(cal * 0.8)}–${Math.round(cal * 1.2)} kcal
+Protein:  ${(prot * 0.8).toFixed(1)}–${(prot * 1.2).toFixed(1)}g
+Carbs:    ${(carb * 0.8).toFixed(1)}–${(carb * 1.2).toFixed(1)}g
+Fat:      ${(fat  * 0.8).toFixed(1)}–${(fat  * 1.2).toFixed(1)}g
+
+REQUIREMENTS:
+- Generate exactly 3 different alternatives
+- Stay within the macro ranges above
+- Respect all allergies and avoidances
+- Follow user instructions and hints
+- Each option must differ from the others and the original
+- Suitable for ${currentMeal.type} at ${currentMeal.time}
+- Easy to cook, under 30 minutes
+
+Respond ONLY with valid JSON (no markdown):
+{
+  "options": [
+    {
+      "id": "opt_1",
+      "name": "string",
+      "description": "string under 20 words",
+      "cookingTip": "string",
+      "ingredients": ["string"],
+      "calories": 0,
+      "protein": 0,
+      "carbs": 0,
+      "fat": 0,
+      "fibre": 0,
+      "prepTime": "string",
+      "type": "${currentMeal.type}",
+      "time": "${currentMeal.time}"
+    }
+  ]
+}`;
+
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const message = await anthropic.messages.create({
+      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages:   [{ role: 'user', content: prompt }],
+    });
+
+    const textContent = message.content.find(c => c.type === 'text');
+    if (!textContent || textContent.type !== 'text') {
+      res.status(500).json({ error: 'no_ai_response' }); return;
+    }
+
+    const jsonMatch = textContent.text.trim().match(/\{[\s\S]*\}/);
+    if (!jsonMatch) { res.status(500).json({ error: 'invalid_ai_response' }); return; }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    res.json({ options: parsed.options || [] });
+  } catch (err) {
+    console.error('regenerate-single-meal error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'Failed to regenerate meal' });
+  }
+});
+
+// ── PATCH /api/plan/select-meal ───────────────────────────────────────────────
+// Saves a selected replacement meal into MealPlanDay (no locking).
+router.patch('/select-meal', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { mealPlanId, dayIndex, mealIndex, newMeal } = req.body;
+
+    if (!mealPlanId || typeof dayIndex !== 'number' || typeof mealIndex !== 'number' || !newMeal) {
+      res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex, newMeal are required' });
+      return;
+    }
+
+    const day = await prisma.mealPlanDay.findFirst({ where: { mealPlanId, dayIndex } });
+    if (!day) { res.status(404).json({ error: 'day_not_found' }); return; }
+
+    let meals: any[];
+    try { meals = JSON.parse(day.meals || '[]'); } catch { meals = []; }
+
+    if (mealIndex < 0 || mealIndex >= meals.length) {
+      res.status(400).json({ error: 'invalid_mealIndex' }); return;
+    }
+
+    meals[mealIndex] = { ...newMeal, mealIndex };
+
+    const totalCalories = meals.reduce((s: number, m: any) => s + (m.calories || 0), 0);
+    const totalProtein  = meals.reduce((s: number, m: any) => s + (m.protein  || 0), 0);
+    const totalCarbs    = meals.reduce((s: number, m: any) => s + (m.carbs    || 0), 0);
+    const totalFat      = meals.reduce((s: number, m: any) => s + (m.fat      || 0), 0);
+    const totalFibre    = meals.reduce((s: number, m: any) => s + (m.fibre    || 0), 0);
+
+    const updatedDay = await prisma.mealPlanDay.update({
+      where: { id: day.id },
+      data:  { meals: JSON.stringify(meals), totalCalories, totalProtein, totalCarbs, totalFat, totalFibre },
+    });
+
+    // Fire-and-forget shopping list sync
+    regenerateShoppingList(userId, mealPlanId).catch(() => {});
+
+    res.json({ success: true, updatedDay });
+  } catch (err) {
+    console.error('select-meal error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'Failed to select meal' });
+  }
+});
+
+// ── POST /api/plan/confirm-review ─────────────────────────────────────────────
+// Called when user taps CONFIRM PLAN on PlanReviewScreen.
+// Activates the plan, marks it reviewed, sets onboardingDone, syncs shopping.
+router.post('/confirm-review', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { mealPlanId } = req.body;
+
+    // Find the target plan (by ID or the most recent active)
+    const plan = mealPlanId
+      ? await prisma.mealPlan.findFirst({ where: { id: mealPlanId, userId } })
+      : await prisma.mealPlan.findFirst({ where: { userId, isActive: true }, orderBy: { generatedAt: 'desc' } });
+
+    if (!plan) {
+      res.status(404).json({ error: 'plan_not_found' }); return;
+    }
+
+    // Deactivate all other plans for this user
+    await prisma.mealPlan.updateMany({
+      where: { userId, id: { not: plan.id } },
+      data:  { isActive: false },
+    });
+
+    // Mark this plan active + confirmed
+    await prisma.mealPlan.update({
+      where: { id: plan.id },
+      data:  { isActive: true, reviewConfirmed: true, reviewConfirmedAt: new Date() },
+    });
+
+    // Set onboardingDone (idempotent — safe for already-onboarded re-gens)
+    await prisma.user.update({
+      where: { id: userId },
+      data:  { onboardingDone: true },
+    });
+
+    // Fire-and-forget final shopping list sync
+    regenerateShoppingList(userId, plan.id).catch(() => {});
+
+    res.json({ success: true, mealPlanId: plan.id });
+  } catch (err) {
+    console.error('confirm-review error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 export default router;
