@@ -13,9 +13,16 @@ export default defineConfig(({ mode }) => {
 
       // ── Legacy browser support ──────────────────────────────────────────────
       // Generates a second set of ES5-compatible chunks served via <script nomodule>
-      // to browsers that don't support ES modules. Also injects core-js polyfills
-      // into the modern build via modernPolyfills so iOS 13–14 gets what it needs.
-      // iOS 18 loads the module build as normal; no perf impact on modern devices.
+      // to browsers that don't support ES modules (truly old browsers only).
+      //
+      // CRITICAL: modernPolyfills MUST be false (or omitted).
+      // Setting modernPolyfills: true injects a core-js/stable polyfills chunk
+      // (~119 kB) into the modern build. On iOS Safari (JavaScriptCore engine),
+      // certain core-js iterator/Symbol polyfills cause infinite recursion:
+      //   RangeError: Maximum call stack size exceeded
+      // iOS 18.7 has every modern JS feature natively — no core-js needed.
+      // The manual polyfills in main.tsx safely patch only what's missing on
+      // iOS < 15.4 without conflicting with JavaScriptCore's native implementation.
       legacy({
         targets: [
           'iOS >= 13',
@@ -25,7 +32,7 @@ export default defineConfig(({ mode }) => {
         ],
         additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
         renderLegacyChunks: true,
-        modernPolyfills: true,
+        modernPolyfills: false,
       }),
 
       VitePWA({
