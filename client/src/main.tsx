@@ -1,39 +1,27 @@
 // ── iOS Safari polyfills — must run before any other import ──────────────────
-// These polyfills patch APIs missing on older iOS (pre-15.4) before any
-// component, store, or hook has a chance to call them.
-//
-// NOTE: structuredClone polyfill was removed — JSON.parse(JSON.stringify)
-// recursion risk on browsers that partially implement structuredClone, and
-// modern Mac/iOS have it natively. Use JSON.parse/JSON.stringify directly
-// in the rare places we need a deep clone.
+// Minimal set: only patch what iOS 13–15.3 genuinely lacks.
+// iOS 18 is a fully modern engine — these guards ensure we never overwrite
+// a native implementation, eliminating any risk of polyfill recursion.
 
-// crypto.randomUUID — missing on iOS < 15.4 in non-secure contexts
-if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
-  (crypto as any).randomUUID = function (): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === 'x' ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    });
+// structuredClone — missing on iOS < 15.4
+// Safe guard: checks typeof === 'function' so a partial native
+// implementation is never overwritten.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+if (typeof (window as any).structuredClone !== 'function') {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).structuredClone = function deepClone(obj: unknown): unknown {
+    if (obj === null || typeof obj !== 'object') return obj;
+    try {
+      return JSON.parse(JSON.stringify(obj));
+    } catch {
+      return obj;
+    }
   };
-}
-
-// Promise.allSettled — missing on iOS < 13
-if (!Promise.allSettled) {
-  (Promise as any).allSettled = (promises: Promise<unknown>[]) =>
-    Promise.all(
-      promises.map((p) =>
-        Promise.resolve(p).then(
-          (value) => ({ status: 'fulfilled' as const, value }),
-          (reason) => ({ status: 'rejected' as const, reason }),
-        ),
-      ),
-    );
 }
 
 // Array.prototype.at — missing on iOS < 15.4
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-if (!(Array.prototype as any).at) {
+if (typeof (Array.prototype as any).at !== 'function') {
   // eslint-disable-next-line no-extend-native, @typescript-eslint/no-explicit-any
   (Array.prototype as any).at = function (index: number) {
     const i = index < 0 ? this.length + index : index;

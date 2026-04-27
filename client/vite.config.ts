@@ -1,6 +1,5 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import legacy from '@vitejs/plugin-legacy';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
@@ -10,30 +9,6 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       react(),
-
-      // ── Legacy browser support ──────────────────────────────────────────────
-      // Generates a second set of ES5-compatible chunks served via <script nomodule>
-      // to browsers that don't support ES modules (truly old browsers only).
-      //
-      // CRITICAL: modernPolyfills MUST be false (or omitted).
-      // Setting modernPolyfills: true injects a core-js/stable polyfills chunk
-      // (~119 kB) into the modern build. On iOS Safari (JavaScriptCore engine),
-      // certain core-js iterator/Symbol polyfills cause infinite recursion:
-      //   RangeError: Maximum call stack size exceeded
-      // iOS 18.7 has every modern JS feature natively — no core-js needed.
-      // The manual polyfills in main.tsx safely patch only what's missing on
-      // iOS < 15.4 without conflicting with JavaScriptCore's native implementation.
-      legacy({
-        targets: [
-          'iOS >= 13',
-          'Safari >= 13',
-          'last 2 Chrome versions',
-          'last 2 Firefox versions',
-        ],
-        additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
-        renderLegacyChunks: true,
-        modernPolyfills: false,
-      }),
 
       VitePWA({
         registerType: 'autoUpdate',
@@ -71,9 +46,6 @@ export default defineConfig(({ mode }) => {
             // ── Navigate requests: NetworkFirst ─────────────────────────────
             // CRITICAL for iOS: always fetch fresh index.html from the network
             // so the browser gets the correct content-hashed JS chunk filenames.
-            // navigateFallback (CacheFirst) was the likely cause of blank screen:
-            // the SW served a stale index.html with old chunk names after a deploy.
-            // NetworkFirst tries the network, falls back to cache on failure (offline).
             {
               urlPattern: ({ request }: { request: Request }) =>
                 request.mode === 'navigate' && !request.url.includes('/api/'),
@@ -115,16 +87,17 @@ export default defineConfig(({ mode }) => {
     },
 
     build: {
-      // build.target is intentionally omitted here — @vitejs/plugin-legacy
-      // sets the modern target automatically based on its own `targets` option.
-      // Setting it explicitly would generate the "plugin-legacy overrode build.target" warning.
+      // Target modern browsers — iOS 13+ (Safari 13+) supports all of these.
+      // @vitejs/plugin-legacy has been removed: it was generating polyfill
+      // detection code that caused RangeError: Maximum call stack size exceeded
+      // on iOS Safari 18 (a fully modern engine that needs zero legacy polyfills).
+      target: ['es2020', 'safari13', 'chrome87', 'firefox78'],
       sourcemap: false,
       rollupOptions: {
         output: {
           manualChunks: {
-            react:  ['react', 'react-dom'],
+            vendor: ['react', 'react-dom'],
             charts: ['recharts'],
-            vendor: ['axios', 'zustand'],
           },
         },
       },

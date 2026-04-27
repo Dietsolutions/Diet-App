@@ -43,43 +43,33 @@
 
     <!--
       Global error handler — MUST run before any other scripts.
-      Catches JS syntax errors and runtime crashes that happen before React mounts
-      and displays them visually on screen (instead of a blank black page).
-      Critical for diagnosing silent iOS Safari failures.
+      Only shows the overlay when React hasn't mounted yet (root is empty),
+      so a mid-session JS error doesn't wipe a working app off screen.
+      Critical for diagnosing silent iOS Safari failures before React mounts.
     -->
     <script>
-      (function () {
-        function showError(title, lines) {
-          var html = '<div style="background:#0a0000;color:#ff6b6b;padding:20px;font-family:monospace;font-size:13px;position:fixed;inset:0;overflow:auto;z-index:99999;line-height:1.6;">'
-            + '<h2 style="color:#ff4444;margin:0 0 12px;font-size:16px;">' + title + '</h2>';
-          for (var i = 0; i < lines.length; i++) {
-            html += '<p style="margin:4px 0;">' + lines[i] + '</p>';
-          }
-          html += '<button onclick="location.reload()" style="margin-top:18px;padding:10px 22px;background:#C4713A;border:none;color:#fff;font-size:14px;cursor:pointer;">Reload App</button>';
-          html += '</div>';
-          document.body.innerHTML = html;
+      window.addEventListener('error', function (e) {
+        var root = document.getElementById('root');
+        if (root && !root.hasChildNodes()) {
+          document.body.innerHTML =
+            '<div style="background:#0a0000;color:#ff6b6b;padding:20px;' +
+            'font-family:monospace;font-size:13px;position:fixed;inset:0;' +
+            'overflow:auto;z-index:99999;line-height:1.6;">' +
+            '<h2 style="color:#ff4444;margin:0 0 10px;font-size:16px;">App Error</h2>' +
+            '<p><strong>Message:</strong> ' + (e.message || 'unknown') + '</p>' +
+            '<p><strong>File:</strong> ' + (e.filename || 'unknown') + '</p>' +
+            '<p><strong>Line:</strong> ' + e.lineno + ':' + e.colno + '</p>' +
+            '<p style="font-size:11px;color:#ff9999;">' + navigator.userAgent + '</p>' +
+            '<button onclick="location.reload()" style="margin-top:16px;' +
+            'padding:10px 22px;background:#C4713A;border:none;color:#fff;' +
+            'font-size:14px;cursor:pointer;">Reload App</button>' +
+            '</div>';
         }
+      });
 
-        window.addEventListener('error', function (e) {
-          showError('JavaScript Error', [
-            '<strong>Message:</strong> ' + (e.message || 'unknown'),
-            '<strong>File:</strong> ' + (e.filename || 'unknown'),
-            '<strong>Line:</strong> ' + e.lineno + ':' + e.colno,
-            '<strong>UA:</strong> ' + navigator.userAgent,
-          ]);
-        });
-
-        window.addEventListener('unhandledrejection', function (e) {
-          var reason = e.reason;
-          var msg = reason && reason.message ? reason.message : String(reason);
-          var stack = reason && reason.stack ? reason.stack : 'No stack';
-          showError('Unhandled Promise Rejection', [
-            '<strong>Reason:</strong> ' + msg,
-            '<strong>Stack:</strong><br><pre style="margin:4px 0;font-size:11px;white-space:pre-wrap;">' + stack + '</pre>',
-            '<strong>UA:</strong> ' + navigator.userAgent,
-          ]);
-        });
-      })();
+      window.addEventListener('unhandledrejection', function (e) {
+        console.error('[unhandledrejection]', e.reason);
+      });
     </script>
   </head>
   <body>
