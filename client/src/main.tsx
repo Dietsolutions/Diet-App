@@ -1,3 +1,48 @@
+// ── iOS Safari polyfills — must run before any other import ──────────────────
+// These polyfills patch APIs missing on older iOS (pre-15.4) before any
+// component, store, or hook has a chance to call them.
+
+// structuredClone — missing on iOS < 15.4
+if (typeof structuredClone === 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).structuredClone = (obj: unknown): unknown => JSON.parse(JSON.stringify(obj));
+}
+
+// crypto.randomUUID — missing on iOS < 15.4 in non-secure contexts
+if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
+  (crypto as any).randomUUID = function (): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  };
+}
+
+// Promise.allSettled — missing on iOS < 13
+if (!Promise.allSettled) {
+  (Promise as any).allSettled = (promises: Promise<unknown>[]) =>
+    Promise.all(
+      promises.map((p) =>
+        Promise.resolve(p).then(
+          (value) => ({ status: 'fulfilled' as const, value }),
+          (reason) => ({ status: 'rejected' as const, reason }),
+        ),
+      ),
+    );
+}
+
+// Array.prototype.at — missing on iOS < 15.4
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+if (!(Array.prototype as any).at) {
+  // eslint-disable-next-line no-extend-native, @typescript-eslint/no-explicit-any
+  (Array.prototype as any).at = function (index: number) {
+    const i = index < 0 ? this.length + index : index;
+    return this[i];
+  };
+}
+
+// ── Now safe to import React and the rest of the app ─────────────────────────
 import React, { Component, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 // Configure axios defaults (baseURL, withCredentials) before any component mounts.
@@ -12,27 +57,36 @@ import './index.css';
  * `100vh` overflows the visible viewport. We measure the real inner height and
  * expose it as `--app-height` so CSS can use `height: var(--app-height)` instead
  * of `height: 100vh`.
- *
- * We also fire on `orientationchange` (with a small delay to let the browser
- * finish resizing) so the value stays accurate after rotation.
  */
 function setAppHeight(): void {
   document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
 }
-
 setAppHeight();
 window.addEventListener('resize', setAppHeight);
 window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 100));
 
 /**
- * Service-worker update detection.
+ * Service-worker registration + update detection.
  *
- * When a new SW activates (skipWaiting + clientsClaim), this controller-change
- * event fires. We reload the page so the user immediately gets the new app
- * shell instead of running old JS with a new SW.
+ * updateViaCache: 'none' forces the browser to always re-fetch the SW script
+ * from the network (ignoring HTTP cache) so iOS Safari picks up new SW versions
+ * immediately rather than serving a stale SW from the browser cache.
+ *
+ * When a new SW activates (skipWaiting + clientsClaim), controllerchange fires
+ * and we reload the page so the user gets the new app shell.
  */
 let swRefreshPending = false;
 if ('serviceWorker' in navigator) {
+  // Always check for SW updates on load (iOS may not auto-check)
+  navigator.serviceWorker
+    .register('/sw.js', { updateViaCache: 'none' })
+    .then((reg) => {
+      reg.update();
+    })
+    .catch((err) => {
+      console.warn('[SW] Registration failed:', err);
+    });
+
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (swRefreshPending) return;
     swRefreshPending = true;
@@ -45,19 +99,25 @@ if ('serviceWorker' in navigator) {
  * Top-level error boundary.
  *
  * If anything inside <App> throws during render (e.g. a Zustand selector,
- * a broken hook, or a third-party import), React 18 would silently unmount
- * the entire tree and show only the black body background.
- * This boundary catches those errors and renders a visible "Reload" prompt.
+ * a broken hook, or a third-party import), React 18 silently unmounts the
+ * entire tree and shows only the black body background.
+ * This boundary catches those errors and renders a detailed debug screen
+ * showing the error message, stack trace, and User-Agent string so we can
+ * diagnose iOS-specific failures without needing a debugger attached.
  */
-interface BoundaryState { hasError: boolean; message: string }
+interface BoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
 class RootErrorBoundary extends Component<{ children: ReactNode }, BoundaryState> {
   constructor(props: { children: ReactNode }) {
     super(props);
-    this.state = { hasError: false, message: '' };
+    this.state = { hasError: false, error: null };
   }
 
   static getDerivedStateFromError(error: Error): BoundaryState {
-    return { hasError: true, message: error?.message || 'Unknown error' };
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
@@ -65,38 +125,50 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, BoundaryState
   }
 
   render() {
-    if (this.state.hasError) {
+    if (this.state.hasError && this.state.error) {
+      const err = this.state.error;
       return (
         <div style={{
-          minHeight: '100vh',
-          backgroundColor: '#0F1117',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '24px',
-          fontFamily: 'Inter, DM Sans, sans-serif',
-          color: '#F0EDE8',
-          textAlign: 'center'
+          background:   '#0a0000',
+          color:        '#ff6b6b',
+          padding:      '20px',
+          fontFamily:   'monospace',
+          fontSize:     '13px',
+          minHeight:    '100vh',
+          lineHeight:   1.6,
+          overflowY:    'auto',
+          boxSizing:    'border-box',
         }}>
-          <div style={{ fontSize: '40px', marginBottom: '16px' }}>⚠️</div>
-          <p style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>
-            Something went wrong
+          <h2 style={{ color: '#ff4444', margin: '0 0 12px', fontSize: '16px' }}>
+            App crashed
+          </h2>
+          <p style={{ margin: '4px 0' }}>
+            <strong>Error:</strong> {err.message}
           </p>
-          <p style={{ fontSize: '13px', color: '#9A95A0', marginBottom: '24px', maxWidth: '280px' }}>
-            {this.state.message}
+          <pre style={{
+            background:    'rgba(255,0,0,0.1)',
+            padding:       '10px',
+            marginTop:     '10px',
+            overflow:      'auto',
+            fontSize:      '11px',
+            whiteSpace:    'pre-wrap',
+            wordBreak:     'break-all',
+          }}>
+            {err.stack || 'No stack trace'}
+          </pre>
+          <p style={{ marginTop: '12px', fontSize: '11px', color: '#ff9999' }}>
+            <strong>UA:</strong> {navigator.userAgent}
           </p>
           <button
             onClick={() => window.location.reload()}
             style={{
-              backgroundColor: '#E8845A',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '12px',
-              padding: '12px 28px',
-              fontSize: '15px',
-              fontWeight: 600,
-              cursor: 'pointer'
+              marginTop:   '16px',
+              padding:     '10px 22px',
+              background:  '#C4713A',
+              border:      'none',
+              color:       '#fff',
+              fontSize:    '14px',
+              cursor:      'pointer',
             }}
           >
             Reload App
@@ -113,5 +185,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <RootErrorBoundary>
       <App />
     </RootErrorBoundary>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

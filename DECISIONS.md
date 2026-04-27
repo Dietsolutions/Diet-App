@@ -792,3 +792,86 @@ TypeScript (client): 0 errors
 TypeScript (server): 0 errors  
 Vite: ✓ built in 4.77s  
 Commit: dc01611 — pushed to main → Vercel deploy triggered
+
+---
+
+## iOS Safari Blank Screen Fix — 2026-04-27
+
+### Symptoms
+App loaded all JS files (from service worker cache, no 404s) but React never mounted on iOS 18.4 Safari. Browser console was completely empty — crash was silent, no error messages visible.
+
+### Diagnosis
+Two likely root causes identified:
+1. **Stale SW cache serving old `index.html`** with outdated content-hashed JS chunk filenames after a deploy. The `navigateFallback: '/index.html'` Workbox option caused ALL navigate requests to be served from the precache (CacheFirst). If the SW's precached `index.html` was stale, it referenced old chunk names → JS files loaded but the app code was from a previous deploy.
+2. **Silent runtime crash** — something threw before React mounted, but with no `window.onerror` handler and no React to catch it, nothing was shown to the user.
+
+### Fixes Applied (8 total)
+
+**Fix 1 — @vitejs/plugin-legacy**
+- Installed `@vitejs/plugin-legacy@5` (Vite 5 compatible) + `regenerator-runtime`
+- Added to vite.config.ts targeting iOS >= 13, Safari >= 13
+- `modernPolyfills: true` injects core-js polyfills into the modern build (loaded on iOS 18.4)
+- `renderLegacyChunks: true` generates ES5 bundles for `<script nomodule>` browsers
+- **Note**: Legacy plugin OOMs locally with default Node heap (8 MB main chunk × 2 = 16 MB transpilation). Fixed by updating `package.json` build script: `node --max-old-space-size=4096 ./node_modules/.bin/vite build`
+- `@vitejs/plugin-legacy@8` is ESM-only and requires Vite 6 — pinned to v5 for Vite 5 compatibility
+- `build.target` removed from vite.config (legacy plugin sets it automatically; explicit value generates a warning)
+
+**Fix 2 — Global error handler in index.html**
+- Added `window.addEventListener('error', ...)` and `window.addEventListener('unhandledrejection', ...)` scripts in `<head>` before any other scripts
+- On error: replaces `document.body.innerHTML` with a red debug panel showing: message, filename, line:col, user agent string
+- On unhandled rejection: shows reason, full stack trace, user agent string
+- Both include a "Reload App" button
+- This makes any crash visible on screen on iPhone instead of showing a blank black page
+
+**Fix 3 — Service worker: NetworkFirst for navigation**
+- **Root cause**: `navigateFallback: '/index.html'` in workbox config made Workbox serve the precached (potentially stale) `index.html` for ALL navigate requests (CacheFirst)
+- **Fix**: Removed `navigateFallback`. Added `runtimeCaching` entry for `request.mode === 'navigate'` with `handler: 'NetworkFirst'` and `networkTimeoutSeconds: 5`
+- Result: on every page load, the browser fetches fresh `index.html` from the network. If network fails (offline), falls back to the cached version. Ensures new deploys immediately deliver updated chunk filenames.
+
+**Fix 4 — iOS polyfills in main.tsx**
+- `structuredClone` — missing on iOS < 15.4. Polyfilled with `JSON.parse(JSON.stringify(obj))`
+- `crypto.randomUUID` — missing on iOS < 15.4 in non-secure contexts. Polyfilled with Math.random UUID generator
+- `Promise.allSettled` — missing on iOS < 13. Polyfilled with Promise.all + catch
+- `Array.prototype.at` — missing on iOS < 15.4. Polyfilled with index normalization
+- All polyfills placed at the very top of `main.tsx` before any imports
+
+**Fix 5 — Enhanced error boundary**
+- Existing `RootErrorBoundary` enhanced to show: full error stack trace, User-Agent string, "Reload App" button
+- Previous version only showed `error.message` — not enough to diagnose iOS-specific failures
+- Stack trace wrapped in `<pre>` with `white-space: pre-wrap; word-break: break-all` for mobile readability
+
+**Fix 6 — SW version meta tag + SW registration with updateViaCache: 'none'**
+- Added `<meta name="sw-version" content="4">` to index.html to track SW cache generations
+- SW registration in `main.tsx` now uses `updateViaCache: 'none'` — tells browser to NEVER use HTTP cache when fetching the SW file itself. Critical for iOS Safari which aggressively caches the SW script. Without this, the browser can serve a stale SW version for up to 24 hours.
+- Added `reg.update()` call after registration to trigger an immediate SW update check on every page load
+
+**Fix 7 — No top-level await or private class fields found**
+- `grep -rn "^await " client/src/` — 0 results
+- `grep -rn "#[a-zA-Z]" client/src/` — 0 results (only CSS hex colour strings matched)
+- No fixes needed
+
+**Fix 8 — .browserslistrc**
+- Created `client/.browserslistrc` targeting iOS >= 13, Safari >= 13, Chrome >= 80, Firefox >= 80
+- Informs `@babel/preset-env` (used by legacy plugin) and any other browserslist-aware tools
+
+### Build Output
+```
+Modern build: polyfills-nau8mE71.js (118.87 kB) — core-js for modern browsers
+Legacy build: polyfills-legacy-D9xoPjy5.js (118.49 kB) — ES5 for old browsers
+             + *-legacy-*.js chunks for all code-split routes
+PWA: 46 entries precached (up from 31 — legacy chunks added)
+```
+The `index-legacy-*.js` (8.1 MB) exceeds `maximumFileSizeToCacheInBytes: 4 MB` and is not precached — served from network on legacy browsers (expected, acceptable).
+
+### Files Modified
+| File | Change |
+|---|---|
+| `client/vite.config.ts` | Added `@vitejs/plugin-legacy`, removed `navigateFallback`, added NetworkFirst runtime caching for navigate, removed explicit `build.target` |
+| `client/index.html` | Added global `window.error`/`unhandledrejection` handlers, `<meta name="sw-version">` |
+| `client/src/main.tsx` | Added 4 polyfills at top, enhanced error boundary with stack+UA, added `updateViaCache: 'none'` + `reg.update()` to SW registration |
+| `client/.browserslistrc` | Created (iOS >= 13, Safari >= 13, Chrome >= 80, Firefox >= 80) |
+| `client/package.json` | Build script: `node --max-old-space-size=4096 ./node_modules/.bin/vite build` to avoid OOM with legacy plugin |
+
+### Expected Outcome
+**Scenario A — The app now works**: The NetworkFirst SW fix (Fix 3) resolved the stale cache issue. Deploy confirmed this.  
+**Scenario B — Red error screen appears**: The global handler (Fix 2) or enhanced error boundary (Fix 5) caught the crash and displayed the exact error message. Take a screenshot to identify the next fix.

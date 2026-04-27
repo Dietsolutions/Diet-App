@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import legacy from '@vitejs/plugin-legacy';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
@@ -9,6 +10,24 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       react(),
+
+      // ── Legacy browser support ──────────────────────────────────────────────
+      // Generates a second set of ES5-compatible chunks served via <script nomodule>
+      // to browsers that don't support ES modules. Also injects core-js polyfills
+      // into the modern build via modernPolyfills so iOS 13–14 gets what it needs.
+      // iOS 18 loads the module build as normal; no perf impact on modern devices.
+      legacy({
+        targets: [
+          'iOS >= 13',
+          'Safari >= 13',
+          'last 2 Chrome versions',
+          'last 2 Firefox versions',
+        ],
+        additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
+        renderLegacyChunks: true,
+        modernPolyfills: true,
+      }),
+
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['icons/*.png'],
@@ -22,8 +41,8 @@ export default defineConfig(({ mode }) => {
           orientation: 'portrait',
           start_url: '/',
           icons: [
-            { src: '/icons/icon-72.png', sizes: '72x72', type: 'image/png' },
-            { src: '/icons/icon-96.png', sizes: '96x96', type: 'image/png' },
+            { src: '/icons/icon-72.png',  sizes: '72x72',   type: 'image/png' },
+            { src: '/icons/icon-96.png',  sizes: '96x96',   type: 'image/png' },
             { src: '/icons/icon-128.png', sizes: '128x128', type: 'image/png' },
             { src: '/icons/icon-144.png', sizes: '144x144', type: 'image/png' },
             { src: '/icons/icon-152.png', sizes: '152x152', type: 'image/png' },
@@ -38,55 +57,70 @@ export default defineConfig(({ mode }) => {
           clientsClaim: true,
           // Remove stale caches from old SW versions on activation.
           cleanupOutdatedCaches: true,
-          // Allow up to 4 MB per file in the precache (default is 2 MB).
-          // After code-splitting, individual chunks are well under 1 MB.
+          // Allow up to 4 MB per file in the precache.
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-          // Serve index.html for all non-API navigate requests (SPA routing).
-          navigateFallback: '/index.html',
-          navigateFallbackDenylist: [/^\/api\//],
           runtimeCaching: [
-            // Cache Google Fonts — safe, long-lived, never auth-related.
+            // ── Navigate requests: NetworkFirst ─────────────────────────────
+            // CRITICAL for iOS: always fetch fresh index.html from the network
+            // so the browser gets the correct content-hashed JS chunk filenames.
+            // navigateFallback (CacheFirst) was the likely cause of blank screen:
+            // the SW served a stale index.html with old chunk names after a deploy.
+            // NetworkFirst tries the network, falls back to cache on failure (offline).
+            {
+              urlPattern: ({ request }: { request: Request }) =>
+                request.mode === 'navigate' && !request.url.includes('/api/'),
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'navigation-cache',
+                networkTimeoutSeconds: 5,
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+            // ── Google Fonts ─────────────────────────────────────────────────
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
-              options: { cacheName: 'google-fonts-cache', expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } }
+              options: {
+                cacheName: 'google-fonts-cache',
+                expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              },
             },
             // ⚠️ API routes must NOT be cached — auth state and session tokens
-            // change per-request and caching them causes stale 401/session bugs,
-            // especially on iOS Safari where the SW cookie jar differs from the
-            // browser's. Always go directly to the network for /api/*.
-          ]
-        }
-      })
+            // change per-request; caching causes stale 401/session bugs on iOS.
+          ],
+        },
+      }),
     ],
+
     define: {
-      'import.meta.env.VITE_API_URL': JSON.stringify(apiUrl)
+      'import.meta.env.VITE_API_URL': JSON.stringify(apiUrl),
     },
+
     server: {
+      port: 5173,
       proxy: {
         '/api': {
           target: 'http://localhost:3001',
-          changeOrigin: true
-        }
-      }
+          changeOrigin: true,
+        },
+      },
     },
+
     build: {
-      // Target iOS Safari 14+ so modern JS syntax is transpiled correctly.
-      // iOS 14 shipped Sept 2020 and supports ES2017+, optional chaining, etc.
-      // Without an explicit target Vite defaults to 'modules' which can leave
-      // some syntax un-transpiled that JavaScriptCore on older iOS can't parse.
-      target: ['es2019', 'safari14', 'chrome87', 'firefox78', 'edge88'],
+      // build.target is intentionally omitted here — @vitejs/plugin-legacy
+      // sets the modern target automatically based on its own `targets` option.
+      // Setting it explicitly would generate the "plugin-legacy overrode build.target" warning.
       sourcemap: false,
       rollupOptions: {
         output: {
           manualChunks: {
-            react: ['react', 'react-dom'],
+            react:  ['react', 'react-dom'],
             charts: ['recharts'],
-            vendor: ['axios', 'zustand']
-          }
-        }
-      }
-    }
+            vendor: ['axios', 'zustand'],
+          },
+        },
+      },
+    },
   };
 });
