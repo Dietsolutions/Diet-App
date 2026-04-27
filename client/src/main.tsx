@@ -1,12 +1,11 @@
 // ── iOS Safari polyfills — must run before any other import ──────────────────
 // These polyfills patch APIs missing on older iOS (pre-15.4) before any
 // component, store, or hook has a chance to call them.
-
-// structuredClone — missing on iOS < 15.4
-if (typeof structuredClone === 'undefined') {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (window as any).structuredClone = (obj: unknown): unknown => JSON.parse(JSON.stringify(obj));
-}
+//
+// NOTE: structuredClone polyfill was removed — JSON.parse(JSON.stringify)
+// recursion risk on browsers that partially implement structuredClone, and
+// modern Mac/iOS have it natively. Use JSON.parse/JSON.stringify directly
+// in the rare places we need a deep clone.
 
 // crypto.randomUUID — missing on iOS < 15.4 in non-secure contexts
 if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
@@ -57,9 +56,16 @@ import './index.css';
  * `100vh` overflows the visible viewport. We measure the real inner height and
  * expose it as `--app-height` so CSS can use `height: var(--app-height)` instead
  * of `height: 100vh`.
+ *
+ * `isSettingHeight` guards against any browser that re-fires resize during a
+ * style.setProperty call, which would cause infinite recursion.
  */
+let isSettingHeight = false;
 function setAppHeight(): void {
+  if (isSettingHeight) return;
+  isSettingHeight = true;
   document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+  isSettingHeight = false;
 }
 setAppHeight();
 window.addEventListener('resize', setAppHeight);
@@ -74,15 +80,16 @@ window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 100)
  *
  * When a new SW activates (skipWaiting + clientsClaim), controllerchange fires
  * and we reload the page so the user gets the new app shell.
+ *
+ * NOTE: reg.update() was removed — Workbox's autoUpdate + skipWaiting already
+ * handles SW lifecycle. Calling update() on every registration triggered an
+ * extra controllerchange → reload cycle that caused a reload loop on some
+ * browsers.
  */
 let swRefreshPending = false;
 if ('serviceWorker' in navigator) {
-  // Always check for SW updates on load (iOS may not auto-check)
   navigator.serviceWorker
     .register('/sw.js', { updateViaCache: 'none' })
-    .then((reg) => {
-      reg.update();
-    })
     .catch((err) => {
       console.warn('[SW] Registration failed:', err);
     });

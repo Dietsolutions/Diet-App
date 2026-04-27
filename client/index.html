@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Diet Plan" />
     <!-- Increment sw-version to bust stale service worker caches after deploys -->
-    <meta name="sw-version" content="4" />
+    <meta name="sw-version" content="5" />
     <link rel="apple-touch-icon" href="/icons/icon-152.png" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,6 +19,27 @@
     <!-- Legacy fonts kept for components not yet redesigned -->
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,800&display=swap" rel="stylesheet" />
     <title>Diet Plan &amp; Tracker</title>
+
+    <!--
+      SW force-clear — runs before anything else.
+      Unregisters service workers that are pointing to stale / wrong paths so
+      they can't serve old cached HTML or JS to the current session.
+      Safe to run on every load: getRegistrations() is async and non-blocking.
+    -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (registrations) {
+          registrations.forEach(function (reg) {
+            var scriptURL = (reg.active || reg.installing || reg.waiting || {}).scriptURL || '';
+            // Unregister any SW whose script URL does NOT end with /sw.js
+            // (stale registrations from old deployments at different paths)
+            if (scriptURL && !scriptURL.endsWith('/sw.js')) {
+              reg.unregister();
+            }
+          });
+        });
+      }
+    </script>
 
     <!--
       Global error handler — MUST run before any other scripts.
