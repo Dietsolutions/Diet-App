@@ -56,6 +56,22 @@
       if (typeof Error !== 'undefined') { Error.stackTraceLimit = 200; }
 
       window.addEventListener('error', function (e) {
+        // IGNORE cross-origin "Script error." — fired by Safari system scripts
+        // (Share button, extensions, Reader mode, etc.) injected from a
+        // different origin. Browser security strips all detail from these;
+        // they are not app errors and cannot be fixed here.
+        if (e.message === 'Script error.' || e.message === 'Script error') return;
+
+        // IGNORE anything with no filename and line 0:0 — always an external
+        // or system script, never our application code.
+        if (!e.filename && e.lineno === 0 && e.colno === 0) return;
+
+        // Only replace the page with an error screen when React hasn't mounted
+        // (root is still empty). A background error in an already-running app
+        // should not wipe the screen.
+        var root = document.getElementById('root');
+        if (!root || root.hasChildNodes()) return;
+
         var stack = (e.error && e.error.stack) ? e.error.stack : 'No stack trace';
         document.body.style.cssText = 'margin:0;padding:0;';
         document.body.innerHTML =
