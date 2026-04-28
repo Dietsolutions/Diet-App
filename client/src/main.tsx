@@ -60,45 +60,39 @@ window.addEventListener('resize', setAppHeight);
 window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 100));
 
 /**
- * Service-worker registration + update detection.
+ * Service-worker registration.
  *
- * updateViaCache: 'none' forces the browser to always re-fetch the SW script
- * from the network (ignoring HTTP cache) so iOS Safari picks up new SW versions
- * immediately rather than serving a stale SW from the browser cache.
+ * Simple, safe registration — no getRegistrations() / unregister() calls.
  *
- * When a new SW activates (skipWaiting + clientsClaim), controllerchange fires
- * and we reload the page so the user gets the new app shell.
+ * WHY the previous approach was wrong:
+ *   Calling getRegistrations() → unregister all → re-register on every page
+ *   load forced the SW through install → activate on every load. Each activate
+ *   fired skipWaiting + clients.claim(), which fired controllerchange, which
+ *   called window.location.reload(). On the next load the cycle repeated:
+ *   unregister → re-register → controllerchange → reload → forever.
+ *   On iOS Safari the rapid-reload loop surfaced as
+ *   RangeError: Maximum call stack size exceeded.
  *
- * NOTE: reg.update() was removed — Workbox's autoUpdate + skipWaiting already
- * handles SW lifecycle. Calling update() on every registration triggered an
- * extra controllerchange → reload cycle that caused a reload loop on some
- * browsers.
+ * The fix: just register normally. The SW in public/sw.js uses skipWaiting
+ * so a new version always takes over immediately on the next deploy.
+ * controllerchange fires only when the SW actually changes (i.e. a new
+ * deploy), not on every page load — so the one-reload behaviour is correct.
+ *
+ * updateViaCache: 'none' ensures the browser always re-fetches the SW script
+ * from the network (bypasses HTTP cache) so iOS Safari gets new versions fast.
  */
-// ── Service-worker: force-clear ALL registrations, then re-register ──────────
-// Temporarily unregisters every SW to guarantee no cached broken build is
-// served to the browser. Once the new SW registers from the network, Workbox's
-// skipWaiting + clientsClaim takes over. The controllerchange handler below
-// will reload the page once (and only once) when the new SW activates.
-//
-// This is a diagnostic measure: if the RangeError disappears after clearing
-// the SW cache it confirms the bug was a stale cached JS bundle being served.
-// After confirming the fix is stable we can revert to normal SW registration.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    const unregisterAll = registrations.map((r) => r.unregister());
-    Promise.all(unregisterAll).then(() => {
-      // Re-register fresh SW from the network
-      navigator.serviceWorker
-        .register('/sw.js', { updateViaCache: 'none' })
-        .catch((err) => { console.warn('[SW] Registration failed:', err); });
-    });
-  });
+  navigator.serviceWorker
+    .register('/sw.js', { updateViaCache: 'none' })
+    .catch((err) => { console.warn('[SW] Registration failed:', err); });
 
+  // Reload once when a new SW activates so users immediately get the latest
+  // app shell. The pending flag prevents a second reload in the same session.
   let swRefreshPending = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (swRefreshPending) return;
     swRefreshPending = true;
-    setTimeout(() => window.location.reload(), 100);
+    setTimeout(() => window.location.reload(), 300);
   });
 }
 
