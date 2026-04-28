@@ -18,6 +18,17 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card, Bar, Btn } from './ui';
 
+// ── Plan history item type ──────────────────────────────────────────────────
+interface PlanHistoryItem {
+  id: string;
+  generatedAt: string;
+  planDuration: number;
+  weekStartDate: string;
+  isActive: boolean;
+  reviewConfirmed: boolean;
+  weekSummary: { avgCalories?: number; avgProtein?: number };
+}
+
 // ── ProfileTab ─────────────────────────────────────────────────────────────
 export function ProfileTab() {
   const { user, logout, refreshUser } = useAuth();
@@ -32,6 +43,7 @@ export function ProfileTab() {
   const [error, setError] = useState('');
   const [mealInstructions, setMealInstructions] = useState('');
   const [planDuration, setPlanDuration] = useState<7 | 14>(7);
+  const [planHistory, setPlanHistory] = useState<PlanHistoryItem[]>([]);
   const instructionsRef = useRef('');
   const { fetchLogs, fetchProjection } = useWeightStore();
 
@@ -50,6 +62,10 @@ export function ProfileTab() {
       .catch(() => {});
     fetchLogs();
     fetchProjection();
+    // Fetch plan history — non-critical, ignore errors
+    axios.get('/api/plan/history', { withCredentials: true })
+      .then(res => { if (res.data.plans) setPlanHistory(res.data.plans); })
+      .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleInstructionsChange = (text: string) => {
@@ -113,6 +129,10 @@ export function ProfileTab() {
       if (!result?.success) throw new Error('Failed');
       setRegenStep('Done!');
       setRegenerating(false);
+      // Refresh plan history in background after regeneration
+      axios.get('/api/plan/history', { withCredentials: true })
+        .then(res => { if (res.data.plans) setPlanHistory(res.data.plans); })
+        .catch(() => {});
       // Show plan review screen instead of the old success screen
       setReviewMealPlanId(result?.mealPlanId || 'active');
       setShowPlanReview(true);
@@ -372,6 +392,21 @@ export function ProfileTab() {
           </div>
         </div>
 
+        {/* ── Plan History ─────────────────────────────────────────────────── */}
+        {planHistory.length > 1 && (
+          <div>
+            <HairLabel style={{ marginBottom: 8 }}>PLAN HISTORY</HairLabel>
+            <HairLabel color={s2.textDimmer} style={{ marginBottom: 10, fontSize: 8 }}>
+              YOUR TRACKING DATA IS PRESERVED ACROSS ALL PLANS
+            </HairLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {planHistory.map((plan, idx) => (
+                <PlanHistoryRow key={plan.id} plan={plan} index={idx} />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Meal Plan Customiser ────────────────────────────────────────── */}
         <MealPlanCustomiser
           initialValue={mealInstructions}
@@ -433,7 +468,7 @@ export function ProfileTab() {
                   </div>
                 </div>
                 <HairLabel color={s2.textDimmer} style={{ marginBottom: 20, fontSize: 8 }}>
-                  CURRENT TRACKING DATA WILL BE RESET — CANNOT BE UNDONE
+                  YOUR TRACKING HISTORY WILL BE PRESERVED
                 </HairLabel>
               </>
             ) : (
@@ -443,7 +478,7 @@ export function ProfileTab() {
                   Create a new {planDuration}-day plan?
                 </div>
                 <HairLabel color={s2.textDimmer} style={{ marginBottom: 20, fontSize: 8 }}>
-                  CURRENT TRACKING DATA WILL BE RESET — CANNOT BE UNDONE
+                  YOUR TRACKING HISTORY WILL BE PRESERVED
                 </HairLabel>
               </>
             )}
@@ -508,6 +543,63 @@ function PrefsRow({ label, value }: { label: string; value?: string }) {
       <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.text, textTransform: 'capitalize', textAlign: 'right', maxWidth: '55%' }}>
         {value || '—'}
       </div>
+    </div>
+  );
+}
+
+function PlanHistoryRow({ plan, index }: { plan: PlanHistoryItem; index: number }) {
+  const date = new Date(plan.generatedAt);
+  const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const avgCal = plan.weekSummary?.avgCalories;
+  const isActive = plan.isActive;
+
+  return (
+    <div style={{
+      border: `1px solid ${isActive ? s2.accent : s2.line}`,
+      background: isActive ? s2.accentFill : s2.surface,
+      padding: '10px 14px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <HairLabel color={isActive ? s2.accent : s2.textDim}>
+            {plan.planDuration}-DAY PLAN
+          </HairLabel>
+          {isActive && (
+            <span style={{
+              fontFamily: s2.mono,
+              fontSize: 7,
+              letterSpacing: '0.12em',
+              background: s2.accent,
+              color: s2.bg,
+              padding: '1px 5px',
+            }}>ACTIVE</span>
+          )}
+          {index === 0 && !isActive && (
+            <span style={{
+              fontFamily: s2.mono,
+              fontSize: 7,
+              letterSpacing: '0.12em',
+              border: `1px solid ${s2.line}`,
+              color: s2.textDim,
+              padding: '1px 5px',
+            }}>PREVIOUS</span>
+          )}
+        </div>
+        <div style={{ fontFamily: s2.mono, fontSize: 10, color: isActive ? s2.text : s2.textDim, letterSpacing: '0.04em' }}>
+          {dateStr}
+        </div>
+      </div>
+      {avgCal ? (
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 14, color: isActive ? s2.accent : s2.textDim, letterSpacing: '-0.01em' }}>
+            {Math.round(avgCal)}
+          </div>
+          <HairLabel style={{ fontSize: 7 }}>KCAL/DAY</HairLabel>
+        </div>
+      ) : null}
     </div>
   );
 }

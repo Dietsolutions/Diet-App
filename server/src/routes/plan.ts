@@ -576,4 +576,42 @@ router.post('/confirm-review', requireAuth, async (req: AuthRequest, res: Respon
   }
 });
 
+// ── GET /api/plan/history ─────────────────────────────────────────────────────
+// Returns a list of all meal plans for the user (most recent first),
+// used by the Profile tab to show plan history without exposing meal data.
+router.get('/history', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const plans = await prisma.mealPlan.findMany({
+      where: { userId },
+      orderBy: { generatedAt: 'desc' },
+      take: 20,
+      select: {
+        id:              true,
+        generatedAt:     true,
+        planDuration:    true,
+        weekStartDate:   true,
+        isActive:        true,
+        reviewConfirmed: true,
+        weekSummary:     true,
+      },
+    });
+
+    const formatted = plans.map(p => ({
+      id:              p.id,
+      generatedAt:     p.generatedAt.toISOString(),
+      planDuration:    p.planDuration,
+      weekStartDate:   p.weekStartDate.toISOString().split('T')[0],
+      isActive:        p.isActive,
+      reviewConfirmed: p.reviewConfirmed,
+      weekSummary:     (() => { try { return JSON.parse(p.weekSummary || '{}'); } catch { return {}; } })(),
+    }));
+
+    res.json({ plans: formatted });
+  } catch (err) {
+    console.error('Plan history error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 export default router;

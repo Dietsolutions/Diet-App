@@ -304,20 +304,11 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       }
     });
 
-    // Reset meal logs & shopping items in parallel
-    const planDates: string[] = [];
-    for (let i = 0; i < planDuration; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      planDates.push(d.toISOString().split('T')[0]);
-    }
-
-    // onboardingDone is now set in POST /api/plan/confirm-review once the user
-    // reviews and confirms their plan. Only reset logs/items here.
-    await Promise.all([
-      prisma.mealLog.deleteMany({ where: { userId, date: { in: planDates } } }),
-      prisma.shoppingItem.deleteMany({ where: { userId } }),
-    ]);
+    // Reset shopping items for the new plan (ticking off old items is irrelevant).
+    // IMPORTANT: MealLog, WaterLog, AdditionalMealLog, MealReplacement, WeightLog,
+    // and MealCookingInstructions are NEVER deleted — they are permanent user records
+    // that must survive plan regeneration so history, streaks, and adherence remain intact.
+    await prisma.shoppingItem.deleteMany({ where: { userId } });
 
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`Meal plan saved in ${totalTime}s total`);
