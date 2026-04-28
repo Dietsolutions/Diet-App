@@ -74,18 +74,30 @@ window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 100)
  * extra controllerchange → reload cycle that caused a reload loop on some
  * browsers.
  */
-let swRefreshPending = false;
+// ── Service-worker: force-clear ALL registrations, then re-register ──────────
+// Temporarily unregisters every SW to guarantee no cached broken build is
+// served to the browser. Once the new SW registers from the network, Workbox's
+// skipWaiting + clientsClaim takes over. The controllerchange handler below
+// will reload the page once (and only once) when the new SW activates.
+//
+// This is a diagnostic measure: if the RangeError disappears after clearing
+// the SW cache it confirms the bug was a stale cached JS bundle being served.
+// After confirming the fix is stable we can revert to normal SW registration.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker
-    .register('/sw.js', { updateViaCache: 'none' })
-    .catch((err) => {
-      console.warn('[SW] Registration failed:', err);
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    const unregisterAll = registrations.map((r) => r.unregister());
+    Promise.all(unregisterAll).then(() => {
+      // Re-register fresh SW from the network
+      navigator.serviceWorker
+        .register('/sw.js', { updateViaCache: 'none' })
+        .catch((err) => { console.warn('[SW] Registration failed:', err); });
     });
+  });
 
+  let swRefreshPending = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (swRefreshPending) return;
     swRefreshPending = true;
-    // Small delay avoids a reload loop on the very first SW install
     setTimeout(() => window.location.reload(), 100);
   });
 }
@@ -175,10 +187,21 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, BoundaryState
   }
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <RootErrorBoundary>
-      <App />
-    </RootErrorBoundary>
-  </React.StrictMode>,
-);
+const rootEl = document.getElementById('root');
+if (!rootEl) throw new Error('[main] #root element not found in DOM');
+
+try {
+  ReactDOM.createRoot(rootEl).render(
+    <React.StrictMode>
+      <RootErrorBoundary>
+        <App />
+      </RootErrorBoundary>
+    </React.StrictMode>,
+  );
+} catch (mountErr) {
+  // createRoot itself threw — this is a synchronous crash before React
+  // has a chance to call componentDidCatch or getDerivedStateFromError.
+  // Re-throw so the window.onerror handler in index.html can display it.
+  console.error('[main] ReactDOM.createRoot failed:', mountErr);
+  throw mountErr;
+}

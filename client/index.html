@@ -10,7 +10,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Diet Plan" />
     <!-- Increment sw-version to bust stale service worker caches after deploys -->
-    <meta name="sw-version" content="5" />
+    <meta name="sw-version" content="6" />
+    <!-- Prevent stale cached HTML from being served while debugging -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <link rel="apple-touch-icon" href="/icons/icon-152.png" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -43,32 +47,58 @@
 
     <!--
       Global error handler — MUST run before any other scripts.
-      Only shows the overlay when React hasn't mounted yet (root is empty),
-      so a mid-session JS error doesn't wipe a working app off screen.
-      Critical for diagnosing silent iOS Safari failures before React mounts.
+      Always shows the overlay (root-empty check removed so we always see
+      stack traces, even if React partially mounted).
+      Critical for diagnosing silent iOS Safari failures.
     -->
     <script>
+      // Raise stack trace limit before anything else loads
+      if (typeof Error !== 'undefined') { Error.stackTraceLimit = 200; }
+
       window.addEventListener('error', function (e) {
-        var root = document.getElementById('root');
-        if (root && !root.hasChildNodes()) {
-          document.body.innerHTML =
-            '<div style="background:#0a0000;color:#ff6b6b;padding:20px;' +
-            'font-family:monospace;font-size:13px;position:fixed;inset:0;' +
-            'overflow:auto;z-index:99999;line-height:1.6;">' +
-            '<h2 style="color:#ff4444;margin:0 0 10px;font-size:16px;">App Error</h2>' +
-            '<p><strong>Message:</strong> ' + (e.message || 'unknown') + '</p>' +
-            '<p><strong>File:</strong> ' + (e.filename || 'unknown') + '</p>' +
-            '<p><strong>Line:</strong> ' + e.lineno + ':' + e.colno + '</p>' +
-            '<p style="font-size:11px;color:#ff9999;">' + navigator.userAgent + '</p>' +
-            '<button onclick="location.reload()" style="margin-top:16px;' +
-            'padding:10px 22px;background:#C4713A;border:none;color:#fff;' +
-            'font-size:14px;cursor:pointer;">Reload App</button>' +
-            '</div>';
-        }
+        var stack = (e.error && e.error.stack) ? e.error.stack : 'No stack trace';
+        document.body.style.cssText = 'margin:0;padding:0;';
+        document.body.innerHTML =
+          '<div style="background:#0a0000;color:#ff6b6b;padding:16px;' +
+          'font-family:monospace;font-size:11px;position:fixed;inset:0;' +
+          'overflow:auto;z-index:99999;line-height:1.5;">' +
+          '<h2 style="color:#ff4444;font-size:14px;margin:0 0 8px;">JS Error</h2>' +
+          '<p style="margin:4px 0;"><b>Msg:</b> ' + (e.message || 'unknown') + '</p>' +
+          '<p style="margin:4px 0;"><b>File:</b> ' + (e.filename || 'unknown') + '</p>' +
+          '<p style="margin:4px 0;"><b>Line:</b> ' + e.lineno + ':' + e.colno + '</p>' +
+          '<p style="margin:4px 0;font-size:10px;color:#ff9999;word-break:break-all;">' +
+          navigator.userAgent + '</p>' +
+          '<p style="margin:6px 0 2px;"><b>Stack:</b></p>' +
+          '<pre style="background:rgba(255,0,0,0.1);padding:8px;margin:0;' +
+          'overflow:auto;white-space:pre-wrap;font-size:9px;word-break:break-all;">' +
+          stack.substring(0, 4000) + '</pre>' +
+          '<button onclick="location.reload()" style="margin-top:12px;' +
+          'padding:8px 18px;background:#C4713A;border:none;color:#fff;' +
+          'font-size:12px;cursor:pointer;">Reload</button>' +
+          '</div>';
       });
 
       window.addEventListener('unhandledrejection', function (e) {
-        console.error('[unhandledrejection]', e.reason);
+        var reason = e.reason;
+        var msg = (reason && reason.message) ? reason.message : String(reason);
+        var stack = (reason && reason.stack) ? reason.stack : 'No stack';
+        document.body.style.cssText = 'margin:0;padding:0;';
+        document.body.innerHTML =
+          '<div style="background:#0a0000;color:#ff6b6b;padding:16px;' +
+          'font-family:monospace;font-size:11px;position:fixed;inset:0;' +
+          'overflow:auto;z-index:99999;line-height:1.5;">' +
+          '<h2 style="color:#ff4444;font-size:14px;margin:0 0 8px;">Unhandled Rejection</h2>' +
+          '<p style="margin:4px 0;"><b>Reason:</b> ' + msg + '</p>' +
+          '<p style="margin:4px 0;font-size:10px;color:#ff9999;word-break:break-all;">' +
+          navigator.userAgent + '</p>' +
+          '<p style="margin:6px 0 2px;"><b>Stack:</b></p>' +
+          '<pre style="background:rgba(255,0,0,0.1);padding:8px;margin:0;' +
+          'overflow:auto;white-space:pre-wrap;font-size:9px;word-break:break-all;">' +
+          stack.substring(0, 4000) + '</pre>' +
+          '<button onclick="location.reload()" style="margin-top:12px;' +
+          'padding:8px 18px;background:#C4713A;border:none;color:#fff;' +
+          'font-size:12px;cursor:pointer;">Reload</button>' +
+          '</div>';
       });
     </script>
   </head>

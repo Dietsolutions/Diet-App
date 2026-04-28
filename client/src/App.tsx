@@ -5,7 +5,6 @@ import { useAppStore } from './store/appStore';
 import { usePlan } from './hooks/usePlan';
 import { storeToken } from './lib/auth';
 import { AuthScreen } from './components/AuthScreen';
-import { Onboarding } from './components/Onboarding';
 import { AppBar } from './components/AppBar';
 import { BottomNav } from './components/BottomNav';
 import { IOSInstallBanner } from './components/IOSInstallBanner';
@@ -14,8 +13,14 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { TabId } from './types';
 import { s2 } from './theme/tokens';
 
-// Lazy-load each tab so the initial JS bundle is small enough for the SW to
-// precache and for iOS Safari to parse quickly on first visit.
+// ── Lazy-load all heavy screens ──────────────────────────────────────────────
+// Onboarding is lazy because it imports country-state-city (7.7 MB city.json).
+// Loading it eagerly bundled that data into the main chunk and triggered
+// RangeError: Maximum call stack size exceeded on iOS Safari 18 during the
+// JS engine's expression-tree evaluation of the inlined JSON literal.
+// Lazy-loading means country-state-city is only fetched for new users who
+// haven't completed onboarding — existing users never pay this cost.
+const Onboarding  = lazy(() => import('./components/Onboarding').then(m => ({ default: m.Onboarding })));
 const MealsTab    = lazy(() => import('./components/MealsTab').then(m => ({ default: m.MealsTab })));
 const TrackerTab  = lazy(() => import('./components/TrackerTab').then(m => ({ default: m.TrackerTab })));
 const ShoppingTab = lazy(() => import('./components/ShoppingTab').then(m => ({ default: m.ShoppingTab })));
@@ -125,15 +130,22 @@ export default function App() {
     );
   }
 
-  // Show onboarding if user hasn't completed it
+  // Show onboarding if user hasn't completed it.
+  // Onboarding is lazy (see top of file) so country-state-city loads only here.
   if (!user.onboardingDone) {
     return (
-      <Onboarding
-        onComplete={async () => {
-          await refreshUser();
-        }}
-        userName={user.name || user.username}
-      />
+      <Suspense fallback={
+        <div style={{ minHeight: '100dvh', background: s2.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.2em', color: s2.textDimmer }}>LOADING…</div>
+        </div>
+      }>
+        <Onboarding
+          onComplete={async () => {
+            await refreshUser();
+          }}
+          userName={user.name || user.username}
+        />
+      </Suspense>
     );
   }
 
