@@ -1,6 +1,6 @@
 // Onboarding — Strain v2 visual redesign. All data collection, hooks, and API calls preserved.
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
 import { apiUrl } from '../lib/api';
@@ -9,6 +9,7 @@ import { Country, City } from 'country-state-city';
 import { COUNTRIES, COUNTRY_CODES, ALLERGENS, ALLERGEN_ICONS, INGREDIENT_CATEGORIES, INGREDIENT_ICONS, CUISINE_OPTIONS, CUISINE_REGIONS, KITCHEN_EQUIPMENT, EQUIPMENT_ICONS, HEALTH_CONDITIONS } from '../data/onboarding';
 import { s2 } from '../theme/tokens';
 import { PlanReviewScreen } from './PlanReviewScreen';
+import { track } from '../lib/analytics';
 
 const INITIAL: OnboardingData = {
   name: '', age: 25, gender: 'male', country: 'India', city: '',
@@ -137,6 +138,11 @@ export function Onboarding({ onComplete, userName }: Props) {
   const [onboardingCustomInstructions, setOnboardingCustomInstructions] = useState('');
 
   const totalSteps = 7;
+  const genStartRef = useRef<number>(0);
+
+  // Fire once on mount
+  useEffect(() => { track('onboarding_started'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const update = (partial: Partial<OnboardingData>) => setData(d => ({ ...d, ...partial }));
   const toggleArr = (field: keyof OnboardingData, val: string) => {
     const arr = (data[field] as string[]) || [];
@@ -164,6 +170,17 @@ export function Onboarding({ onComplete, userName }: Props) {
   const handleGenerate = async () => {
     setGenerating(true);
     setError('');
+    genStartRef.current = Date.now();
+    track('meal_plan_generation_started', {
+      plan_duration:   data.planDuration,
+      meals_per_day:   data.mealsPerDay,
+      is_first_plan:   true,
+    });
+    if (onboardingCustomInstructions.trim()) {
+      track('onboarding_custom_instructions_added', {
+        character_count: onboardingCustomInstructions.trim().length,
+      });
+    }
     try {
       setGenStep('Saving your profile...');
       await axios.post('/api/profile', data, { withCredentials: true });
@@ -217,12 +234,18 @@ export function Onboarding({ onComplete, userName }: Props) {
 
       if (!result?.success) throw new Error('Generation failed');
       setGenStep('Done!');
+      track('meal_plan_generation_completed', {
+        plan_duration:    data.planDuration,
+        duration_seconds: Math.round((Date.now() - genStartRef.current) / 1000),
+        is_first_plan:    true,
+      });
       // onboardingDone is NOT set yet — confirm-review sets it.
       // Don't call refreshUser here; the plan review screen handles that via onComplete.
       setReviewMealPlanId(result?.mealPlanId || 'active');
       setGenerating(false);
       setShowPlanReview(true);
     } catch (err: any) {
+      track('meal_plan_generation_failed', { error: err?.message ?? 'unknown' });
       setError(err?.message || 'Failed to generate meal plan');
       setGenerating(false);
     }
@@ -248,6 +271,7 @@ export function Onboarding({ onComplete, userName }: Props) {
       <PlanReviewScreen
         mealPlanId={reviewMealPlanId}
         onComplete={async () => {
+          track('onboarding_completed', { is_first_plan: true });
           await refreshUser(); // now onboardingDone=true — App.tsx exits Onboarding
           onComplete();
         }}
@@ -477,7 +501,14 @@ export function Onboarding({ onComplete, userName }: Props) {
           zIndex: 20,
         }}>
           <button
-            onClick={() => step === totalSteps ? setShowSummary(true) : setStep(s => s + 1)}
+            onClick={() => {
+              const STEP_NAMES: Record<number, string> = {
+                1: 'personal', 2: 'body', 3: 'diet', 4: 'allergies',
+                5: 'preferred_ingredients', 6: 'avoid_ingredients', 7: 'goals',
+              };
+              track('onboarding_step_completed', { step, step_name: STEP_NAMES[step] ?? String(step) });
+              if (step === totalSteps) setShowSummary(true); else setStep(s => s + 1);
+            }}
             disabled={!canNext()}
             style={{
               width: '100%', padding: '15px 0',
@@ -1341,7 +1372,7 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
           ].map(o => {
             const on = data.planDuration === o.val;
             return (
-              <div key={o.val} onClick={() => update({ planDuration: o.val })} style={{
+              <div key={o.val} onClick={() => { update({ planDuration: o.val }); track('plan_duration_selected', { duration: o.val }); }} style={{
                 position: 'relative',
                 border: `1px solid ${o.rec ? s2.accent : on ? s2.accent : s2.lineStrong}`,
                 background: o.rec || on ? s2.accentFill : 'transparent',

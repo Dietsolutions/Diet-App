@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { storeToken, clearStoredToken } from '../lib/auth';
+import { identifyUser, resetUser } from '../lib/analytics';
 
 export function useAuth() {
   const { user, isLoading, setUser, setLoading } = useAuthStore();
@@ -21,6 +22,8 @@ export function useAuth() {
     // Store token for iOS Safari PWA fallback (sent as Authorization header)
     if (res.data.token) storeToken(res.data.token);
     setUser(res.data.user);
+    // Identify user in PostHog — no PII, only internal ID
+    identifyUser(res.data.user.id);
     return res.data.user;
   };
 
@@ -32,12 +35,15 @@ export function useAuth() {
     );
     if (res.data.token) storeToken(res.data.token);
     setUser(res.data.user);
+    // New user — identify so their onboarding funnel is tracked from the start
+    identifyUser(res.data.user.id);
     return res.data.user;
   };
 
   const logout = async () => {
     await axios.post('/api/auth/logout', {}, { withCredentials: true });
     clearStoredToken();
+    resetUser();
     setUser(null);
   };
 

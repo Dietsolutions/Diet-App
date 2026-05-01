@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
+import { track } from '../lib/analytics';
 
 export function useFoodSearch() {
   const {
@@ -22,6 +23,7 @@ export function useFoodSearch() {
     }
 
     setIsSearching(true);
+    track('food_search_performed', { query_length: query.length });
     try {
       const res = await axios.get('/api/food/search', {
         params: { q: query, limit: 10 },

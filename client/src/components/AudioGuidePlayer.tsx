@@ -5,12 +5,14 @@
 import { useState, useRef } from 'react';
 import { s2 } from '../theme/tokens';
 import { HairLabel } from './ui';
+import { track } from '../lib/analytics';
 
 interface Props {
   audioUrl:     string | null;
   isGenerating: boolean;
   error:        string;
   onGenerate:   () => void;
+  mealName?:    string;
 }
 
 function formatTime(sec: number): string {
@@ -20,7 +22,7 @@ function formatTime(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate }: Props) {
+export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, mealName }: Props) {
   const audioRef                      = useRef<HTMLAudioElement>(null);
   const [isPlaying,    setIsPlaying]  = useState(false);
   const [progress,     setProgress]   = useState(0);
@@ -101,8 +103,13 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate }: 
         ref={audioRef}
         src={audioUrl}
         preload="metadata"
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
+        onPlay={() => { setIsPlaying(true); track('audio_guide_played', { meal_name: mealName ?? '' }); }}
+        onPause={() => {
+          const a = audioRef.current;
+          const pct = a && a.duration ? Math.round((a.currentTime / a.duration) * 100) : 0;
+          setIsPlaying(false);
+          track('audio_guide_paused', { progress_pct: pct });
+        }}
         onEnded={() => { setIsPlaying(false); setProgress(0); setCurrentTime(0); }}
         onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration)}
         onTimeUpdate={e => {

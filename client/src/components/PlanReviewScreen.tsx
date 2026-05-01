@@ -8,6 +8,7 @@ import axios from 'axios';
 import { s2 } from '../theme/tokens';
 import { Meal } from '../types';
 import { SingleMealRegenerateSheet } from './SingleMealRegenerateSheet';
+import { track, trackPage } from '../lib/analytics';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,9 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
   // Sheet state
   const [sheet, setSheet] = useState<SheetState | null>(null);
 
+  // Track page view once on mount
+  useEffect(() => { trackPage('plan_review'); }, []);
+
   // ── Load plan ──
   useEffect(() => {
     (async () => {
@@ -115,6 +119,11 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
   const handleMealSelected = useCallback((newMeal: Meal) => {
     if (!sheet) return;
     const key = `${sheet.dayIndex}-${sheet.mealIndex}`;
+    track('plan_review_alternative_selected', {
+      day_index:  sheet.dayIndex,
+      meal_index: sheet.mealIndex,
+      meal_type:  sheet.meal.type,
+    });
     setChangedMeals(prev => ({ ...prev, [key]: true }));
     setPlan(prev => {
       if (!prev) return prev;
@@ -142,6 +151,10 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
     setConfirmError('');
     try {
       await axios.post('/api/plan/confirm-review', { mealPlanId: plan?.id }, { withCredentials: true });
+      track('plan_review_confirmed', {
+        total_meals_changed: changedCount,
+        plan_duration: plan?.planDuration,
+      });
       onComplete();
     } catch {
       setConfirmError('Failed to confirm. Please try again.');
@@ -316,7 +329,14 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
 
                           {/* Change button — always visible even after change */}
                           <button
-                            onClick={() => setSheet({ dayIndex: day.dayIndex, mealIndex: mi, meal, dayName: day.dayName })}
+                            onClick={() => {
+                              track('plan_review_meal_change_tapped', {
+                                day_index:  day.dayIndex,
+                                meal_index: mi,
+                                meal_type:  meal.type,
+                              });
+                              setSheet({ dayIndex: day.dayIndex, mealIndex: mi, meal, dayName: day.dayName });
+                            }}
                             style={{
                               background: 'none', border: 'none',
                               fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em',

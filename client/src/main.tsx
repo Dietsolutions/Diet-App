@@ -34,8 +34,12 @@ import React, { Component, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 // Configure axios defaults (baseURL, withCredentials) before any component mounts.
 import './lib/api';
+import { initAnalytics } from './lib/analytics';
 import App from './App';
 import './index.css';
+
+// Initialise analytics before React mounts so the first events are captured.
+initAnalytics();
 
 /**
  * iOS Safari 100vh fix.

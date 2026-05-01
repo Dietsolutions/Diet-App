@@ -5,6 +5,7 @@ import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { useTracker } from '../hooks/useTracker';
 import { usePlan } from '../hooks/usePlan';
+import { track, trackPage } from '../lib/analytics';
 import { Meal, MealReplacement } from '../types';
 import { MealReplacerSheet } from './MealReplacerSheet';
 import { MealDetailSheet } from './MealDetailSheet';
@@ -77,6 +78,9 @@ export function MealsTab() {
   const [detailMealIdx,   setDetailMealIdx]     = useState<number | null>(null);
   const [changeMealIdx,   setChangeMealIdx]     = useState<number | null>(null);
 
+  // Track page view once on mount
+  useEffect(() => { trackPage('meals_tab'); }, []);
+
   const {
     selectedDate,
     setSelectedDate,
@@ -126,7 +130,15 @@ export function MealsTab() {
 
   const handleToggle = (mealIndex: number) => {
     if (!dayTrackerData) return;
-    toggleMeal(dayTrackerData.date, mealIndex, getMealEaten(mealIndex));
+    const wasEaten = getMealEaten(mealIndex);
+    const meal = meals[mealIndex];
+    const mealType = meal?.type || ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Snack 2'][mealIndex] || 'Meal';
+    track(wasEaten ? 'meal_unmarked_eaten' : 'meal_marked_eaten', {
+      meal_index: mealIndex,
+      meal_type:  mealType,
+      day_index:  planDayIdx,
+    });
+    toggleMeal(dayTrackerData.date, mealIndex, wasEaten);
   };
 
   const handleOpenReplacer = (mealIdx: number) => {
@@ -195,7 +207,10 @@ export function MealsTab() {
           <NavArrow
             dir="left"
             disabled={!canGoBack}
-            onClick={() => setMealsCalendarOffset(mealsCalendarOffset - 1)}
+            onClick={() => {
+              setMealsCalendarOffset(mealsCalendarOffset - 1);
+              track('calendar_week_navigated', { direction: 'back' });
+            }}
           />
           <HairLabel>
             WEEK OF {format(parseISO(calendarDates[0]), 'dd MMM').toUpperCase()}
@@ -203,7 +218,10 @@ export function MealsTab() {
           <NavArrow
             dir="right"
             disabled={!canGoForward}
-            onClick={() => setMealsCalendarOffset(mealsCalendarOffset + 1)}
+            onClick={() => {
+              setMealsCalendarOffset(mealsCalendarOffset + 1);
+              track('calendar_week_navigated', { direction: 'forward' });
+            }}
           />
         </div>
 
@@ -399,7 +417,13 @@ export function MealsTab() {
                           ? { background: s2.accentFill }
                           : {}
                     }
-                    onClick={() => setDetailMealIdx(mealIdx)}
+                    onClick={() => {
+                      setDetailMealIdx(mealIdx);
+                      track('meal_detail_opened', {
+                        meal_type: mealType,
+                        meal_name: name,
+                      });
+                    }}
                   >
                     <div style={{ display: 'flex', gap: 12 }}>
                       {/* ── Index number ────────────────────────────────── */}
@@ -482,7 +506,11 @@ export function MealsTab() {
                             </button>
                           ) : (
                             <button
-                              onClick={(e) => { e.stopPropagation(); handleOpenReplacer(mealIdx); }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                track('swap_meal_tapped', { meal_type: mealType });
+                                handleOpenReplacer(mealIdx);
+                              }}
                               style={{
                                 background: 'transparent',
                                 border: 'none',
@@ -500,7 +528,11 @@ export function MealsTab() {
                           )}
                           {/* ✎ CHANGE MEAL — permanently replaces in plan */}
                           <button
-                            onClick={(e) => { e.stopPropagation(); setChangeMealIdx(mealIdx); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              track('change_meal_tapped', { meal_type: mealType });
+                              setChangeMealIdx(mealIdx);
+                            }}
                             style={{
                               background: 'transparent',
                               border: 'none',

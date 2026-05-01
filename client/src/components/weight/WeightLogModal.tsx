@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import { useWeightStore } from '../../store/weightStore';
 import { s2 } from '../../theme/tokens';
 import { HairLabel } from '../ui';
+import { track } from '../../lib/analytics';
 
 export function WeightLogModal() {
-  const { isLogModalOpen, editingLog, closeLogModal, logWeight, updateLog } = useWeightStore();
+  const { isLogModalOpen, editingLog, closeLogModal, logWeight, updateLog, logs } = useWeightStore();
   const [weight, setWeight] = useState('');
   const [note,   setNote]   = useState('');
   const [date,   setDate]   = useState('');
@@ -44,7 +45,9 @@ export function WeightLogModal() {
       if (isEdit && editingLog) {
         await updateLog(editingLog.id, { weightKg: w, note: note.trim() });
       } else {
+        const isFirstLog = logs.length === 0;
         await logWeight({ weightKg: w, note: note.trim(), loggedAt: date });
+        track('weight_logged', { is_first_log: isFirstLog });
       }
       closeLogModal();
     } catch (err: any) {

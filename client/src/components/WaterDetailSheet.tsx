@@ -7,6 +7,7 @@ import axios from 'axios';
 import { useAppStore } from '../store/appStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel } from './ui';
+import { track } from '../lib/analytics';
 
 interface Props {
   date: string;
@@ -107,6 +108,11 @@ export function WaterDetailSheet({ date, onClose }: Props) {
     setWater(date, clamped);
     try {
       await axios.post('/api/water', { date, glasses: clamped }, { withCredentials: true });
+      track('water_logged', {
+        glasses:      clamped,
+        goal_glasses: goal,
+        pct_of_goal:  goal > 0 ? Math.round((clamped / goal) * 100) : 0,
+      });
     } catch {
       setWater(date, glasses);
     }
@@ -118,6 +124,11 @@ export function WaterDetailSheet({ date, onClose }: Props) {
     setWater(date, newVal);
     try {
       await axios.post('/api/water', { date, glasses: newVal }, { withCredentials: true });
+      track('water_logged', {
+        glasses:      newVal,
+        goal_glasses: goal,
+        pct_of_goal:  goal > 0 ? Math.round((newVal / goal) * 100) : 0,
+      });
     } catch {
       setWater(date, glasses);
     }

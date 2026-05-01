@@ -17,6 +17,7 @@ import { WeightLogList } from './weight/WeightLogList';
 import { ErrorBoundary } from './ErrorBoundary';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card, Bar, Btn } from './ui';
+import { track, trackPage } from '../lib/analytics';
 
 // ── Plan history item type ──────────────────────────────────────────────────
 interface PlanHistoryItem {
@@ -49,6 +50,7 @@ export function ProfileTab() {
   const { fetchLogs, fetchProjection } = useWeightStore();
 
   useEffect(() => {
+    trackPage('body_tab');
     axios.get('/api/profile', { withCredentials: true })
       .then(res => {
         if (res.data.profile) {
@@ -91,6 +93,12 @@ export function ProfileTab() {
     setShowConfirm(false);
     setRegenerating(true);
     setError('');
+    track('plan_regeneration_started', {
+      plan_duration:                planDuration,
+      has_custom_instructions:      mealInstructions.trim().length > 0,
+      custom_instructions_length:   mealInstructions.trim().length,
+      generations_used_this_month:  genUsage?.used ?? 0,
+    });
     try {
       setRegenStep('Generating your new meal plan...');
       const result = await new Promise<any>((resolve, reject) => {
@@ -455,7 +463,9 @@ export function ProfileTab() {
         <MealPlanCustomiser
           initialValue={mealInstructions}
           onInstructionsChange={handleInstructionsChange}
-          onRegenerate={genUsage?.remaining === 0 ? () => {} : handleRegenerateClick}
+          onRegenerate={genUsage?.remaining === 0
+          ? () => { track('plan_regeneration_limit_hit', { generations_used: genUsage!.used, limit: genUsage!.limit }); }
+          : handleRegenerateClick}
           isRegenerating={regenerating}
           disabled={genUsage?.remaining === 0}
         />

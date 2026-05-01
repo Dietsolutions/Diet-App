@@ -2,13 +2,14 @@
 // Opened by tapping a meal card in MealsTab.
 // Includes on-demand cooking instructions + audio guide (Web Speech API).
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { s2 } from '../theme/tokens';
 import { HairLabel, VBar, DataRow, TopBar, Bar } from './ui';
 import { Meal, MealReplacement, UserProfile, MealCookingInstructions } from '../types';
 import { AudioGuidePlayer } from './AudioGuidePlayer';
 import { MealShareSheet } from './MealShareSheet';
+import { track } from '../lib/analytics';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -87,6 +88,8 @@ export function MealDetailSheet({
   onUndoReplacement,
 }: MealDetailSheetProps) {
   const isReplaced = !!replacement;
+  // Derive name early — needed by analytics callbacks before the full macro block
+  const name = isReplaced ? replacement!.foodName : meal.name;
 
   // ── Cooking instructions state ─────────────────────────────────────────────
   const [cookInstr,       setCookInstr]       = useState<MealCookingInstructions | null>(null);
@@ -98,6 +101,8 @@ export function MealDetailSheet({
   const [cookExpanded,    setCookExpanded]    = useState(false);
   const [shareOpen,       setShareOpen]       = useState(false);
   const [servings,        setServings]        = useState(1);
+  const cookGenStartRef  = useRef<number>(0);
+  const audioGenStartRef = useRef<number>(0);
 
   // Fetch existing instructions on open (only if mealPlanId is known)
   useEffect(() => {
@@ -116,30 +121,43 @@ export function MealDetailSheet({
     if (!mealPlanId) return;
     setCookGenerating(true);
     setCookError('');
+    cookGenStartRef.current = Date.now();
+    track('cooking_instructions_generate_tapped', { meal_name: name, servings });
     try {
       const r = await axios.post('/api/meals/instructions/generate', { mealPlanId, dayIndex, mealIndex, servings }, { withCredentials: true });
       setCookInstr(r.data.instructions);
       setCookExpanded(true);
+      track('cooking_instructions_generated', {
+        meal_name:        name,
+        servings,
+        duration_seconds: Math.round((Date.now() - cookGenStartRef.current) / 1000),
+      });
     } catch (err: any) {
       setCookError(err?.response?.data?.error || 'Failed to generate. Try again.');
     } finally {
       setCookGenerating(false);
     }
-  }, [mealPlanId, dayIndex, mealIndex, servings]);
+  }, [mealPlanId, dayIndex, mealIndex, servings, name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerateAudio = useCallback(async () => {
     if (!mealPlanId) return;
     setAudioGenerating(true);
     setAudioError('');
+    audioGenStartRef.current = Date.now();
+    track('audio_guide_generate_tapped', { meal_name: name });
     try {
       const r = await axios.post('/api/meals/instructions/generate-audio', { mealPlanId, dayIndex, mealIndex }, { withCredentials: true });
       setCookInstr(r.data.instructions);
+      track('audio_guide_generated', {
+        meal_name:        name,
+        duration_seconds: Math.round((Date.now() - audioGenStartRef.current) / 1000),
+      });
     } catch (err: any) {
       setAudioError(err?.response?.data?.error || 'Failed to generate audio. Try again.');
     } finally {
       setAudioGenerating(false);
     }
-  }, [mealPlanId, dayIndex, mealIndex]);
+  }, [mealPlanId, dayIndex, mealIndex, name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Resolved macros (replacement overrides plan meal)
   const kcal = isReplaced ? replacement!.calories    : meal.calories ?? 0;
@@ -147,7 +165,7 @@ export function MealDetailSheet({
   const carb = isReplaced ? replacement!.carbsG      : meal.carbs    ?? 0;
   const fat_ = isReplaced ? replacement!.fatG        : meal.fat      ?? 0;
   const fibr = isReplaced ? replacement!.fibreG      : meal.fibre    ?? 0;
-  const name = isReplaced ? replacement!.foodName    : meal.name;
+  // name is declared earlier (before callbacks) to be available in useCallback deps
 
   const mealType = meal.type
     || ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Snack 2'][mealIndex]
@@ -594,7 +612,10 @@ export function MealDetailSheet({
                         padding: '0 12px',
                       }}>
                         <button
-                          onClick={() => setShareOpen(true)}
+                          onClick={() => {
+                            track('meal_share_tapped', { meal_name: name, has_audio: !!(cookInstr?.audioUrl) });
+                            setShareOpen(true);
+                          }}
                           style={{
                             background:    'transparent',
                             border:        `1px solid ${s2.lineStrong}`,
@@ -642,6 +663,7 @@ export function MealDetailSheet({
                       isGenerating={audioGenerating}
                       error={audioError}
                       onGenerate={handleGenerateAudio}
+                      mealName={name}
                     />
 
                     {/* Ingredients */}

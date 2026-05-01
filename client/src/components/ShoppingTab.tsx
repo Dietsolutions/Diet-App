@@ -6,6 +6,7 @@ import { useAppStore } from '../store/appStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card, Bar, Check } from './ui';
 import { ShoppingShareSheet } from './ShoppingShareSheet';
+import { track, trackPage } from '../lib/analytics';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function multiplyQuantity(qty: string, multiplier: number): string {
@@ -26,6 +27,9 @@ export function ShoppingTab() {
   const { lastShoppingUpdateTime } = useAppStore();
   const [showUpdateBanner, setShowUpdateBanner] = useState(false);
   const [showShareSheet, setShowShareSheet]     = useState(false);
+
+  // Track page view once on mount
+  useEffect(() => { trackPage('shopping_tab'); }, []);
 
   // Show update banner when a meal change triggered a shopping list regen recently
   useEffect(() => {
@@ -95,7 +99,10 @@ export function ShoppingTab() {
             {/* Share button — only shown when there are items */}
             {isShoppingGenerated && totalItems > 0 && (
               <button
-                onClick={() => setShowShareSheet(true)}
+                onClick={() => {
+                  setShowShareSheet(true);
+                  track('shopping_share_opened', { items_total: totalItems, items_bought: boughtItems });
+                }}
                 style={{
                   background:    'transparent',
                   border:        `1px solid ${s2.lineStrong}`,
@@ -186,7 +193,11 @@ export function ShoppingTab() {
               {/* − / + buttons */}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
-                  onClick={() => updatePeopleCount(Math.max(1, peopleCount - 1))}
+                  onClick={() => {
+                    const newCount = Math.max(1, peopleCount - 1);
+                    updatePeopleCount(newCount);
+                    if (newCount !== peopleCount) track('shopping_people_count_changed', { count: newCount });
+                  }}
                   disabled={peopleCount <= 1}
                   style={{
                     width: 38,
@@ -205,7 +216,10 @@ export function ShoppingTab() {
                   −
                 </button>
                 <button
-                  onClick={() => updatePeopleCount(peopleCount + 1)}
+                  onClick={() => {
+                    updatePeopleCount(peopleCount + 1);
+                    track('shopping_people_count_changed', { count: peopleCount + 1 });
+                  }}
                   style={{
                     width: 38,
                     height: 38,
@@ -269,7 +283,12 @@ export function ShoppingTab() {
                       return (
                         <button
                           key={item.key}
-                          onClick={() => toggleItem(item.key, item.bought)}
+                          onClick={() => {
+                            if (!item.bought) {
+                              track('shopping_item_bought', { category: cat.name });
+                            }
+                            toggleItem(item.key, item.bought);
+                          }}
                           style={{
                             display: 'flex',
                             alignItems: 'center',

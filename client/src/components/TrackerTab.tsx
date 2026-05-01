@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { format, parseISO, startOfMonth, addMonths, subMonths, getDaysInMonth, getDay, addDays, startOfWeek } from 'date-fns';
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
+import { track, trackPage } from '../lib/analytics';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { useTracker } from '../hooks/useTracker';
@@ -34,6 +35,9 @@ export function TrackerTab() {
   const [weeklySummary,  setWeeklySummary]  = useState<TrackerSummary | null>(null);
   const [monthlySummary, setMonthlySummary] = useState<TrackerSummary | null>(null);
   const [goalCountdown,  setGoalCountdown]  = useState<GoalCountdown  | null>(null);
+
+  // Track page view once on mount
+  useEffect(() => { trackPage('tracker_tab'); }, []);
 
   const today = todayStr();
   const currentMonthStr  = format(new Date(), 'yyyy-MM');
@@ -132,14 +136,23 @@ export function TrackerTab() {
         {/* Nav */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <button
-            onClick={() => setTrackerCalendarMonth(getMonthStr(subMonths(calendarMonthDate, 1)))}
+            onClick={() => {
+              const newMonth = getMonthStr(subMonths(calendarMonthDate, 1));
+              setTrackerCalendarMonth(newMonth);
+              track('macro_chart_month_navigated', { direction: 'back', month: newMonth });
+            }}
             style={{ background: 'transparent', border: `1px solid ${s2.lineStrong}`, width: 28, height: 28, color: s2.text, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <svg width="10" height="10" viewBox="0 0 10 10"><path d="M6 1 L2 5 L6 9" stroke="currentColor" strokeWidth="1.2" fill="none"/></svg>
           </button>
           <HairLabel>{format(calendarMonthDate, 'MMMM yyyy').toUpperCase()}</HairLabel>
           <button
-            onClick={() => canGoForwardMonth && setTrackerCalendarMonth(getMonthStr(addMonths(calendarMonthDate, 1)))}
+            onClick={() => {
+              if (!canGoForwardMonth) return;
+              const newMonth = getMonthStr(addMonths(calendarMonthDate, 1));
+              setTrackerCalendarMonth(newMonth);
+              track('macro_chart_month_navigated', { direction: 'forward', month: newMonth });
+            }}
             disabled={!canGoForwardMonth}
             style={{ background: 'transparent', border: `1px solid ${s2.lineStrong}`, width: 28, height: 28, color: canGoForwardMonth ? s2.text : s2.textDimmer, cursor: canGoForwardMonth ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { s2 } from '../theme/tokens';
 import { HairLabel } from './ui';
 import { MealCookingInstructions } from '../types';
+import { track } from '../lib/analytics';
 
 interface MealShareSheetProps {
   isOpen:       boolean;
@@ -83,6 +84,7 @@ export function MealShareSheet({
 
   async function handleNativeShare() {
     if (!navigator.share) return;
+    track('meal_share_method_selected', { method: 'native' });
     try {
       await navigator.share({
         title: `${mealName} — Cooking Instructions`,
@@ -96,6 +98,7 @@ export function MealShareSheet({
 
   async function handleShareAudioFile() {
     if (!audioUrl) return;
+    track('meal_share_method_selected', { method: 'audio_file' });
     setIsLoadingAudio(true);
     try {
       const response = await fetch(audioUrl);
@@ -138,6 +141,7 @@ export function MealShareSheet({
   }
 
   async function handleCopy() {
+    track('meal_share_method_selected', { method: 'copy' });
     try {
       await navigator.clipboard.writeText(shareText);
     } catch {
@@ -269,7 +273,8 @@ export function MealShareSheet({
           )}
 
           {/* WhatsApp */}
-          <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', display: 'block' }}>
+          <a href={whatsappUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', display: 'block' }}
+            onClick={() => track('meal_share_method_selected', { method: 'whatsapp' })}>
             <div style={{ ...rowStyle, cursor: 'pointer' }}>
               <div style={{ ...iconBoxStyle, color: '#25D366' }}>✉</div>
               <div>
@@ -284,7 +289,8 @@ export function MealShareSheet({
           </a>
 
           {/* Telegram */}
-          <a href={telegramUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', display: 'block' }}>
+          <a href={telegramUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', display: 'block' }}
+            onClick={() => track('meal_share_method_selected', { method: 'telegram' })}>
             <div style={{ ...rowStyle, cursor: 'pointer' }}>
               <div style={{ ...iconBoxStyle, color: '#2AABEE' }}>✈</div>
               <div>
