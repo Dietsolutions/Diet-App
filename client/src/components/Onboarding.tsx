@@ -1469,6 +1469,40 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
         <div style={{ fontFamily: s2.mono, fontSize: 13, color: s2.accent, marginTop: 6, fontWeight: 500 }}>
           {data.waterIntakeGoal} GLASSES / DAY
         </div>
+
+        {/* Live unit conversion */}
+        {data.waterIntakeGoal > 0 && (
+          <>
+            <div style={{
+              display: 'flex', gap: 12, marginTop: 10,
+              padding: '10px 14px',
+              background: s2.surface,
+              border: `1px solid ${s2.line}`,
+              justifyContent: 'center',
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontFamily: s2.mono, fontSize: 18, fontWeight: 700, color: s2.text }}>
+                  {((data.waterIntakeGoal * 250) / 1000).toFixed(1)} L
+                </div>
+                <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDimmer, letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: 2 }}>
+                  litres
+                </div>
+              </div>
+              <div style={{ width: 1, background: s2.line, alignSelf: 'stretch' }} />
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontFamily: s2.mono, fontSize: 18, fontWeight: 700, color: s2.text }}>
+                  {((data.waterIntakeGoal * 250) / 3785.41).toFixed(2)} gal
+                </div>
+                <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDimmer, letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: 2 }}>
+                  gallons
+                </div>
+              </div>
+            </div>
+            <div style={{ fontFamily: s2.sans, fontSize: 10, color: s2.textDimmer, textAlign: 'center', marginTop: 5 }}>
+              Based on 1 standard glass = 250 ml
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

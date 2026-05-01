@@ -97,6 +97,7 @@ export function MealDetailSheet({
   const [audioError,      setAudioError]      = useState('');
   const [cookExpanded,    setCookExpanded]    = useState(false);
   const [shareOpen,       setShareOpen]       = useState(false);
+  const [servings,        setServings]        = useState(1);
 
   // Fetch existing instructions on open (only if mealPlanId is known)
   useEffect(() => {
@@ -116,7 +117,7 @@ export function MealDetailSheet({
     setCookGenerating(true);
     setCookError('');
     try {
-      const r = await axios.post('/api/meals/instructions/generate', { mealPlanId, dayIndex, mealIndex }, { withCredentials: true });
+      const r = await axios.post('/api/meals/instructions/generate', { mealPlanId, dayIndex, mealIndex, servings }, { withCredentials: true });
       setCookInstr(r.data.instructions);
       setCookExpanded(true);
     } catch (err: any) {
@@ -124,7 +125,7 @@ export function MealDetailSheet({
     } finally {
       setCookGenerating(false);
     }
-  }, [mealPlanId, dayIndex, mealIndex]);
+  }, [mealPlanId, dayIndex, mealIndex, servings]);
 
   const handleGenerateAudio = useCallback(async () => {
     if (!mealPlanId) return;
@@ -466,10 +467,66 @@ export function MealDetailSheet({
 
                 {/* ── Not yet generated ── */}
                 {!cookLoading && !cookInstr && !cookGenerating && (
-                  <div style={{ padding: '20px 14px', textAlign: 'center' }}>
+                  <div style={{ padding: '16px 14px' }}>
+
+                    {/* Servings selector */}
+                    <div style={{
+                      marginBottom: 14,
+                      padding: '12px 14px',
+                      background: s2.surface2,
+                      border: `1px solid ${s2.line}`,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div>
+                          <HairLabel style={{ marginBottom: 3 }}>COOKING FOR</HairLabel>
+                          <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.textDim, marginTop: 2 }}>
+                            {servings === 1 ? 'Just me' : `${servings} people`}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <button
+                            onClick={() => setServings(s => Math.max(1, s - 1))}
+                            disabled={servings <= 1}
+                            style={{
+                              width: 32, height: 32,
+                              background: servings <= 1 ? s2.surface : s2.surface2,
+                              border: `1px solid ${s2.line}`,
+                              color: servings <= 1 ? s2.textDimmer : s2.text,
+                              fontSize: 18, cursor: servings <= 1 ? 'default' : 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              lineHeight: 1,
+                            }}
+                          >
+                            −
+                          </button>
+                          <span style={{
+                            fontFamily: s2.mono, fontSize: 20, fontWeight: 700,
+                            color: s2.text, minWidth: 20, textAlign: 'center',
+                          }}>
+                            {servings}
+                          </span>
+                          <button
+                            onClick={() => setServings(s => Math.min(10, s + 1))}
+                            disabled={servings >= 10}
+                            style={{
+                              width: 32, height: 32,
+                              background: servings >= 10 ? s2.surface : s2.accentFill,
+                              border: `1px solid ${servings >= 10 ? s2.line : s2.accent}`,
+                              color: servings >= 10 ? s2.textDimmer : s2.accent,
+                              fontSize: 18, cursor: servings >= 10 ? 'default' : 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              lineHeight: 1,
+                            }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
                     <div style={{
                       fontFamily: s2.sans, fontSize: 13, color: s2.textDim,
-                      lineHeight: 1.5, marginBottom: 16,
+                      lineHeight: 1.5, marginBottom: 12, textAlign: 'center',
                     }}>
                       Get step-by-step instructions with exact ingredients and quantities.
                     </div>
@@ -511,16 +568,17 @@ export function MealDetailSheet({
                 {/* ── Instructions loaded ── */}
                 {!cookLoading && !cookGenerating && cookInstr && (
                   <>
-                    {/* Time strip + share button */}
+                    {/* Time strip + serves + share button */}
                     <div style={{
                       display: 'grid',
-                      gridTemplateColumns: '1fr 1fr 1fr auto',
+                      gridTemplateColumns: '1fr 1fr 1fr 1fr auto',
                       borderBottom: `1px solid ${s2.line}`,
                     }}>
                       {[
-                        { label: 'PREP',  value: cookInstr.prepTime  },
-                        { label: 'COOK',  value: cookInstr.cookTime  },
-                        { label: 'TOTAL', value: cookInstr.totalTime },
+                        { label: 'PREP',   value: cookInstr.prepTime  },
+                        { label: 'COOK',   value: cookInstr.cookTime  },
+                        { label: 'TOTAL',  value: cookInstr.totalTime },
+                        { label: 'SERVES', value: String(cookInstr.servings ?? 1) },
                       ].map((s, i) => (
                         <div key={i} style={{
                           padding: '12px 0', textAlign: 'center',
@@ -530,7 +588,7 @@ export function MealDetailSheet({
                           <div style={{ fontFamily: s2.mono, fontSize: 12, color: s2.text }}>{s.value}</div>
                         </div>
                       ))}
-                      {/* Share button — 4th column */}
+                      {/* Share button — last column */}
                       <div style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         padding: '0 12px',
@@ -554,6 +612,28 @@ export function MealDetailSheet({
                           ↗ SHARE
                         </button>
                       </div>
+                    </div>
+
+                    {/* Re-generate for different servings link */}
+                    <div style={{ textAlign: 'center', padding: '6px 14px 2px' }}>
+                      <button
+                        onClick={() => {
+                          setCookInstr(null);
+                          setServings(cookInstr.servings ?? 1);
+                        }}
+                        style={{
+                          background:    'none',
+                          border:        'none',
+                          color:         s2.textDimmer,
+                          fontFamily:    s2.mono,
+                          fontSize:      8,
+                          letterSpacing: '0.12em',
+                          textTransform: 'uppercase',
+                          cursor:        'pointer',
+                        }}
+                      >
+                        ↺ RE-GENERATE FOR DIFFERENT SERVINGS
+                      </button>
                     </div>
 
                     {/* Audio guide */}

@@ -369,7 +369,8 @@ router.get('/instructions', requireAuth, async (req: AuthRequest, res: Response)
 router.post('/instructions/generate', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { mealPlanId, dayIndex, mealIndex } = req.body;
+    const { mealPlanId, dayIndex, mealIndex, servings: reqServings } = req.body;
+    const servings: number = typeof reqServings === 'number' && reqServings >= 1 ? Math.min(reqServings, 10) : 1;
     if (!mealPlanId || typeof dayIndex !== 'number' || typeof mealIndex !== 'number') {
       res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex are required' }); return;
     }
@@ -392,19 +393,25 @@ router.post('/instructions/generate', requireAuth, async (req: AuthRequest, res:
     const client = new Anthropic({ apiKey });
 
     const ingredientsList = Array.isArray(meal.ingredients) ? meal.ingredients.join('\n') : 'Based on the meal name and description';
+    const servingsLabel   = servings === 1 ? '1 person (single serving)' : `${servings} people`;
+    const servingsNote    = servings === 1
+      ? 'Generate all ingredient quantities for 1 person (single serving).'
+      : `Generate all ingredient quantities for ${servings} people. Every gram, ml, tsp, tbsp, and piece count in the ingredients list MUST be multiplied by ${servings} from the base single-serving amount. Do not show per-person quantities — show the total combined quantity needed for ${servings} people. Mention that cooking times for larger batches may increase slightly.`;
 
     const prompt = `You are a professional chef and culinary instructor. Generate extremely detailed, beginner-friendly cooking instructions for the following meal.
 
 MEAL: ${meal.name}
 DESCRIPTION: ${meal.description || ''}
 MEAL TYPE: ${meal.type || 'Meal'} (${meal.time || ''})
-SERVINGS: 1 person
+SERVINGS: ${servingsLabel}
 
-KNOWN INGREDIENTS (from meal plan):
+${servingsNote}
+
+KNOWN INGREDIENTS (base single-serving reference from meal plan):
 ${ingredientsList}
 
 REQUIREMENTS:
-1. List ALL ingredients with precise quantities for 1 serving
+1. List ALL ingredients with precise quantities scaled for ${servingsLabel}
    - Use standard measurements (grams, ml, tsp, tbsp, cups)
    - Include preparation notes on each ingredient (e.g. "finely chopped", "at room temperature")
    - Group ingredients into: Main ingredients, Spices & seasonings, For cooking
@@ -412,13 +419,13 @@ REQUIREMENTS:
 2. Step-by-step instructions must be:
    - Extremely detailed — assume the cook has never made this before
    - Each step must describe exactly what to do, what it should look like, smell like, or feel like when done correctly
-   - Include temperature settings, pan types, heat levels
+   - Include temperature settings, pan types, heat levels appropriate for ${servings === 1 ? 'a single serving' : `${servings} servings`}
    - Include timing for each step
    - Warn about common mistakes at critical steps
    - Mention what "done" looks like for each step
 
 3. Include:
-   - Prep time, cook time, total time
+   - Prep time, cook time, total time for ${servingsLabel}
    - 3-5 pro cooking tips specific to this dish
    - One substitution suggestion for the main protein or key ingredient
 
@@ -428,7 +435,7 @@ Respond ONLY with valid JSON matching this exact structure:
   "prepTime": string,
   "cookTime": string,
   "totalTime": string,
-  "servings": 1,
+  "servings": ${servings},
   "ingredients": [
     { "group": string, "name": string, "quantity": string, "unit": string, "notes": string }
   ],
@@ -450,7 +457,8 @@ Respond ONLY with valid JSON matching this exact structure:
     if (!jsonMatch) { res.status(500).json({ error: 'AI returned invalid format. Please try again.' }); return; }
     const parsed = JSON.parse(jsonMatch[0]);
 
-    // Upsert instructions
+    // Upsert instructions — use reqServings as the authoritative value so a re-generate
+    // for different servings always overwrites, even if the AI JSON echoes a different number.
     const instructions = await prisma.mealCookingInstructions.upsert({
       where: { userId_mealPlanId_dayIndex_mealIndex: { userId, mealPlanId, dayIndex, mealIndex } },
       update: {
@@ -460,7 +468,7 @@ Respond ONLY with valid JSON matching this exact structure:
         totalTime: parsed.totalTime || '',
         prepTime: parsed.prepTime || '',
         cookTime: parsed.cookTime || '',
-        servings: parsed.servings || 1,
+        servings,   // authoritative — from request, not AI echo
         tips: parsed.tips || [],
         substitution: parsed.substitution || null,
         audioScript: null,
@@ -479,7 +487,7 @@ Respond ONLY with valid JSON matching this exact structure:
         totalTime: parsed.totalTime || '',
         prepTime: parsed.prepTime || '',
         cookTime: parsed.cookTime || '',
-        servings: parsed.servings || 1,
+        servings,   // authoritative — from request, not AI echo
         tips: parsed.tips || [],
         substitution: parsed.substitution || null,
       },
@@ -557,12 +565,16 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
     }
 
     // ── Build the narration script (concise — keeps most meals under 2800 chars) ─
-    const ingredients = existing.ingredients as any[];
-    const steps       = existing.steps       as any[];
+    const ingredients    = existing.ingredients as any[];
+    const steps          = existing.steps       as any[];
+    const audioServings  = existing.servings ?? 1;
+    const servingsPhrase = audioServings === 1
+      ? 'one person'
+      : `${audioServings} people`;
     const parts: string[] = [];
 
-    parts.push(`Let's cook ${existing.mealName}. Total time: ${existing.totalTime}.`);
-    parts.push('You will need:');
+    parts.push(`Let's cook ${existing.mealName} for ${servingsPhrase}. Total time: ${existing.totalTime}.`);
+    parts.push(`Here's what you'll need for ${audioServings === 1 ? 'one serving' : `${audioServings} servings`}.`);
     ingredients.forEach((i: any) => {
       parts.push(`${i.quantity} ${i.unit} ${i.name}.`);
     });
@@ -570,7 +582,7 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
     steps.forEach((step: any) => {
       parts.push(`Step ${step.stepNumber}: ${step.title}. ${step.instruction}`);
     });
-    parts.push(`Your ${existing.mealName} is ready. Enjoy your meal.`);
+    parts.push(`Your ${existing.mealName} for ${servingsPhrase} is ready. Enjoy your meal.`);
 
     const audioScript   = parts.join(' ');
     const wordCount     = audioScript.split(/\s+/).length;

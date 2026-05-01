@@ -925,6 +925,52 @@ Client: 0 errors. Server: 0 errors.
 
 ---
 
+# 2-Change Drop — 2026-05-01 (third batch)
+
+## Change 1 — Onboarding Water Goal: Live Litres and Gallons Display
+
+### Files modified
+- `client/src/components/Onboarding.tsx` — in `StepGoal`, below the WATER INTAKE GOAL slider
+
+### What was added
+Conversion box inline below the glasses counter. No helper functions extracted — conversion arithmetic is inlined directly (`(glasses * 250) / 1000` for litres, `(glasses * 250) / 3785.41` for gallons) since both are one-liners used exactly once. Values update reactively with the slider via `data.waterIntakeGoal`. The box uses `s2.surface` background and `s2.line` border to match the existing Strain v2 card language. A helper note "Based on 1 standard glass = 250 ml" appears below it in `s2.textDimmer`. Hidden when `waterIntakeGoal === 0`.
+
+---
+
+## Change 2 — Meal Detail: Servings Selector Before Generating Instructions
+
+### Migration needed?
+No. `servings Int @default(1)` already existed on `MealCookingInstructions` in `schema.prisma` (line 305). No schema changes required.
+
+### Files modified
+- `client/src/components/MealDetailSheet.tsx`
+- `server/src/routes/meals.ts`
+
+### Client changes
+- Added `servings` state (`useState(1)`) alongside the other cooking-instructions state variables.
+- Servings selector: `−` / `+` buttons, clamped 1–10, placed inside the "not yet generated" block above the description text. Uses `s2.surface2 / s2.line` for the card, `s2.accentFill / s2.accent` for the + button in the Strain v2 palette.
+- `handleGenerateInstructions`: added `servings` to the POST body and to the `useCallback` dependency array.
+- Time strip grid: `1fr 1fr 1fr auto` → `1fr 1fr 1fr 1fr auto` to add the SERVES column, reading `cookInstr.servings ?? 1`.
+- Re-generate link: appears below the time strip when instructions are loaded. Tapping clears `cookInstr` (returns to the not-generated state) and pre-fills `servings` with the previously used count (`cookInstr.servings ?? 1`). Does NOT make any API call — just resets local state.
+
+### Server changes (`POST /api/meals/instructions/generate`)
+- Reads `servings` from `req.body`, clamped to 1–10, defaulting to 1.
+- For `servings === 1`: prompt says "Generate quantities for 1 person (single serving)." No scaling language.
+- For `servings > 1`: prompt injects a hard requirement: "Every gram, ml, tsp, tbsp, and piece count MUST be multiplied by N from the base single-serving amount. Do not show per-person quantities — show the total combined quantity needed." This wording was chosen because vague "scale for N people" instructions often result in the AI outputting per-person quantities instead of totals.
+- `servings` in the upsert is taken from the request value, not from `parsed.servings`. This ensures a re-generate for different servings always writes the correct count even if the AI echoes a different number.
+- JSON template in the prompt uses `"servings": ${servings}` (interpolated integer) so the AI echoes the correct value back.
+
+### Audio script changes
+- Opening line: `"Let's cook MEAL for N people. Total time: X."` (uses "one person" for servings=1, "N people" for N>1).
+- Pre-ingredients line: `"Here's what you'll need for one serving / N servings."` (replaces old "You will need:").
+- Closing line: `"Your MEAL for N people is ready."` (was just "Your MEAL is ready.").
+- No logic change needed: since ingredients/steps stored in DB are already scaled at generation time, the audio script automatically reads the correct quantities.
+
+### Servings display in loaded state
+SERVES column added to the time strip (PREP / COOK / TOTAL / SERVES + share button). Value is `cookInstr.servings ?? 1`.
+
+---
+
 # 4-Feature Drop — 2026-05-01
 
 ## Feature 1 — Monthly Macros Chart: Selectable Month
