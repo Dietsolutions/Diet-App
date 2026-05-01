@@ -36,6 +36,7 @@ model User {
   waterLogs        WaterLog[]
   additionalMealLogs AdditionalMealLog[]
   cookingInstructions MealCookingInstructions[]
+  planGenerationUsage PlanGenerationUsage[]
 }
 
 model WeightLog {
@@ -94,6 +95,7 @@ model UserProfile {
   fastingWindowHours   Int?
   eatingStartTime      String?
   eatingEndTime        String?
+  unitSystem           String   @default("metric")  // "metric" | "imperial"
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 }
@@ -317,4 +319,20 @@ model MealCookingInstructions {
   @@index([userId, mealPlanId])
   @@index([userId, mealName])   // reuse lookup: same meal name across plans
   @@map("meal_cooking_instructions")
+}
+
+model PlanGenerationUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  month     String   // "YYYY-MM" — calendar month of this generation
+  count     Int      @default(0) // full regenerations used this month
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, month])
+  @@index([userId, month])
+  @@map("plan_generation_usage")
 }

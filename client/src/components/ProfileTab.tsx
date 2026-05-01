@@ -44,6 +44,7 @@ export function ProfileTab() {
   const [mealInstructions, setMealInstructions] = useState('');
   const [planDuration, setPlanDuration] = useState<7 | 14>(7);
   const [planHistory, setPlanHistory] = useState<PlanHistoryItem[]>([]);
+  const [genUsage, setGenUsage] = useState<{ used: number; limit: number; remaining: number; resetsOn: string } | null>(null);
   const instructionsRef = useRef('');
   const { fetchLogs, fetchProjection } = useWeightStore();
 
@@ -65,6 +66,10 @@ export function ProfileTab() {
     // Fetch plan history — non-critical, ignore errors
     axios.get('/api/plan/history', { withCredentials: true })
       .then(res => { if (res.data.plans) setPlanHistory(res.data.plans); })
+      .catch(() => {});
+    // Fetch generation usage — non-critical
+    axios.get('/api/plan/generation-usage', { withCredentials: true })
+      .then(res => setGenUsage(res.data))
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -129,9 +134,12 @@ export function ProfileTab() {
       if (!result?.success) throw new Error('Failed');
       setRegenStep('Done!');
       setRegenerating(false);
-      // Refresh plan history in background after regeneration
+      // Refresh plan history + usage in background after regeneration
       axios.get('/api/plan/history', { withCredentials: true })
         .then(res => { if (res.data.plans) setPlanHistory(res.data.plans); })
+        .catch(() => {});
+      axios.get('/api/plan/generation-usage', { withCredentials: true })
+        .then(res => setGenUsage(res.data))
         .catch(() => {});
       // Show plan review screen instead of the old success screen
       setReviewMealPlanId(result?.mealPlanId || 'active');
@@ -408,11 +416,45 @@ export function ProfileTab() {
         )}
 
         {/* ── Meal Plan Customiser ────────────────────────────────────────── */}
+        {/* Generation usage indicator */}
+        {genUsage && (
+          <div>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '10px 14px',
+              background: s2.surface, border: `1px solid ${s2.line}`,
+              marginBottom: 8,
+            }}>
+              <HairLabel>PLAN REGENERATIONS THIS MONTH</HairLabel>
+              <span style={{
+                fontFamily: s2.mono, fontSize: 11, fontWeight: 600,
+                color: genUsage.remaining === 0 ? s2.warn
+                     : genUsage.remaining === 1 ? '#F0B429'
+                     : s2.accent,
+              }}>
+                {genUsage.used} / {genUsage.limit} USED
+              </span>
+            </div>
+            {genUsage.remaining === 0 && (
+              <div style={{
+                padding: '10px 14px',
+                background: 'rgba(255,62,62,0.06)',
+                border: `1px solid rgba(255,62,62,0.25)`,
+                marginBottom: 8,
+                fontFamily: s2.sans, fontSize: 12,
+                color: s2.warn, textAlign: 'center',
+              }}>
+                Monthly limit reached. Resets on {genUsage.resetsOn}.
+              </div>
+            )}
+          </div>
+        )}
         <MealPlanCustomiser
           initialValue={mealInstructions}
           onInstructionsChange={handleInstructionsChange}
-          onRegenerate={handleRegenerateClick}
+          onRegenerate={genUsage?.remaining === 0 ? () => {} : handleRegenerateClick}
           isRegenerating={regenerating}
+          disabled={genUsage?.remaining === 0}
         />
 
         {/* ── Logout ─────────────────────────────────────────────────────── */}

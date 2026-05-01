@@ -875,3 +875,104 @@ The `index-legacy-*.js` (8.1 MB) exceeds `maximumFileSizeToCacheInBytes: 4 MB` a
 ### Expected Outcome
 **Scenario A — The app now works**: The NetworkFirst SW fix (Fix 3) resolved the stale cache issue. Deploy confirmed this.  
 **Scenario B — Red error screen appears**: The global handler (Fix 2) or enhanced error boundary (Fix 5) caught the crash and displayed the exact error message. Take a screenshot to identify the next fix.
+
+---
+
+# 4-Feature Drop — 2026-05-01
+
+## Feature 1 — Monthly Macros Chart: Selectable Month
+
+### Files modified
+- `client/src/components/MonthlyCalorieChart.tsx`
+
+### Decision
+Added `← MONTH YEAR →` navigation to `MonthlyCalorieChart` using the existing `trackerCalendarMonth` / `setTrackerCalendarMonth` Zustand atoms already shared with the Tracker calendar. No new state was introduced — both the chart and the calendar grid respond to the same atom. Forward navigation is capped at the current calendar month to prevent browsing the future. The empty-state path (no data returned from `/api/tracker/monthly-macros`) was already handled by the chart's existing zero-data render.
+
+### Key code patterns
+- `navigateMonth(dir: -1 | 1)` computes the neighbouring month with pure arithmetic (no date-fns dependency) and guards against `next > currentMonthStr`.
+- `[chartY, chartM]` destructured from the YYYY-MM string drive the `MONTH_NAMES[chartM - 1]` label.
+- Nav buttons share the same `s2.mono` / `s2.textDimmer` micro-label style as the rest of the Strain v2 UI.
+
+---
+
+## Feature 2 — Meal Plan Generation Limits (2 full regenerations / month)
+
+### Files modified
+- `server/src/prisma/schema.prisma` — new `PlanGenerationUsage` model + `User.planGenerationUsage` relation
+- `server/src/routes/ai.ts` — `MONTHLY_REGEN_LIMIT`, `checkAndIncrementGenerationLimit`, guard inside `POST /api/ai/generate-meal-plan`
+- `server/src/routes/plan.ts` — new `GET /api/plan/generation-usage` endpoint
+- `client/src/components/ProfileTab.tsx` — fetches usage, shows badge + warning, passes `disabled` to customiser
+- `client/src/components/MealPlanCustomiser.tsx` — added `disabled` prop; button text = `MONTHLY LIMIT REACHED`
+
+### Decision: limit discriminator
+`user.onboardingDone` is the exact discriminator for "is this a first-time generation?". Onboarding generation always has `onboardingDone = false` (the flag is set by `confirm-review` AFTER onboarding completes). Subsequent regenerations have `onboardingDone = true`. This cleanly separates the two cases with zero new flags.
+
+### Decision: single-meal regeneration excluded
+`POST /api/plan/regenerate-single-meal` does NOT call `checkAndIncrementGenerationLimit`. The limit applies only to full 7/14-day plan regenerations triggered by `POST /api/ai/generate-meal-plan`. The distinction is structural — they are separate route handlers.
+
+### Decision: upsert-then-check pattern
+`prisma.planGenerationUsage.upsert({ create: { count: 0 }, update: {} })` retrieves or initialises the row without incrementing. The increment (`{ count: { increment: 1 } }`) happens in a separate `.update()` call only after the limit check passes. This avoids an off-by-one error where the first call of the month would consume a generation before returning the "allowed" response.
+
+### Migration
+`npx prisma db push --schema src/prisma/schema.prisma` applied. New table: `plan_generation_usage` with `@@unique([userId, month])` composite key.
+
+### 429 response format
+```json
+{ "error": "monthly_limit_reached", "message": "...", "resetsOn": "1 June", "used": 2, "limit": 2 }
+```
+Frontend catches this from the SSE stream's non-ok pre-flight or from a direct 429 before the stream opens.
+
+---
+
+## Feature 3 — Imperial Units in Signup (Onboarding StepBody)
+
+### Files modified
+- `client/src/components/Onboarding.tsx` — `StepBody` function rewritten with metric/imperial toggle
+
+### Decision: always store metric
+All values are converted to metric before calling `update()`. The `unitSystem` toggle is purely a display preference. The database (`UserProfile.heightCm`, `weightKg`, `targetWeightKg`) always stores metric SI values. This avoids a schema change to the stored units and keeps the AI prompt, TDEE calculation, and all backend logic untouched.
+
+### Decision: unitSystem in UserProfile schema
+Added `unitSystem String @default("metric")` to `UserProfile` so the preference persists across sessions. Saved via the existing `PATCH /api/profile` route (no new endpoint needed).
+
+### Conversion functions (client-side only)
+```
+lbToKg(lb)        → lb / 2.20462
+kgToLb(kg)        → kg * 2.20462
+cmToFtIn(cm)      → { ft: floor(cm/30.48), in: round((cm%30.48)/2.54) }
+ftInToCm(ft, in)  → ft*30.48 + in*2.54
+```
+All helper functions live above `StepBody` in `Onboarding.tsx` — no shared utility file needed since they are only used in one place.
+
+### Imperial height: two separate inputs
+Imperial height uses `heightFt` + `heightIn` local states. Both call `ftInToCm()` on every change and call `update({ heightCm: result })`. This keeps the parent state in metric at all times while the UI reflects feet and inches.
+
+### Toggle conversion
+`handleUnitToggle` reads the current metric values and converts them to/from imperial display strings when the user switches. This prevents the displayed values from jumping when toggling — the user sees their input preserved across both unit systems.
+
+---
+
+## Feature 4 — Share Shopping List as Text Message
+
+### Files created
+- `client/src/components/ShoppingShareSheet.tsx`
+
+### Files modified
+- `client/src/components/ShoppingTab.tsx` — added `↗ SHARE` button in header; renders `ShoppingShareSheet`
+
+### Decision: share text format
+Unbought items appear first (grouped by category with emoji headers), bought items appear at the bottom as a flat `─── Already bought ───` section. Category emoji is resolved via a keyword map (`CATEGORY_EMOJI`) — no AI call, no API round-trip. Unknown categories fall back to 🛒.
+
+### Decision: three share options
+1. **Web Share API** (`navigator.share`) — shown only when `navigator.share` is available (iOS Safari, Android Chrome). Opens the native OS share sheet for Messages, AirDrop, Mail, Notes, etc.
+2. **WhatsApp** (`https://wa.me/?text=...`) — always shown. Opens WhatsApp with the list pre-filled. Works on any device with WhatsApp installed; gracefully opens the web client otherwise.
+3. **Clipboard copy** (`navigator.clipboard.writeText`) — always shown. Two-second "COPIED!" confirmation state. Fallback for any platform not covered by the above.
+
+### Decision: bottom sheet modal
+`ShoppingShareSheet` renders as a position:fixed overlay with a slide-up panel pinned to the viewport bottom (`alignItems: flex-end`). Backdrop click and Escape key both close it. No library dependency — pure CSS + React state.
+
+### Decision: share button placement
+The `↗ SHARE` button is placed inline with the `{totalItems} ITEMS` HairLabel in the section header. It is only visible when `isShoppingGenerated && totalItems > 0`, so it never appears on the empty-state screen. This keeps the header uncluttered when there is nothing to share.
+
+### TypeScript
+Both client and server: 0 errors after all 4 features.

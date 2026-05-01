@@ -200,15 +200,37 @@ function MacroTab({
   );
 }
 
+const MONTH_NAMES = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December',
+];
+
 // ── Main Component ─────────────────────────────────────────────────────────
 export function MonthlyCalorieChart() {
-  const { trackerCalendarMonth } = useAppStore();
+  const { trackerCalendarMonth, setTrackerCalendarMonth } = useAppStore();
   const [data,         setData]         = useState<MonthlyMacroData | null>(null);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState('');
   const [selectedMacro, setSelectedMacro] = useState<MacroKey>('calories');
   const [fading,       setFading]       = useState(false);
   const isFirstRender                   = useRef(true);
+
+  // Month navigation — shared with Tracker calendar via trackerCalendarMonth
+  const now             = new Date();
+  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const isCurrentMonth  = trackerCalendarMonth >= currentMonthStr;
+
+  function navigateMonth(dir: -1 | 1) {
+    const [y, m] = trackerCalendarMonth.split('-').map(Number);
+    let nm = m + dir;
+    let ny = y;
+    if (nm < 1)  { nm = 12; ny -= 1; }
+    if (nm > 12) { nm = 1;  ny += 1; }
+    const next = `${ny}-${String(nm).padStart(2, '0')}`;
+    if (next <= currentMonthStr) setTrackerCalendarMonth(next);
+  }
+
+  const [chartY, chartM] = trackerCalendarMonth.split('-').map(Number);
 
   // Fade transition when macro switches
   useEffect(() => {
@@ -284,10 +306,37 @@ export function MonthlyCalorieChart() {
   return (
     <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
 
-      {/* ── Header ─────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+      {/* ── Header with month navigator ────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <HairLabel>MONTHLY MACROS</HairLabel>
-        <HairLabel>{monthLabel}</HairLabel>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+          <button
+            onClick={() => navigateMonth(-1)}
+            style={{
+              background: 'none', border: 'none',
+              color: s2.textDim, fontSize: 16,
+              cursor: 'pointer', padding: '0 6px', lineHeight: 1,
+            }}
+          >‹</button>
+          <span style={{
+            fontFamily: s2.mono, fontSize: 9,
+            letterSpacing: '0.15em', textTransform: 'uppercase',
+            color: s2.text, minWidth: 96, textAlign: 'center',
+          }}>
+            {MONTH_NAMES[chartM - 1]} {chartY}
+          </span>
+          <button
+            onClick={() => navigateMonth(1)}
+            disabled={isCurrentMonth}
+            style={{
+              background: 'none', border: 'none',
+              color: isCurrentMonth ? s2.textDimmer : s2.textDim,
+              fontSize: 16,
+              cursor: isCurrentMonth ? 'default' : 'pointer',
+              padding: '0 6px', lineHeight: 1,
+            }}
+          >›</button>
+        </div>
       </div>
 
       {/* ── Macro tab strip ────────────────────────────────────────── */}

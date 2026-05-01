@@ -24,6 +24,7 @@ interface MealPlanCustomiserProps {
   onInstructionsChange: (text: string) => void;
   onRegenerate: () => void;
   isRegenerating: boolean;
+  disabled?: boolean;
 }
 
 export function MealPlanCustomiser({
@@ -31,6 +32,7 @@ export function MealPlanCustomiser({
   onInstructionsChange,
   onRegenerate,
   isRegenerating,
+  disabled = false,
 }: MealPlanCustomiserProps) {
   const [text, setText]           = useState(initialValue);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -240,26 +242,28 @@ export function MealPlanCustomiser({
       {/* Regenerate button */}
       <button
         onClick={onRegenerate}
-        disabled={isRegenerating}
+        disabled={isRegenerating || disabled}
         style={{
           width: '100%',
           padding: '14px 0',
-          background: isRegenerating ? s2.surface2 : s2.accent,
-          border: `1px solid ${isRegenerating ? s2.lineStrong : s2.accent}`,
+          background: (isRegenerating || disabled) ? s2.surface2 : s2.accent,
+          border: `1px solid ${(isRegenerating || disabled) ? s2.lineStrong : s2.accent}`,
           fontFamily: s2.mono,
           fontSize: 10,
           letterSpacing: '0.18em',
-          color: isRegenerating ? s2.textDimmer : s2.bg,
-          cursor: isRegenerating ? 'not-allowed' : 'pointer',
+          color: (isRegenerating || disabled) ? s2.textDimmer : s2.bg,
+          cursor: (isRegenerating || disabled) ? 'not-allowed' : 'pointer',
           textTransform: 'uppercase',
           position: 'relative',
         }}
       >
         {isRegenerating
           ? 'REGENERATING…'
-          : hasInstructions
-            ? 'REGENERATE WITH MY CHANGES'
-            : 'REGENERATE MEAL PLAN'}
+          : disabled
+            ? 'MONTHLY LIMIT REACHED'
+            : hasInstructions
+              ? 'REGENERATE WITH MY CHANGES'
+              : 'REGENERATE MEAL PLAN'}
         {/* Active-instructions dot */}
         {hasInstructions && !isRegenerating && (
           <span style={{

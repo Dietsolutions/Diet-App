@@ -9,7 +9,7 @@ const router = Router();
 // Use Haiku for speed (3-5x faster than Sonnet for structured JSON)
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
 
-// Rate limit: 3 calls per user per day
+// Rate limit: 3 calls per user per day (in-memory, dev/legacy guard)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 function checkRateLimit(userId: string): boolean {
@@ -22,6 +22,38 @@ function checkRateLimit(userId: string): boolean {
   if (entry.count >= 3) return false;
   entry.count++;
   return true;
+}
+
+// Monthly regeneration limit: 2 per calendar month (existing users only)
+const MONTHLY_REGEN_LIMIT = 2;
+
+async function checkAndIncrementGenerationLimit(userId: string): Promise<{
+  allowed: boolean;
+  used: number;
+  limit: number;
+  resetsOn: string;
+}> {
+  const now   = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  const usage = await prisma.planGenerationUsage.upsert({
+    where:  { userId_month: { userId, month } },
+    create: { userId, month, count: 0 },
+    update: {},
+  });
+
+  if (usage.count >= MONTHLY_REGEN_LIMIT) {
+    const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const resetsOn  = resetDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
+    return { allowed: false, used: usage.count, limit: MONTHLY_REGEN_LIMIT, resetsOn };
+  }
+
+  await prisma.planGenerationUsage.update({
+    where: { userId_month: { userId, month } },
+    data:  { count: { increment: 1 } },
+  });
+
+  return { allowed: true, used: usage.count + 1, limit: MONTHLY_REGEN_LIMIT, resetsOn: '' };
 }
 
 function getMealTypes(mealsPerDay: number): string[] {
@@ -136,6 +168,23 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
   if (!checkRateLimit(userId)) {
     res.status(429).json({ error: 'Rate limit exceeded. Maximum 3 meal plan generations per day.' });
     return;
+  }
+
+  // Monthly limit: only applies to regeneration by users who have completed onboarding.
+  // First-time generation (onboardingDone = false) is always allowed.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { onboardingDone: true } });
+  if (user?.onboardingDone) {
+    const check = await checkAndIncrementGenerationLimit(userId);
+    if (!check.allowed) {
+      res.status(429).json({
+        error:    'monthly_limit_reached',
+        message:  `You've used ${check.used} of ${check.limit} plan regenerations this month.`,
+        resetsOn: check.resetsOn,
+        used:     check.used,
+        limit:    check.limit,
+      });
+      return;
+    }
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;

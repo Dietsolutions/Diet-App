@@ -5,6 +5,7 @@ import { useShopping } from '../hooks/useShopping';
 import { useAppStore } from '../store/appStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card, Bar, Check } from './ui';
+import { ShoppingShareSheet } from './ShoppingShareSheet';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function multiplyQuantity(qty: string, multiplier: number): string {
@@ -24,6 +25,7 @@ export function ShoppingTab() {
 
   const { lastShoppingUpdateTime } = useAppStore();
   const [showUpdateBanner, setShowUpdateBanner] = useState(false);
+  const [showShareSheet, setShowShareSheet]     = useState(false);
 
   // Show update banner when a meal change triggered a shopping list regen recently
   useEffect(() => {
@@ -88,7 +90,32 @@ export function ShoppingTab() {
       {/* ── Section header ─────────────────────────────────────────────────── */}
       <div style={{ padding: '14px 20px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
-          <HairLabel>{totalItems} ITEMS</HairLabel>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <HairLabel>{totalItems} ITEMS</HairLabel>
+            {/* Share button — only shown when there are items */}
+            {isShoppingGenerated && totalItems > 0 && (
+              <button
+                onClick={() => setShowShareSheet(true)}
+                style={{
+                  background:    'transparent',
+                  border:        `1px solid ${s2.lineStrong}`,
+                  padding:       '3px 8px',
+                  fontFamily:    s2.mono,
+                  fontSize:      8,
+                  letterSpacing: '0.15em',
+                  color:         s2.accentSoft,
+                  cursor:        'pointer',
+                  textTransform: 'uppercase',
+                  display:       'flex',
+                  alignItems:    'center',
+                  gap:           4,
+                  lineHeight:    1.4,
+                }}
+              >
+                ↗ SHARE
+              </button>
+            )}
+          </div>
           <div style={{
             fontFamily: s2.sans,
             fontSize: 30,
@@ -110,6 +137,15 @@ export function ShoppingTab() {
           <HairLabel style={{ marginTop: 3 }}>BOUGHT</HairLabel>
         </div>
       </div>
+
+      {/* ── Share sheet ───────────────────────────────────────────────────── */}
+      {showShareSheet && (
+        <ShoppingShareSheet
+          categories={shoppingCategories}
+          peopleCount={peopleCount}
+          onClose={() => setShowShareSheet(false)}
+        />
+      )}
 
       {/* 3 px progress bar */}
       <div style={{ padding: '12px 20px 0' }}>

@@ -576,6 +576,34 @@ router.post('/confirm-review', requireAuth, async (req: AuthRequest, res: Respon
   }
 });
 
+// ── GET /api/plan/generation-usage ───────────────────────────────────────────
+// Returns how many full plan regenerations the user has used this calendar month.
+// First-time generation (onboardingDone=false) is never counted.
+router.get('/generation-usage', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const now    = new Date();
+    const month  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const LIMIT  = 2;
+
+    const usage = await prisma.planGenerationUsage.findUnique({
+      where: { userId_month: { userId, month } },
+    });
+
+    const used      = usage?.count ?? 0;
+    const remaining = Math.max(0, LIMIT - used);
+
+    // Reset date: 1st of next month
+    const resetDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const resetsOn  = resetDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
+
+    res.json({ used, limit: LIMIT, remaining, month, resetsOn });
+  } catch (err) {
+    console.error('Generation usage error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 // ── GET /api/plan/history ─────────────────────────────────────────────────────
 // Returns a list of all meal plans for the user (most recent first),
 // used by the Profile tab to show plan history without exposing meal data.
