@@ -83,6 +83,12 @@ router.post('/:key/toggle', requireAuth, async (req: AuthRequest, res: Response)
     const userId = req.userId!;
     const { key } = req.params;
 
+    // Validate key format: allow alphanumeric, hyphens, underscores only (max 64 chars)
+    if (!key || key.length > 64 || !/^[\w-]+$/.test(key)) {
+      res.status(400).json({ error: 'Invalid item key' });
+      return;
+    }
+
     const existing = await prisma.shoppingItem.findUnique({
       where: { userId_itemKey: { userId, itemKey: key } }
     });
@@ -128,6 +134,11 @@ router.post('/people-count', requireAuth, async (req: AuthRequest, res: Response
   try {
     const userId = req.userId!;
     const { peopleCount } = req.body;
+
+    if (typeof peopleCount !== 'number' || peopleCount < 1 || peopleCount > 20 || !Number.isInteger(peopleCount)) {
+      res.status(400).json({ error: 'peopleCount must be an integer between 1 and 20' });
+      return;
+    }
 
     const activePlan = await prisma.mealPlan.findFirst({
       where: { userId, isActive: true }

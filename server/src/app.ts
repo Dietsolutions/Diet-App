@@ -1,6 +1,8 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
 import prisma from './lib/prisma';
 import authRoutes from './routes/auth';
 import planRoutes from './routes/plan';
@@ -14,7 +16,7 @@ import mealsRoutes from './routes/meals';
 import waterRoutes from './routes/water';
 
 // ---------------------------------------------------------------------------
-// Startup env-var check — logs missing variables so debugging is instant.
+// Startup env-var check — missing JWT_SECRET is fatal in production.
 // ---------------------------------------------------------------------------
 const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'] as const;
 const OPTIONAL_ENV = [
@@ -26,9 +28,17 @@ const OPTIONAL_ENV = [
 ] as const;
 
 (function checkEnv() {
+  const isProd = process.env.NODE_ENV === 'production';
   const missing = REQUIRED_ENV.filter(k => !process.env[k]);
   if (missing.length > 0) {
-    console.error(`[env] MISSING required env vars: ${missing.join(', ')}`);
+    const msg = `[env] MISSING required env vars: ${missing.join(', ')}`;
+    if (isProd) {
+      // Fatal in production — weak/missing JWT_SECRET is a critical security hole.
+      console.error(msg);
+      process.exit(1);
+    } else {
+      console.error(msg);
+    }
   }
   const unset = OPTIONAL_ENV.filter(k => !process.env[k]);
   if (unset.length > 0) {
@@ -70,9 +80,27 @@ export function createApp(): Express {
 
   app.set('trust proxy', 1);
 
+  // ── HTTP Security Headers (Helmet) ────────────────────────────────────────
+  // Helmet sets safe defaults: X-Frame-Options, X-Content-Type-Options, HSTS,
+  // Referrer-Policy, X-DNS-Prefetch-Control, etc.
+  // Content-Security-Policy is omitted here because the API only serves JSON
+  // and the React SPA is served separately by Vite/Vercel static hosting.
+  app.use(helmet({
+    contentSecurityPolicy: false, // API-only server, no HTML to protect
+    crossOriginResourcePolicy: { policy: 'same-site' },
+  }));
+
   app.use(cors(buildCorsOptions()));
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: '2mb' })); // Reduced from 10mb — no endpoint needs >2mb
   app.use(cookieParser());
+
+  // ── HTTP Request Logging (Morgan) ─────────────────────────────────────────
+  // 'combined' in prod (structured for log aggregators), 'dev' locally.
+  if (process.env.NODE_ENV === 'production') {
+    app.use(morgan('combined'));
+  } else {
+    app.use(morgan('dev'));
+  }
 
   // Health check (used by Vercel + monitoring)
   app.get('/api/health', async (_req: Request, res: Response) => {

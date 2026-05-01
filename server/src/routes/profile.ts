@@ -42,6 +42,39 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
     const userId = req.userId!;
     const data = req.body;
 
+    // Basic bounds validation for critical numeric fields
+    if (typeof data.weightKg !== 'number' || data.weightKg < 20 || data.weightKg > 500) {
+      res.status(400).json({ error: 'weightKg must be between 20 and 500' });
+      return;
+    }
+    if (typeof data.heightCm !== 'number' || data.heightCm < 50 || data.heightCm > 300) {
+      res.status(400).json({ error: 'heightCm must be between 50 and 300' });
+      return;
+    }
+    if (typeof data.age !== 'number' || data.age < 10 || data.age > 120) {
+      res.status(400).json({ error: 'age must be between 10 and 120' });
+      return;
+    }
+    if (typeof data.targetWeightKg !== 'number' || data.targetWeightKg < 20 || data.targetWeightKg > 500) {
+      res.status(400).json({ error: 'targetWeightKg must be between 20 and 500' });
+      return;
+    }
+    const validGenders = ['male', 'female', 'other'];
+    if (!validGenders.includes(data.gender)) {
+      res.status(400).json({ error: `gender must be one of: ${validGenders.join(', ')}` });
+      return;
+    }
+    const validGoals = ['fat_loss', 'muscle_gain', 'maintenance'];
+    if (!validGoals.includes(data.primaryGoal)) {
+      res.status(400).json({ error: `primaryGoal must be one of: ${validGoals.join(', ')}` });
+      return;
+    }
+    const validIntensities = ['low', 'moderate', 'high'];
+    if (!validIntensities.includes(data.dietIntensity)) {
+      res.status(400).json({ error: `dietIntensity must be one of: ${validIntensities.join(', ')}` });
+      return;
+    }
+
     // Calculate nutrition targets
     const targets = calculateTDEE({
       weightKg: data.weightKg,

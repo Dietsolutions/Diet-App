@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import prisma from '../lib/prisma';
 import { requireAuth, AuthRequest, JWT_SECRET } from '../middleware/auth';
 import { setAuthCookie, clearAuthCookie } from '../utils/setAuthCookie';
+import { logSecurityEvent } from '../utils/securityLogger';
 
 const router = Router();
 
@@ -55,6 +56,20 @@ function validatePassword(password: string, username: string): { valid: boolean;
   return { valid: true };
 }
 
+// Rate limit: 10 login attempts per IP per 15 minutes
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      error: 'rate_limit',
+      message: 'Too many login attempts. Please wait 15 minutes before trying again.'
+    });
+  }
+});
+
 // Rate limit: 5 signup attempts per IP per hour
 const signupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -93,7 +108,7 @@ function issueToken(userId: string): string {
 }
 
 // POST /api/auth/login (username + password)
-router.post('/login', async (req: Request, res: Response): Promise<void> => {
+router.post('/login', loginLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { username, password } = req.body;
 
@@ -111,6 +126,12 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     if (!user || !user.passwordHash) {
+      logSecurityEvent('login_failed', {
+        ip: req.ip,
+        path: req.path,
+        reason: 'user_not_found',
+        username: normalisedUsername,
+      });
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -118,6 +139,12 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const valid = await bcrypt.compare(password, user.passwordHash);
 
     if (!valid) {
+      logSecurityEvent('login_failed', {
+        ip: req.ip,
+        path: req.path,
+        reason: 'wrong_password',
+        userId: user.id,
+      });
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }

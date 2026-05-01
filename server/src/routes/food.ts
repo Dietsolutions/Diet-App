@@ -53,8 +53,8 @@ router.get('/search', requireAuth, async (req: AuthRequest, res: Response): Prom
     const query = (req.query.q as string || '').trim();
     const limit = Math.min(parseInt(req.query.limit as string || '10', 10), 20);
 
-    if (query.length < 2) {
-      res.status(400).json({ error: 'Query must be at least 2 characters' });
+    if (query.length < 2 || query.length > 200) {
+      res.status(400).json({ error: 'Query must be between 2 and 200 characters' });
       return;
     }
 
@@ -137,8 +137,8 @@ router.post('/ai-estimate', requireAuth, async (req: AuthRequest, res: Response)
     const userId = req.userId!;
     const { description } = req.body;
 
-    if (!description || typeof description !== 'string' || description.trim().length < 3) {
-      res.status(400).json({ error: 'Description must be at least 3 characters' });
+    if (!description || typeof description !== 'string' || description.trim().length < 3 || description.trim().length > 500) {
+      res.status(400).json({ error: 'Description must be between 3 and 500 characters' });
       return;
     }
 

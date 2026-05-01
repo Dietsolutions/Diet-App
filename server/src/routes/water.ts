@@ -40,8 +40,12 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
     const userId = req.userId!;
     const { date, glasses } = req.body as { date: string; glasses: number };
 
-    if (!date || typeof glasses !== 'number' || glasses < 0) {
-      res.status(400).json({ error: 'date and glasses (>=0) required' });
+    if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+      return;
+    }
+    if (typeof glasses !== 'number' || glasses < 0 || glasses > 50) {
+      res.status(400).json({ error: 'glasses must be a number between 0 and 50' });
       return;
     }
 

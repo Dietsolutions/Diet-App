@@ -1,7 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { logSecurityEvent } from '../utils/securityLogger';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fat-loss-secret-key-change-in-prod';
+// JWT_SECRET must be set in env — no insecure fallback.
+// app.ts exits on startup if it's missing in production.
+const JWT_SECRET = process.env.JWT_SECRET || (
+  process.env.NODE_ENV === 'production'
+    ? (() => { throw new Error('JWT_SECRET is not set'); })()
+    : 'dev-only-insecure-secret-do-not-use-in-prod'
+);
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -31,6 +38,7 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     req.userId = String(payload.userId);
     next();
   } catch {
+    logSecurityEvent('invalid_token', { ip: req.ip, path: req.path });
     res.status(401).json({ error: 'Invalid token' });
   }
 }

@@ -122,6 +122,20 @@ router.post('/replace-meal', requireAuth, async (req: AuthRequest, res: Response
       return;
     }
 
+    // Sanitise optional text inputs
+    if (instructions && (typeof instructions !== 'string' || instructions.length > 300)) {
+      res.status(400).json({ error: 'instructions must be a string up to 300 characters' });
+      return;
+    }
+    if (hints && (!Array.isArray(hints) || hints.length > 12)) {
+      res.status(400).json({ error: 'hints must be an array of up to 12 items' });
+      return;
+    }
+    if (rules && (!Array.isArray(rules) || rules.length > 12)) {
+      res.status(400).json({ error: 'rules must be an array of up to 12 items' });
+      return;
+    }
+
     const profile = await prisma.userProfile.findUnique({ where: { userId } });
     if (!profile) {
       res.status(400).json({ error: 'Profile not found' });
@@ -375,6 +389,20 @@ router.post('/regenerate-single-meal', requireAuth, async (req: AuthRequest, res
       return;
     }
 
+    // Sanitise optional text inputs — prevent oversized payloads being sent to AI
+    if (instructions && (typeof instructions !== 'string' || instructions.length > 300)) {
+      res.status(400).json({ error: 'instructions must be a string up to 300 characters' });
+      return;
+    }
+    if (hints && (!Array.isArray(hints) || hints.length > 12)) {
+      res.status(400).json({ error: 'hints must be an array of up to 12 items' });
+      return;
+    }
+
+    // Ownership check — verify the mealPlan belongs to the requesting user
+    const planOwner = await prisma.mealPlan.findFirst({ where: { id: mealPlanId, userId } });
+    if (!planOwner) { res.status(404).json({ error: 'day_not_found' }); return; }
+
     const day = await prisma.mealPlanDay.findFirst({
       where: { mealPlanId, dayIndex },
     });
@@ -497,6 +525,10 @@ router.patch('/select-meal', requireAuth, async (req: AuthRequest, res: Response
       res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex, newMeal are required' });
       return;
     }
+
+    // Ownership check — verify the mealPlan belongs to the requesting user
+    const planOwner = await prisma.mealPlan.findFirst({ where: { id: mealPlanId, userId } });
+    if (!planOwner) { res.status(404).json({ error: 'day_not_found' }); return; }
 
     const day = await prisma.mealPlanDay.findFirst({ where: { mealPlanId, dayIndex } });
     if (!day) { res.status(404).json({ error: 'day_not_found' }); return; }

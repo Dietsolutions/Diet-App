@@ -565,6 +565,10 @@ router.get('/:date', requireAuth, async (req: AuthRequest, res: Response): Promi
   try {
     const userId = req.userId!;
     const { date } = req.params;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+      return;
+    }
     const mealsPerDay = await getMealsPerDay(userId);
 
     const logs = await prisma.mealLog.findMany({
@@ -591,6 +595,12 @@ router.post('/:date/:mealIndex/toggle', requireAuth, async (req: AuthRequest, re
   try {
     const userId = req.userId!;
     const { date, mealIndex } = req.params;
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+      return;
+    }
+
     const mealIdx = parseInt(mealIndex, 10);
 
     if (isNaN(mealIdx) || mealIdx < 0 || mealIdx > 5) {
