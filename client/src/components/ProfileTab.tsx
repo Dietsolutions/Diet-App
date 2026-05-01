@@ -141,6 +141,9 @@ export function ProfileTab() {
       axios.get('/api/plan/generation-usage', { withCredentials: true })
         .then(res => setGenUsage(res.data))
         .catch(() => {});
+      // Clear custom instructions only on success — not in finally (must not clear on failure)
+      setMealInstructions('');
+      instructionsRef.current = '';
       // Show plan review screen instead of the old success screen
       setReviewMealPlanId(result?.mealPlanId || 'active');
       setShowPlanReview(true);

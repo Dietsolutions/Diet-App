@@ -878,6 +878,53 @@ The `index-legacy-*.js` (8.1 MB) exceeds `maximumFileSizeToCacheInBytes: 4 MB` a
 
 ---
 
+# 3-Change Drop — 2026-05-01 (second batch)
+
+## Change 1 — Custom Instructions Textarea at End of Onboarding
+
+### Files modified
+- `client/src/components/Onboarding.tsx`
+
+### What was added
+- `onboardingCustomInstructions` local state (string) in the main `Onboarding` component — does not persist across step navigation, lives only for the session.
+- In `showSummary` section: "ANYTHING ELSE TO KNOW?" label + textarea (max 500 chars) + helper text + char counter, placed between the summary cards and the fixed footer.
+- In `handleGenerate`: after `POST /api/profile`, if `onboardingCustomInstructions.trim()` is non-empty, an additional `PATCH /api/profile/meal-instructions` call is made to persist the instructions in the DB *before* the generate call fires. The generate endpoint (`POST /api/ai/generate-meal-plan`) reads `profile.mealPlanCustomInstructions` from the DB, so this ordering ensures instructions are applied to the generated plan.
+- `UserProfile.mealPlanCustomInstructions` already existed. No schema changes needed.
+
+### Why PATCH before generate
+`POST /api/profile` does not include `mealPlanCustomInstructions` in its `profileData` object. Rather than modifying the profile route (touching more surface area), a targeted `PATCH /api/profile/meal-instructions` call is inserted between the profile save and the generation XHR. This is the same endpoint used by `MealPlanCustomiser` — no new server code needed.
+
+---
+
+## Change 2 — Confirm Plan Button Fix (post-regeneration from Body tab)
+
+### Root cause: **Cause B**
+`BottomNav` renders with `position: fixed; bottom: 0; zIndex: 30`.
+`PlanReviewScreen` sticky footer had `position: fixed; bottom: 0; zIndex: 10`.
+
+During onboarding (`user.onboardingDone = false`), `App.tsx` renders only the `Onboarding` component with no `BottomNav` — so the confirm button was visible. After onboarding (when triggered from ProfileTab via regeneration), `App.tsx` renders the full app shell including `BottomNav`. The BottomNav (zIndex: 30) sits on top of the PlanReviewScreen footer (zIndex: 10), completely hiding the confirm button.
+
+### Fix
+`client/src/components/PlanReviewScreen.tsx` — changed footer `zIndex` from `10` to `40`. The footer now renders above the BottomNav and deliberately covers it during the review flow (intentional UX — user should be focused on confirming the plan, not navigating away). Original padding preserved (safe-area-inset-bottom aware).
+
+---
+
+## Change 3 — Clear Custom Instructions After Successful Regeneration
+
+### Rule applied
+- Clear **only on success** — not in `finally`, not on button press, not on failure.
+- If generation fails, text is preserved so user can retry without retyping.
+- After plan is confirmed, DB field is also cleared so instructions don't silently reapply on the next regeneration.
+
+### Files modified
+- `client/src/components/ProfileTab.tsx` — In `handleRegenerate`, added `setMealInstructions(''); instructionsRef.current = '';` immediately after `setRegenerating(false)` (inside the `try` block, after success, before showing plan review).
+- `server/src/routes/plan.ts` — In `POST /api/plan/confirm-review`, added `prisma.userProfile.update({ where: { userId }, data: { mealPlanCustomInstructions: '' } })` after setting `onboardingDone: true`. This clears the DB field when the user finalises the plan, ensuring the next regeneration starts with a clean slate.
+
+### TypeScript
+Client: 0 errors. Server: 0 errors.
+
+---
+
 # 4-Feature Drop — 2026-05-01
 
 ## Feature 1 — Monthly Macros Chart: Selectable Month

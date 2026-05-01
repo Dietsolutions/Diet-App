@@ -344,13 +344,16 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
       </div>
 
       {/* ── Sticky confirm footer ── */}
+      {/* zIndex 40 > BottomNav zIndex 30 — without this the nav bar covers the button
+          when PlanReviewScreen is shown from ProfileTab after re-generation (Cause B).
+          The footer deliberately covers the BottomNav during the review flow. */}
       <div style={{
         position: 'fixed', bottom: 0,
         left: '50%', transform: 'translateX(-50%)',
         width: '100%', maxWidth: 480,
         background: s2.bg, borderTop: `1px solid ${s2.lineStrong}`,
         padding: '12px 20px max(env(safe-area-inset-bottom, 0px), 16px)',
-        zIndex: 10,
+        zIndex: 40,
       }}>
         {changedCount > 0 && (
           <div style={{ textAlign: 'center', fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.textDimmer, marginBottom: 8 }}>

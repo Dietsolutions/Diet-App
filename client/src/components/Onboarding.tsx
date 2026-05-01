@@ -134,6 +134,7 @@ export function Onboarding({ onComplete, userName }: Props) {
   const [showSummary, setShowSummary] = useState(false);
   const [showPlanReview, setShowPlanReview] = useState(false);
   const [reviewMealPlanId, setReviewMealPlanId] = useState<string>('active');
+  const [onboardingCustomInstructions, setOnboardingCustomInstructions] = useState('');
 
   const totalSteps = 7;
   const update = (partial: Partial<OnboardingData>) => setData(d => ({ ...d, ...partial }));
@@ -166,6 +167,13 @@ export function Onboarding({ onComplete, userName }: Props) {
     try {
       setGenStep('Saving your profile...');
       await axios.post('/api/profile', data, { withCredentials: true });
+      // Save custom instructions so the generate endpoint picks them up from the profile
+      if (onboardingCustomInstructions.trim()) {
+        await axios.patch('/api/profile/meal-instructions',
+          { instructions: onboardingCustomInstructions.trim() },
+          { withCredentials: true },
+        );
+      }
       setGenStep('Generating your personalised meal plan...');
 
       const result = await new Promise<any>((resolve, reject) => {
@@ -332,6 +340,54 @@ export function Onboarding({ onComplete, userName }: Props) {
             <SummaryCard label="DIET" items={[data.mealPreference, `${data.mealsPerDay} meals/day`, data.cuisinePreferences.join(', ')]} onEdit={() => { setShowSummary(false); setStep(3); }} />
             <SummaryCard label="ALLERGIES" items={[data.allergies.length > 0 ? data.allergies.join(', ') : 'None']} onEdit={() => { setShowSummary(false); setStep(4); }} />
             <SummaryCard label="GOAL" items={[data.primaryGoal, `Intensity: ${data.dietIntensity}`, data.activityLevel]} onEdit={() => { setShowSummary(false); setStep(7); }} />
+          </div>
+
+          {/* ── Custom instructions ── */}
+          <div style={{ marginTop: 20 }}>
+            <div style={{
+              fontSize: 11, letterSpacing: '1.5px', textTransform: 'uppercase',
+              color: s2.textDimmer, fontWeight: 600, marginBottom: 10,
+              fontFamily: s2.mono,
+            }}>
+              ANYTHING ELSE TO KNOW?
+              <span style={{
+                fontSize: 10, color: s2.textDimmer, fontWeight: 400,
+                letterSpacing: 0, marginLeft: 8, textTransform: 'none',
+                opacity: 0.6,
+              }}>
+                optional
+              </span>
+            </div>
+            <textarea
+              value={onboardingCustomInstructions}
+              onChange={e => setOnboardingCustomInstructions(e.target.value)}
+              placeholder="e.g. I don't eat brinjal. No idli please. Prefer eggs at breakfast on weekdays."
+              maxLength={500}
+              rows={3}
+              style={{
+                width: '100%',
+                background: s2.surface,
+                border: `1px solid ${s2.lineStrong}`,
+                padding: '12px 14px',
+                color: s2.text,
+                fontSize: 14,
+                fontFamily: s2.sans,
+                resize: 'none',
+                outline: 'none',
+                lineHeight: 1.6,
+                boxSizing: 'border-box',
+              }}
+              onFocus={e => { e.currentTarget.style.borderColor = s2.accent; }}
+              onBlur={e  => { e.currentTarget.style.borderColor = s2.lineStrong; }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+              <div style={{ fontSize: 11, color: s2.textDimmer, lineHeight: 1.5, fontFamily: s2.sans }}>
+                This goes directly to the AI when building your plan.
+              </div>
+              <div style={{ fontSize: 10, color: s2.textDimmer, fontFamily: s2.mono, opacity: 0.6, flexShrink: 0, marginLeft: 8 }}>
+                {onboardingCustomInstructions.length} / 500
+              </div>
+            </div>
           </div>
 
           {error && (

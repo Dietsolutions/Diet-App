@@ -566,6 +566,12 @@ router.post('/confirm-review', requireAuth, async (req: AuthRequest, res: Respon
       data:  { onboardingDone: true },
     });
 
+    // Clear custom instructions so they don't carry over to the next regeneration
+    await prisma.userProfile.update({
+      where: { userId },
+      data:  { mealPlanCustomInstructions: '' },
+    });
+
     // Fire-and-forget final shopping list sync
     regenerateShoppingList(userId, plan.id).catch(() => {});
 
