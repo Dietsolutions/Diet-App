@@ -1114,3 +1114,52 @@ Set in Vercel dashboard → Project → Settings → Environment Variables:
 | `JWT_SECRET` | Long random string (`openssl rand -base64 48`) |
 
 Without this var, the server still boots (no crash) but uses the insecure legacy fallback. All new JWTs are signed with the fallback. Existing sessions from before the security audit continue to work.
+
+---
+
+# Audio Playback Speed + Independent Unit Selection — 2026-05-02
+
+## Files Modified
+
+| File | Change |
+|---|---|
+| `client/src/components/AudioGuidePlayer.tsx` | Added SPEEDS constant, playbackRate state, speed pill buttons, useEffect hooks |
+| `client/src/components/Onboarding.tsx` | Replaced single unit toggle in StepBody with independent weightUnit + heightUnit states |
+
+---
+
+## Change 1 — Audio Playback Speed Control
+
+### How speed is applied when audio is already playing vs when it loads fresh
+
+**Already playing / paused:** `useEffect(() => { audioRef.current.playbackRate = playbackRate }, [playbackRate])` runs synchronously after each render triggered by `setPlaybackRate`. The `HTMLAudioElement.playbackRate` property takes effect immediately — the browser respects the new speed on the very next decoded audio chunk, even mid-playback.
+
+**Loading fresh (new audioUrl):** `onLoadedMetadata` applies `playbackRate` to the element as soon as the browser has parsed the audio header. This covers the case where the user set a non-1x speed, navigated to a different meal, and opened a new audio file — the pre-set speed is respected from the first frame.
+
+**Reset on new audio:** A second `useEffect` with `[audioUrl]` dependency resets `playbackRate` state to 1 and also directly sets `audioRef.current.playbackRate = 1`. The direct assignment handles the edge case where the audio element is already mounted and `audioUrl` changes without an `onLoadedMetadata` firing (rare, but possible if the same URL is reused).
+
+### Layout decision
+
+The header row was restructured from `[status-text | play+stop]` to `[play+stop+label | speed-pills]`. Placing controls on the left matches standard media player convention. Speed pills sit right-aligned and are visually compact (10px mono, 3px×7px padding, 4px border-radius) so they don't compete with the seek bar below.
+
+---
+
+## Change 2 — Independent Weight and Height Unit Selection
+
+### How weight and height unit states are kept independent
+
+Two entirely separate state atoms — `weightUnit: 'kg' | 'lb'` and `heightUnit: 'cm' | 'ftin'` — replace the previous single `unitSystem: 'metric' | 'imperial'`. Each has its own toggle handler and its own set of display strings. Changing weight unit never touches height strings and vice versa.
+
+**Target weight shares `weightUnit`** (not its own state) because it is semantically the same unit as current weight. Both weight fields show the same kg/lb toggle; clicking either one calls `handleWeightUnitChange` which converts both `weightStr↔weightLbStr` and `targetStr↔targetLbStr` simultaneously.
+
+### Conversion on toggle
+
+`handleWeightUnitChange` and `handleHeightUnitChange` read the currently displayed string for the source unit, convert it, and write to the target unit's display string. The parent `data` object (always metric) is updated via `update()` only when switching **to** metric — the source-of-truth `weightKg`/`heightCm`/`targetWeightKg` fields on `data` are always populated by the metric-side handlers (`wh`, `hh`, `th`) or by conversion back from imperial. Switching **to** imperial only pre-fills the display string; the parent value is not changed because it already holds the correct metric value.
+
+### How conversion handles empty string inputs without crashing
+
+Every conversion reads the display string with `parseFloat()` and guards with `!isNaN(x) && x > 0`. Empty strings produce `NaN` from `parseFloat('')`, which fails the guard — so `setWeightLbStr` is never called with a converted value and the field correctly stays blank. No `Number()` or implicit coercion is used. The same pattern applies to ft/in (`parseFloat(heightFtStr || '0')` uses `'0'` as the empty-string fallback to keep the arithmetic safe).
+
+### Backend unchanged
+
+All submission paths convert to metric before calling `update()`, so `data.weightKg`, `data.heightCm`, and `data.targetWeightKg` are always SI values. The backend validation (`weightKg` 20–500, `heightCm` 50–300) continues to work without modification.
