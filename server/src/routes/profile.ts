@@ -59,12 +59,14 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
       res.status(400).json({ error: 'targetWeightKg must be between 20 and 500' });
       return;
     }
-    const validGenders = ['male', 'female', 'other'];
+    // gender — 'prefer_not_to_say' is a valid onboarding choice
+    const validGenders = ['male', 'female', 'other', 'prefer_not_to_say'];
     if (!validGenders.includes(data.gender)) {
       res.status(400).json({ error: `gender must be one of: ${validGenders.join(', ')}` });
       return;
     }
-    const validGoals = ['fat_loss', 'muscle_gain', 'maintenance'];
+    // primaryGoal — must match the exact values sent by the onboarding form
+    const validGoals = ['lose_weight', 'maintain', 'gain_muscle', 'improve_fitness', 'manage_health'];
     if (!validGoals.includes(data.primaryGoal)) {
       res.status(400).json({ error: `primaryGoal must be one of: ${validGoals.join(', ')}` });
       return;

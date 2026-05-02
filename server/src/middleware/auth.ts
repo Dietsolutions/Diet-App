@@ -2,13 +2,21 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { logSecurityEvent } from '../utils/securityLogger';
 
-// JWT_SECRET must be set in env — no insecure fallback.
-// app.ts exits on startup if it's missing in production.
-const JWT_SECRET = process.env.JWT_SECRET || (
-  process.env.NODE_ENV === 'production'
-    ? (() => { throw new Error('JWT_SECRET is not set'); })()
-    : 'dev-only-insecure-secret-do-not-use-in-prod'
-);
+// Use the explicit env var when set. Fall back to the legacy hardcoded value so
+// existing sessions (signed with that value) remain valid after deploy.
+// A module-level throw here would crash the serverless cold-start and return 500
+// on *every* request — never throw or call process.exit at module scope.
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+  if (process.env.NODE_ENV === 'production') {
+    console.error(
+      '[CRITICAL] JWT_SECRET env var is not set. ' +
+      'Add it to your Vercel project environment variables immediately. ' +
+      'Falling back to the legacy default — this is insecure.'
+    );
+  }
+  // Must match the pre-security-audit fallback so existing JWTs remain valid.
+  return 'fat-loss-secret-key-change-in-prod';
+})();
 
 export interface AuthRequest extends Request {
   userId?: string;

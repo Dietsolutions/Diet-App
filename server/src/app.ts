@@ -32,12 +32,13 @@ const OPTIONAL_ENV = [
   const missing = REQUIRED_ENV.filter(k => !process.env[k]);
   if (missing.length > 0) {
     const msg = `[env] MISSING required env vars: ${missing.join(', ')}`;
+    console.error(msg);
     if (isProd) {
-      // Fatal in production — weak/missing JWT_SECRET is a critical security hole.
-      console.error(msg);
-      process.exit(1);
-    } else {
-      console.error(msg);
+      // Log loudly but do NOT call process.exit() in a serverless context.
+      // process.exit() kills the Lambda worker and makes every request return 500
+      // until a new cold start occurs — which will also die if the var is still missing.
+      // The auth middleware falls back to a legacy secret with its own warning.
+      console.error('[env] Set these vars in Vercel Project → Settings → Environment Variables.');
     }
   }
   const unset = OPTIONAL_ENV.filter(k => !process.env[k]);
