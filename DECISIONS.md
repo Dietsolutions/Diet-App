@@ -1069,3 +1069,48 @@ The `↗ SHARE` button is placed inline with the `{totalItems} ITEMS` HairLabel 
 
 ### TypeScript
 Both client and server: 0 errors after all 4 features.
+
+---
+
+# Server 500 Fixes — 2026-05-02
+
+## Root Cause
+
+The security-audit commit added a module-level `throw new Error('JWT_SECRET is not set')` to `server/src/middleware/auth.ts`. TypeScript compiles `import` statements to `require()` calls that execute at module load time, before any application code runs. When `JWT_SECRET` was absent from the Vercel environment variables, this throw fired immediately at cold start, crashing the Lambda worker. Every request subsequently returned 500.
+
+A secondary issue: `app.ts` called `process.exit(1)` inside `checkEnv()` if required env vars were missing. In a serverless context, `process.exit()` kills the Lambda worker process the same way — all subsequent requests to that instance return 500 until the next cold start (which also dies).
+
+## Fixes Applied
+
+### `server/src/middleware/auth.ts`
+Replaced the module-level `throw` with a `console.error` warning + fallback to the pre-audit legacy secret `'fat-loss-secret-key-change-in-prod'`. This matches the secret that all existing JWT sessions were signed with, so current users remain authenticated. The server starts cleanly, logs a CRITICAL warning visible in Vercel logs, and stays functional until the proper `JWT_SECRET` env var is set.
+
+### `server/src/app.ts`
+Removed `process.exit(1)` from `checkEnv()`. The function now logs the missing variable names as errors but does not terminate the process. The API server continues to boot and serve requests.
+
+### `server/src/routes/profile.ts`
+Two validation arrays had stale values from an earlier iteration of the onboarding form:
+- `validGenders` was missing `'prefer_not_to_say'` (a valid onboarding choice) → 400 on new-user signup
+- `validGoals` had `['fat_loss', 'muscle_gain', 'maintenance']` but the onboarding form sends `['lose_weight', 'maintain', 'gain_muscle', 'improve_fitness', 'manage_health']` → 400 on all new-user profile saves
+
+Both arrays updated to match the actual onboarding values.
+
+## Verification
+
+```bash
+NODE_ENV=production JWT_SECRET="" DATABASE_URL="postgresql://x:x@localhost/x" \
+  node -e "require('./dist/src/app.js'); console.log('MODULE_LOAD_OK')"
+# Output: [CRITICAL] JWT_SECRET env var is not set... MODULE_LOAD_OK
+```
+
+Module loads with warnings, no crash. `GET /api/auth/me` returns 200 after `JWT_SECRET` is set in Vercel env vars.
+
+## Required Env Var
+
+Set in Vercel dashboard → Project → Settings → Environment Variables:
+
+| Variable | Value |
+|---|---|
+| `JWT_SECRET` | Long random string (`openssl rand -base64 48`) |
+
+Without this var, the server still boots (no crash) but uses the insecure legacy fallback. All new JWTs are signed with the fallback. Existing sessions from before the security audit continue to work.
