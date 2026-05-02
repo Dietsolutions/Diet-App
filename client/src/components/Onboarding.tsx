@@ -696,7 +696,6 @@ function StepPersonal({ data, update }: { data: OnboardingData; update: (p: Part
 }
 
 // ── Unit conversion helpers ────────────────────────────────────────────────────
-type UnitSystem = 'metric' | 'imperial';
 function lbToKg(lb: number): number  { return Math.round(lb * 0.453592 * 10) / 10; }
 function kgToLb(kg: number): number  { return Math.round(kg * 2.20462 * 10) / 10; }
 function cmToFtIn(cm: number): { ft: number; inches: number } {
@@ -707,43 +706,81 @@ function ftInToCm(ft: number, inches: number): number {
   return Math.round((ft * 30.48 + inches * 2.54) * 10) / 10;
 }
 
+// Inline unit toggle button style — rounded pill, orange when active
+function unitBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    padding:      '3px 10px',
+    borderRadius: '20px',
+    border:       `0.5px solid ${active ? '#C4713A' : 'rgba(255,255,255,0.12)'}`,
+    background:   active ? 'rgba(196,113,58,0.15)' : 'transparent',
+    color:        active ? '#C4713A' : 'rgba(255,255,255,0.35)',
+    fontSize:     '11px',
+    fontWeight:   active ? 700 : 400,
+    cursor:       'pointer',
+    fontFamily:   'DM Sans, sans-serif',
+  };
+}
+
 // ── Step 2 · Body ─────────────────────────────────────────────────────────────
 function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void }) {
-  const [unitSystem, setUnitSystem] = useState<UnitSystem>('metric');
+  // Independent unit states — weight and height are decoupled
+  const [weightUnit,  setWeightUnit]  = useState<'kg' | 'lb'>('kg');
+  const [heightUnit,  setHeightUnit]  = useState<'cm' | 'ftin'>('cm');
 
-  // Metric display strings
-  const [weightStr, setWeightStr] = useState(data.weightKg > 0 ? String(data.weightKg) : '');
-  const [heightStr, setHeightStr] = useState(data.heightCm > 0 ? String(data.heightCm) : '');
-  const [targetStr, setTargetStr] = useState(data.targetWeightKg > 0 ? String(data.targetWeightKg) : '');
+  // Weight display strings (kg + lb kept in sync on toggle)
+  const [weightStr,    setWeightStr]    = useState(data.weightKg > 0 ? String(data.weightKg) : '');
+  const [weightLbStr,  setWeightLbStr]  = useState('');
+  const [targetStr,    setTargetStr]    = useState(data.targetWeightKg > 0 ? String(data.targetWeightKg) : '');
+  const [targetLbStr,  setTargetLbStr]  = useState('');
 
-  // Imperial display strings
-  const [weightLbStr, setWeightLbStr] = useState('');
-  const [heightFt,    setHeightFt]    = useState('');
-  const [heightIn,    setHeightIn]    = useState('');
-  const [targetLbStr, setTargetLbStr] = useState('');
+  // Height display strings (cm + ft/in kept in sync on toggle)
+  const [heightCmStr,  setHeightCmStr]  = useState(data.heightCm > 0 ? String(data.heightCm) : '');
+  const [heightFtStr,  setHeightFtStr]  = useState('');
+  const [heightInStr,  setHeightInStr]  = useState('');
 
-  // On toggle: convert whatever is in the current fields
-  const handleUnitToggle = (unit: UnitSystem) => {
-    if (unit === unitSystem) return;
-    if (unit === 'imperial') {
-      const wkg = parseFloat(weightStr); if (wkg > 0) setWeightLbStr(String(kgToLb(wkg)));
-      const tkg = parseFloat(targetStr); if (tkg > 0) setTargetLbStr(String(kgToLb(tkg)));
-      const hcm = parseFloat(heightStr);
-      if (hcm > 0) { const { ft, inches } = cmToFtIn(hcm); setHeightFt(String(ft)); setHeightIn(String(inches)); }
+  // Switch weight unit: convert whatever is typed, update parent with metric
+  function handleWeightUnitChange(unit: 'kg' | 'lb') {
+    if (unit === weightUnit) return;
+    if (unit === 'lb') {
+      const wkg = parseFloat(weightStr);
+      if (!isNaN(wkg) && wkg > 0) setWeightLbStr(String(kgToLb(wkg)));
+      const tkg = parseFloat(targetStr);
+      if (!isNaN(tkg) && tkg > 0) setTargetLbStr(String(kgToLb(tkg)));
     } else {
-      const wlb = parseFloat(weightLbStr); if (wlb > 0) { const kg = lbToKg(wlb); setWeightStr(String(kg)); update({ weightKg: kg }); }
-      const tlb = parseFloat(targetLbStr); if (tlb > 0) { const kg = lbToKg(tlb); setTargetStr(String(kg)); update({ targetWeightKg: kg }); }
-      const ft = parseFloat(heightFt || '0'); const ins = parseFloat(heightIn || '0');
-      if (ft > 0 || ins > 0) { const cm = ftInToCm(ft, ins); setHeightStr(String(cm)); update({ heightCm: cm }); }
+      // lb → kg: convert display and update parent
+      const wlb = parseFloat(weightLbStr);
+      if (!isNaN(wlb) && wlb > 0) { const kg = lbToKg(wlb); setWeightStr(String(kg)); update({ weightKg: kg }); }
+      const tlb = parseFloat(targetLbStr);
+      if (!isNaN(tlb) && tlb > 0) { const kg = lbToKg(tlb); setTargetStr(String(kg)); update({ targetWeightKg: kg }); }
     }
-    setUnitSystem(unit);
-  };
+    setWeightUnit(unit);
+  }
+
+  // Switch height unit: convert whatever is typed, update parent with metric
+  function handleHeightUnitChange(unit: 'cm' | 'ftin') {
+    if (unit === heightUnit) return;
+    if (unit === 'ftin') {
+      const cm = parseFloat(heightCmStr);
+      if (!isNaN(cm) && cm > 0) {
+        const { ft, inches } = cmToFtIn(cm);
+        setHeightFtStr(String(ft));
+        setHeightInStr(String(inches));
+      }
+    } else {
+      // ft+in → cm: convert display and update parent
+      const ft  = parseFloat(heightFtStr || '0');
+      const ins = parseFloat(heightInStr || '0');
+      if (ft > 0 || ins > 0) { const cm = ftInToCm(ft, ins); setHeightCmStr(String(cm)); update({ heightCm: cm }); }
+    }
+    setHeightUnit(unit);
+  }
 
   const bmiVal = data.weightKg > 0 && data.heightCm > 0
     ? (data.weightKg / ((data.heightCm / 100) ** 2)).toFixed(1) : null;
   const weightDiff = data.weightKg > 0 && data.targetWeightKg > 0
     ? (data.weightKg - data.targetWeightKg).toFixed(1) : null;
 
+  // Generic handler factory — validates decimal input, calls updater only for valid non-zero numbers
   function numHandler(setter: (s: string) => void, updater: (n: number) => void) {
     return {
       onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -757,10 +794,10 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
     };
   }
 
-  // Metric handlers — update parent with metric values directly
-  const wh = numHandler(setWeightStr, v => update({ weightKg: v }));
-  const hh = numHandler(setHeightStr, v => update({ heightCm: v }));
-  const th = numHandler(setTargetStr, v => update({ targetWeightKg: v }));
+  // Metric handlers — update parent directly
+  const wh   = numHandler(setWeightStr,   v => update({ weightKg: v }));
+  const hh   = numHandler(setHeightCmStr, v => update({ heightCm: v }));
+  const th   = numHandler(setTargetStr,   v => update({ targetWeightKg: v }));
 
   // Imperial handlers — convert to metric before updating parent
   const wlbH = numHandler(setWeightLbStr, v => update({ weightKg: lbToKg(v) }));
@@ -769,26 +806,36 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
   const handleFtChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     if (/^\d*$/.test(val)) {
-      setHeightFt(val);
-      const ft = parseFloat(val || '0'); const ins = parseFloat(heightIn || '0');
+      setHeightFtStr(val);
+      const ft = parseFloat(val || '0'); const ins = parseFloat(heightInStr || '0');
       if (ft > 0 || ins > 0) update({ heightCm: ftInToCm(ft, ins) });
     }
   };
   const handleInChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     if (/^\d*$/.test(val) && (val === '' || parseInt(val) <= 11)) {
-      setHeightIn(val);
-      const ft = parseFloat(heightFt || '0'); const ins = parseFloat(val || '0');
+      setHeightInStr(val);
+      const ft = parseFloat(heightFtStr || '0'); const ins = parseFloat(val || '0');
       if (ft > 0 || ins > 0) update({ heightCm: ftInToCm(ft, ins) });
     }
   };
 
-  const inputStyle: React.CSSProperties = {
+  const numInputStyle: React.CSSProperties = {
     fontFamily: s2.sans, fontSize: 46, fontWeight: 200,
     color: s2.accent, letterSpacing: '-0.03em', lineHeight: 1,
     background: 'transparent', border: 'none', outline: 'none',
     marginTop: 10, padding: 0, width: '100%',
   };
+
+  // Shared label row — field name on left, unit toggle pills on right
+  function LabelRow({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+        <HairLabel>{label}</HairLabel>
+        <div style={{ display: 'flex', gap: 4 }}>{children}</div>
+      </div>
+    );
+  }
 
   const ACTIVITY_OPTIONS = [
     { val: 'sedentary',         label: 'SEDENTARY',  desc: 'Desk job, little exercise' },
@@ -804,96 +851,78 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
         Your body<br />today.
       </div>
 
-      {/* Unit system toggle */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {(['metric', 'imperial'] as UnitSystem[]).map(u => (
-          <button
-            key={u}
-            onClick={() => handleUnitToggle(u)}
-            style={{
-              padding: '6px 16px',
-              border: `1px solid ${unitSystem === u ? s2.accent : s2.lineStrong}`,
-              background: unitSystem === u ? s2.accentFill : 'transparent',
-              color: unitSystem === u ? s2.accent : s2.textDim,
-              fontFamily: s2.mono, fontSize: 10, fontWeight: unitSystem === u ? 700 : 400,
-              cursor: 'pointer', letterSpacing: '0.15em', textTransform: 'uppercase',
-            }}
-          >
-            {u === 'metric' ? 'kg · cm' : 'lb · ft & in'}
-          </button>
-        ))}
+      {/* ── CURRENT WEIGHT — independent kg / lb toggle ── */}
+      <div style={{ border: `1px solid ${s2.line}`, padding: 16, marginBottom: 14 }}>
+        <LabelRow label="CURRENT WEIGHT">
+          {(['kg', 'lb'] as const).map(u => (
+            <button key={u} onClick={() => handleWeightUnitChange(u)} style={unitBtnStyle(weightUnit === u)}>{u}</button>
+          ))}
+        </LabelRow>
+        {weightUnit === 'kg' ? (
+          <>
+            <input type="text" inputMode="decimal" value={weightStr} placeholder="72"
+              onChange={wh.onChange} onBlur={() => wh.onBlur(weightStr)} style={numInputStyle} />
+            <HairLabel style={{ marginTop: 4 }}>KG</HairLabel>
+          </>
+        ) : (
+          <>
+            <input type="text" inputMode="decimal" value={weightLbStr} placeholder="158"
+              onChange={wlbH.onChange} onBlur={() => wlbH.onBlur(weightLbStr)} style={numInputStyle} />
+            <HairLabel style={{ marginTop: 4 }}>LB</HairLabel>
+          </>
+        )}
       </div>
 
-      {unitSystem === 'metric' ? (
-        <>
-          {/* Height + Weight side-by-side panels — metric */}
-          <div style={{ display: 'flex', gap: 14, marginBottom: 14 }}>
-            {[
-              { label: 'HEIGHT', unit: 'CM', str: heightStr, handlers: hh },
-              { label: 'WEIGHT', unit: 'KG', str: weightStr, handlers: wh },
-            ].map(({ label, unit, str, handlers }) => (
-              <div key={label} style={{ flex: 1, border: `1px solid ${s2.line}`, padding: 16 }}>
-                <HairLabel>{label}</HairLabel>
-                <input type="text" inputMode="decimal" value={str} placeholder="0"
-                  onChange={handlers.onChange} onBlur={() => handlers.onBlur(str)}
-                  style={inputStyle}
-                />
-                <HairLabel style={{ marginTop: 4 }}>{unit}</HairLabel>
-              </div>
-            ))}
-          </div>
-          {/* Target weight — metric */}
-          <div style={{ border: `1px solid ${s2.line}`, padding: 16, marginBottom: 20 }}>
-            <HairLabel>TARGET WEIGHT</HairLabel>
-            <input type="text" inputMode="decimal" value={targetStr} placeholder="0"
-              onChange={th.onChange} onBlur={() => th.onBlur(targetStr)}
-              style={inputStyle}
-            />
-            <HairLabel style={{ marginTop: 4 }}>KG</HairLabel>
-          </div>
-        </>
-      ) : (
-        <>
-          {/* Height — imperial (ft + in) */}
-          <div style={{ border: `1px solid ${s2.line}`, padding: 16, marginBottom: 14 }}>
-            <HairLabel>HEIGHT</HairLabel>
-            <div style={{ display: 'flex', gap: 14, marginTop: 10 }}>
-              <div style={{ flex: 1 }}>
-                <input type="text" inputMode="numeric" value={heightFt} placeholder="5"
-                  onChange={handleFtChange}
-                  style={{ ...inputStyle, marginTop: 0 }}
-                />
-                <HairLabel style={{ marginTop: 4 }}>FT</HairLabel>
-              </div>
-              <div style={{ flex: 1 }}>
-                <input type="text" inputMode="numeric" value={heightIn} placeholder="8"
-                  onChange={handleInChange}
-                  style={{ ...inputStyle, marginTop: 0 }}
-                />
-                <HairLabel style={{ marginTop: 4 }}>IN</HairLabel>
-              </div>
+      {/* ── HEIGHT — independent cm / ft & in toggle ── */}
+      <div style={{ border: `1px solid ${s2.line}`, padding: 16, marginBottom: 14 }}>
+        <LabelRow label="HEIGHT">
+          {([['cm', 'cm'], ['ftin', 'ft & in']] as const).map(([val, label]) => (
+            <button key={val} onClick={() => handleHeightUnitChange(val)} style={unitBtnStyle(heightUnit === val)}>{label}</button>
+          ))}
+        </LabelRow>
+        {heightUnit === 'cm' ? (
+          <>
+            <input type="text" inputMode="decimal" value={heightCmStr} placeholder="168"
+              onChange={hh.onChange} onBlur={() => hh.onBlur(heightCmStr)} style={numInputStyle} />
+            <HairLabel style={{ marginTop: 4 }}>CM</HairLabel>
+          </>
+        ) : (
+          <div style={{ display: 'flex', gap: 14, marginTop: 10 }}>
+            <div style={{ flex: 1 }}>
+              <input type="text" inputMode="numeric" value={heightFtStr} placeholder="5"
+                onChange={handleFtChange} style={{ ...numInputStyle, marginTop: 0 }} />
+              <HairLabel style={{ marginTop: 4 }}>FT</HairLabel>
+            </div>
+            <div style={{ flex: 1 }}>
+              <input type="text" inputMode="numeric" value={heightInStr} placeholder="8"
+                onChange={handleInChange} style={{ ...numInputStyle, marginTop: 0 }} />
+              <HairLabel style={{ marginTop: 4 }}>IN</HairLabel>
             </div>
           </div>
-          {/* Weight — imperial */}
-          <div style={{ border: `1px solid ${s2.line}`, padding: 16, marginBottom: 14 }}>
-            <HairLabel>WEIGHT</HairLabel>
-            <input type="text" inputMode="decimal" value={weightLbStr} placeholder="158"
-              onChange={wlbH.onChange} onBlur={() => wlbH.onBlur(weightLbStr)}
-              style={inputStyle}
-            />
-            <HairLabel style={{ marginTop: 4 }}>LB</HairLabel>
-          </div>
-          {/* Target weight — imperial */}
-          <div style={{ border: `1px solid ${s2.line}`, padding: 16, marginBottom: 20 }}>
-            <HairLabel>TARGET WEIGHT</HairLabel>
+        )}
+      </div>
+
+      {/* ── TARGET WEIGHT — shares weightUnit with current weight ── */}
+      <div style={{ border: `1px solid ${s2.line}`, padding: 16, marginBottom: 20 }}>
+        <LabelRow label="TARGET WEIGHT">
+          {(['kg', 'lb'] as const).map(u => (
+            <button key={u} onClick={() => handleWeightUnitChange(u)} style={unitBtnStyle(weightUnit === u)}>{u}</button>
+          ))}
+        </LabelRow>
+        {weightUnit === 'kg' ? (
+          <>
+            <input type="text" inputMode="decimal" value={targetStr} placeholder="65"
+              onChange={th.onChange} onBlur={() => th.onBlur(targetStr)} style={numInputStyle} />
+            <HairLabel style={{ marginTop: 4 }}>KG</HairLabel>
+          </>
+        ) : (
+          <>
             <input type="text" inputMode="decimal" value={targetLbStr} placeholder="143"
-              onChange={tlbH.onChange} onBlur={() => tlbH.onBlur(targetLbStr)}
-              style={inputStyle}
-            />
+              onChange={tlbH.onChange} onBlur={() => tlbH.onBlur(targetLbStr)} style={numInputStyle} />
             <HairLabel style={{ marginTop: 4 }}>LB</HairLabel>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
 
       {/* BMI / diff row */}
       {bmiVal && weightDiff && (
@@ -905,7 +934,7 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <HairLabel>{parseFloat(weightDiff) > 0 ? 'TO LOSE' : 'TO GAIN'}</HairLabel>
             <HairLabel color={s2.accent}>
-              {unitSystem === 'imperial'
+              {weightUnit === 'lb'
                 ? `${Math.abs(Math.round(parseFloat(weightDiff) * 2.20462 * 10) / 10)} LB`
                 : `${Math.abs(parseFloat(weightDiff))} KG`}
             </HairLabel>

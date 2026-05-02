@@ -2,7 +2,7 @@
 // Replaces the broken Web Speech API approach.
 // Uses Strain v2 design tokens — no rounded corners, mono labels, orange accent.
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { s2 } from '../theme/tokens';
 import { HairLabel } from './ui';
 import { track } from '../lib/analytics';
@@ -22,12 +22,47 @@ function formatTime(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+const SPEEDS = [1, 1.5, 2, 3, 5] as const;
+
+// Speed button style — compact pill, orange accent when active
+function speedBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    padding:       '3px 7px',
+    borderRadius:  '4px',
+    border:        `0.5px solid ${active ? 'rgba(196,113,58,0.8)' : 'rgba(255,255,255,0.1)'}`,
+    background:    active ? 'rgba(196,113,58,0.15)' : 'transparent',
+    color:         active ? '#C4713A' : 'rgba(255,255,255,0.3)',
+    fontSize:      '10px',
+    fontWeight:    active ? 700 : 400,
+    fontFamily:    'DM Mono, monospace',
+    cursor:        'pointer',
+    letterSpacing: '0.3px',
+    lineHeight:    1,
+  };
+}
+
 export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, mealName }: Props) {
-  const audioRef                      = useRef<HTMLAudioElement>(null);
-  const [isPlaying,    setIsPlaying]  = useState(false);
-  const [progress,     setProgress]   = useState(0);
-  const [currentTime,  setCurrentTime]= useState(0);
-  const [duration,     setDuration]   = useState(0);
+  const audioRef                          = useRef<HTMLAudioElement>(null);
+  const [isPlaying,    setIsPlaying]      = useState(false);
+  const [progress,     setProgress]       = useState(0);
+  const [currentTime,  setCurrentTime]    = useState(0);
+  const [duration,     setDuration]       = useState(0);
+  const [playbackRate, setPlaybackRate]   = useState(1);
+
+  // Apply speed to the audio element whenever playbackRate changes
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [playbackRate]);
+
+  // Reset speed to 1x when a new audio URL loads
+  useEffect(() => {
+    setPlaybackRate(1);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = 1;
+    }
+  }, [audioUrl]);
 
   function togglePlay() {
     const a = audioRef.current;
@@ -111,7 +146,11 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
           track('audio_guide_paused', { progress_pct: pct });
         }}
         onEnded={() => { setIsPlaying(false); setProgress(0); setCurrentTime(0); }}
-        onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration)}
+        onLoadedMetadata={e => {
+          const audio = e.target as HTMLAudioElement;
+          audio.playbackRate = playbackRate; // apply speed if set before load
+          setDuration(audio.duration);
+        }}
         onTimeUpdate={e => {
           const a = e.target as HTMLAudioElement;
           setCurrentTime(a.currentTime);
@@ -119,12 +158,13 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
         }}
       />
 
-      {/* Status + controls row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.textDim }}>
-          {isPlaying ? 'Playing…' : progress > 0 ? 'Paused' : 'Listen while you cook'}
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+      {/* Controls + speed row */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 10, gap: 8,
+      }}>
+        {/* Left: play / stop controls + label */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* Play / Pause */}
           <button
             onClick={togglePlay}
@@ -155,6 +195,31 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
           >
             ⏹
           </button>
+          {/* Label */}
+          <div>
+            <div style={{
+              fontSize: 9, letterSpacing: '0.18em', textTransform: 'uppercase',
+              color: 'rgba(255,255,255,0.3)', fontFamily: s2.mono, marginBottom: 1,
+            }}>
+              AUDIO GUIDE
+            </div>
+            <div style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDim }}>
+              {isPlaying ? 'Playing…' : progress > 0 ? 'Paused' : 'Listen while you cook'}
+            </div>
+          </div>
+        </div>
+
+        {/* Right: speed selector */}
+        <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+          {SPEEDS.map(speed => (
+            <button
+              key={speed}
+              onClick={() => setPlaybackRate(speed)}
+              style={speedBtnStyle(playbackRate === speed)}
+            >
+              {speed === 1 ? '1x' : `${speed}x`}
+            </button>
+          ))}
         </div>
       </div>
 
