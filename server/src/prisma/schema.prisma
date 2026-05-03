@@ -295,6 +295,7 @@ model MealCookingInstructions {
   mealIndex    Int
 
   mealName     String
+  language     String   @default("en")  // 'en'|'hi'|'kn'|'ta'|'te'
 
   // Structured content (JSON arrays)
   ingredients  Json     // [{ group, name, quantity, unit, notes }]

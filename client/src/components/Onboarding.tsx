@@ -1391,30 +1391,22 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
         })}
       </div>
 
-      {/* Plan length 2-col with REC badge */}
+      {/* Plan length 2-col */}
       <div style={{ marginBottom: 24 }}>
         <HairLabel style={{ marginBottom: 10 }}>PLAN LENGTH</HairLabel>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {[
-            { val: 7,  label: '7-DAY' },
-            { val: 14, label: '14-DAY', rec: true },
+            { val: 7,  label: '7-DAY'  },
+            { val: 14, label: '14-DAY' },
           ].map(o => {
             const on = data.planDuration === o.val;
             return (
               <div key={o.val} onClick={() => { update({ planDuration: o.val }); track('plan_duration_selected', { duration: o.val }); }} style={{
-                position: 'relative',
-                border: `1px solid ${o.rec ? s2.accent : on ? s2.accent : s2.lineStrong}`,
-                background: o.rec || on ? s2.accentFill : 'transparent',
+                border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
+                background: on ? s2.accentFill : 'transparent',
                 padding: 14, cursor: 'pointer',
               }}>
-                {o.rec && (
-                  <div style={{
-                    position: 'absolute', top: -8, right: 8,
-                    fontFamily: s2.mono, fontSize: 8, fontWeight: 700, letterSpacing: '0.15em',
-                    background: s2.accent, color: s2.bg, padding: '2px 6px',
-                  }}>REC</div>
-                )}
-                <div style={{ fontFamily: s2.sans, fontSize: 16, fontWeight: 500, color: o.rec || on ? s2.accent : s2.text }}>{o.label}</div>
+                <div style={{ fontFamily: s2.sans, fontSize: 16, fontWeight: 500, color: on ? s2.accent : s2.text }}>{o.label}</div>
               </div>
             );
           })}

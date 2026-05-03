@@ -369,8 +369,10 @@ router.get('/instructions', requireAuth, async (req: AuthRequest, res: Response)
 router.post('/instructions/generate', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { mealPlanId, dayIndex, mealIndex, servings: reqServings } = req.body;
+    const { mealPlanId, dayIndex, mealIndex, servings: reqServings, language: reqLanguage } = req.body;
     const servings: number = typeof reqServings === 'number' && reqServings >= 1 ? Math.min(reqServings, 10) : 1;
+    const VALID_LANGUAGES = ['en', 'hi', 'kn', 'ta', 'te'];
+    const language: string = typeof reqLanguage === 'string' && VALID_LANGUAGES.includes(reqLanguage) ? reqLanguage : 'en';
     if (!mealPlanId || typeof dayIndex !== 'number' || typeof mealIndex !== 'number') {
       res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex are required' }); return;
     }
@@ -398,7 +400,14 @@ router.post('/instructions/generate', requireAuth, async (req: AuthRequest, res:
       ? 'Generate all ingredient quantities for 1 person (single serving).'
       : `Generate all ingredient quantities for ${servings} people. Every gram, ml, tsp, tbsp, and piece count in the ingredients list MUST be multiplied by ${servings} from the base single-serving amount. Do not show per-person quantities — show the total combined quantity needed for ${servings} people. Mention that cooking times for larger batches may increase slightly.`;
 
-    const prompt = `You are a professional chef and culinary instructor. Generate extremely detailed, beginner-friendly cooking instructions for the following meal.
+    const LANGUAGE_NAMES: Record<string, string> = {
+      en: 'English', hi: 'Hindi', kn: 'Kannada', ta: 'Tamil', te: 'Telugu',
+    };
+    const languageInstruction = language !== 'en'
+      ? `IMPORTANT: Write ALL output — every field, ingredient name, step instruction, tip, substitution, and meal name — entirely in ${LANGUAGE_NAMES[language] ?? language}. Do not use English except for standard units of measurement (g, ml, tsp, tbsp, cups). The response JSON structure remains the same but all string values must be in ${LANGUAGE_NAMES[language] ?? language}.\n\n`
+      : '';
+
+    const prompt = `${languageInstruction}You are a professional chef and culinary instructor. Generate extremely detailed, beginner-friendly cooking instructions for the following meal.
 
 MEAL: ${meal.name}
 DESCRIPTION: ${meal.description || ''}
@@ -463,6 +472,7 @@ Respond ONLY with valid JSON matching this exact structure:
       where: { userId_mealPlanId_dayIndex_mealIndex: { userId, mealPlanId, dayIndex, mealIndex } },
       update: {
         mealName: parsed.mealName || meal.name,
+        language,
         ingredients: parsed.ingredients || [],
         steps: parsed.steps || [],
         totalTime: parsed.totalTime || '',
@@ -482,6 +492,7 @@ Respond ONLY with valid JSON matching this exact structure:
         dayIndex,
         mealIndex,
         mealName: parsed.mealName || meal.name,
+        language,
         ingredients: parsed.ingredients || [],
         steps: parsed.steps || [],
         totalTime: parsed.totalTime || '',
@@ -507,7 +518,9 @@ Respond ONLY with valid JSON matching this exact structure:
 router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const { mealPlanId, dayIndex, mealIndex } = req.body;
+    const { mealPlanId, dayIndex, mealIndex, language: reqAudioLanguage } = req.body;
+    const VALID_LANGUAGES_AUDIO = ['en', 'hi', 'kn', 'ta', 'te'];
+    const audioLanguage: string = typeof reqAudioLanguage === 'string' && VALID_LANGUAGES_AUDIO.includes(reqAudioLanguage) ? reqAudioLanguage : 'en';
     if (!mealPlanId || typeof dayIndex !== 'number' || typeof mealIndex !== 'number') {
       res.status(400).json({ error: 'mealPlanId, dayIndex, mealIndex are required' }); return;
     }
@@ -520,18 +533,19 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
       res.status(404).json({ error: 'Generate text instructions first before creating audio.' }); return;
     }
 
-    // Already has audio — return immediately (no re-generation)
-    if (existing.audioUrl) {
+    // Already has audio for the right language — return immediately (no re-generation)
+    if (existing.audioUrl && (existing.language ?? 'en') === audioLanguage) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { audioScript: _s, ...instrForClient } = existing;
       res.json({ instructions: instrForClient }); return;
     }
 
-    // ── Reuse check: same meal name in any other record for this user ─────────
+    // ── Reuse check: same meal name + same language in any other record for this user ────
     const reusable = await prisma.mealCookingInstructions.findFirst({
       where: {
         userId,
         mealName:  { equals: existing.mealName, mode: 'insensitive' },
+        language:  audioLanguage,
         audioUrl:  { not: null },
         id:        { not: existing.id },
       },

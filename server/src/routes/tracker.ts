@@ -182,11 +182,39 @@ router.get('/goal-countdown', requireAuth, async (req: AuthRequest, res: Respons
 router.get('/stats', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const profile = await prisma.userProfile.findUnique({ where: { userId }, select: { planDuration: true } });
-    const planDuration = profile?.planDuration || 7;
-    const planDates = getPlanDates(planDuration);
+
+    // Use the active plan's actual weekStartDate so adherence counts from the
+    // real plan start day, not Monday of the calendar week.
+    const activePlan = await prisma.mealPlan.findFirst({
+      where: { userId, isActive: true },
+      orderBy: { generatedAt: 'desc' },
+      select: { weekStartDate: true, planDuration: true },
+    });
+
+    const planDuration = activePlan?.planDuration || 7;
+    const planDates = activePlan
+      ? (() => {
+          const start = new Date(activePlan.weekStartDate);
+          start.setHours(0, 0, 0, 0);
+          return Array.from({ length: planDuration }, (_, i) => {
+            const d = new Date(start);
+            d.setDate(start.getDate() + i);
+            return localDateStr(d);
+          });
+        })()
+      : getPlanDates(planDuration);
+
     const mealsPerDay = await getMealsPerDay(userId);
-    const totalMeals = 7 * mealsPerDay;
+
+    // Total denominator: days elapsed so far (inclusive of today), up to planDuration
+    const todayStr = todayLocal();
+    const elapsedDays = Math.max(1, Math.min(
+      planDuration,
+      planDates.findIndex(d => d > todayStr) === -1
+        ? planDuration
+        : planDates.findIndex(d => d > todayStr)
+    ));
+    const totalMeals = elapsedDays * mealsPerDay;
 
     const logs = await prisma.mealLog.findMany({
       where: { userId, date: { in: planDates }, eaten: true }
@@ -198,7 +226,7 @@ router.get('/stats', requireAuth, async (req: AuthRequest, res: Response): Promi
 
     // Streak: consecutive days from Day 0 with all meals eaten
     let streak = 0;
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < elapsedDays; i++) {
       const date = planDates[i];
       const dayLogs = logs.filter(l => l.date === date);
       if (dayLogs.length === mealsPerDay) {
@@ -219,9 +247,28 @@ router.get('/stats', requireAuth, async (req: AuthRequest, res: Response): Promi
 router.get('/week', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
-    const profile = await prisma.userProfile.findUnique({ where: { userId }, select: { planDuration: true } });
-    const planDuration = profile?.planDuration || 7;
-    const planDates = getPlanDates(planDuration);
+
+    // Use the active plan's actual weekStartDate so tracker days align with
+    // the plan's Day 0, not Monday of the calendar week.
+    const activePlan = await prisma.mealPlan.findFirst({
+      where: { userId, isActive: true },
+      orderBy: { generatedAt: 'desc' },
+      select: { weekStartDate: true, planDuration: true },
+    });
+
+    const planDuration = activePlan?.planDuration || 7;
+    const planDates = activePlan
+      ? (() => {
+          const start = new Date(activePlan.weekStartDate);
+          start.setHours(0, 0, 0, 0);
+          return Array.from({ length: planDuration }, (_, i) => {
+            const d = new Date(start);
+            d.setDate(start.getDate() + i);
+            return localDateStr(d);
+          });
+        })()
+      : getPlanDates(planDuration);
+
     const mealsPerDay = await getMealsPerDay(userId);
 
     const logs = await prisma.mealLog.findMany({

@@ -1163,3 +1163,123 @@ Every conversion reads the display string with `parseFloat()` and guards with `!
 ### Backend unchanged
 
 All submission paths convert to metric before calling `update()`, so `data.weightKg`, `data.heightCm`, and `data.targetWeightKg` are always SI values. The backend validation (`weightKg` 20–500, `heightCm` 50–300) continues to work without modification.
+
+---
+
+# 6 UI/UX Changes + Language + Date Fix — 2026-05-02
+
+## Files Modified
+
+| File | Change |
+|---|---|
+| `client/src/components/BottomNav.tsx` | Renamed MEALS→DIET PLAN, BODY→PROFILE labels |
+| `client/src/components/TrackerTab.tsx` | Removed VIEW PLAN + MARK ALL buttons and their handlers |
+| `client/src/components/Onboarding.tsx` | Fixed plan duration card highlight bug; removed REC badge |
+| `client/src/components/MealDetailSheet.tsx` | Added 5-language selector for cooking instructions + audio |
+| `client/src/types/index.ts` | Added `language` field to `MealCookingInstructions` interface |
+| `server/src/routes/meals.ts` | Read `language` from request, inject into Claude prompt, upsert, language-aware audio reuse |
+| `server/src/prisma/schema.prisma` | Added `language String @default("en")` to `MealCookingInstructions` |
+| `server/src/routes/ai.ts` | Changed `weekStartDate` from Monday-snapping to today's date |
+| `server/src/routes/tracker.ts` | Fixed `/stats` and `/week` to use plan's actual `weekStartDate` from DB |
+| `client/src/components/MealsTab.tsx` | Auto-select today on mount |
+
+---
+
+## Change 1 — Rename Bottom Nav Labels
+
+Display labels only; internal `TabId` keys ('meals', 'profile') are unchanged. `TABS` array in `BottomNav.tsx` is the single source of truth for labels.
+
+---
+
+## Change 2 — Remove Tracker Buttons
+
+`handleMarkAll`, `handleUnmarkAll`, the CTAs `<div>` containing VIEW PLAN and MARK ALL, and unused imports (`Btn`, `navigateToMealsFromTracker`) were all removed. `allEaten` and `eatenCount` remain — they are still referenced by the progress bar and the eaten pill color.
+
+---
+
+## Change 3 — Fix Plan Duration Card Bug
+
+**Root cause:** The options array had `{ val: 14, label: '14-DAY', rec: true }`. The border/background style used `o.rec ? s2.accent : on ? s2.accent : s2.lineStrong` — because `o.rec` is truthy for the 14-DAY card, both cards appeared simultaneously highlighted regardless of which was selected.
+
+**Fix:** Removed the `rec` property from the options array entirely. The style now uses only the `on` boolean (`data.planDuration === o.val`). The REC badge element was also removed.
+
+---
+
+## Change 4 — Language Selection for Cooking Instructions + Audio
+
+### Languages supported
+`en` (English), `hi` (Hindi), `kn` (Kannada), `ta` (Tamil), `te` (Telugu).
+
+### Client flow
+1. `INSTRUCTION_LANGUAGES` constant + `InstructionLanguageCode` type defined at top of `MealDetailSheet.tsx`.
+2. `instructionLanguage` state (default `'en'`) added alongside `servings` state.
+3. Language selector renders as native-label pill buttons (`nativeLabel` shown: `हिंदी`, `ಕನ್ನಡ`, etc.) between the servings selector and the description text.
+4. Both `handleGenerateInstructions` and `handleGenerateAudio` pass `language: instructionLanguage` in the POST body.
+5. When instructions are loaded and `cookInstr.language !== 'en'`, a language badge row appears above the time strip.
+
+### Server — generate instructions endpoint
+- Validates `language` against `['en','hi','kn','ta','te']`, defaults to `'en'`.
+- If `language !== 'en'`, prepends a `LANGUAGE_NAMES` instruction block to the Claude prompt: "Write ALL output in `<language>`. Do not use English except for standard units of measurement."
+- Both `update` and `create` branches of the upsert write `language` to the DB.
+
+### Server — generate audio endpoint
+- Reads `language` from request body (same validation).
+- **Audio reuse check** now filters by `language` — a Hindi audio recording is never reused for an English request and vice versa. Without this guard, a user who previously generated Hindi audio for "Dosa" would receive that Hindi audio when requesting English audio for the same meal.
+- The "already has audio" early-return now also checks that the existing audio's language matches the requested language; if it doesn't, falls through to generate new audio.
+
+### Schema change
+```sql
+ALTER TABLE meal_cooking_instructions ADD COLUMN language TEXT NOT NULL DEFAULT 'en';
+```
+Applied directly via `npx prisma db execute` (avoiding a full migrate reset). Prisma client regenerated with `npx prisma generate`.
+
+### Migration note for existing rows
+All existing `meal_cooking_instructions` rows automatically receive `language = 'en'` via the column default — no backfill required.
+
+---
+
+## Change 5 — Fix Plan Start Date (weekStartDate = today)
+
+### Problem
+When a plan was generated on e.g. Wednesday, `weekStartDate` was snapped back to the Monday of that week. The tracker then showed days 0-2 (Mon-Tue-Wed) as plan days with zero meals eaten, deflating the adherence percentage before the user had even started.
+
+### Fix — `server/src/routes/ai.ts`
+Replaced Monday-snapping logic with:
+```typescript
+const weekStartDate = new Date();
+weekStartDate.setHours(0, 0, 0, 0);
+```
+The plan's `weekStartDate` is now the actual generation date.
+
+### Fix — `server/src/routes/tracker.ts` (stats + week endpoints)
+Both `/stats` and `/week` were calling `getPlanDates(planDuration)` which internally used `getMondayOfCurrentWeek()`. Each now:
+1. Fetches the active plan's `weekStartDate` from DB.
+2. Builds `planDates` from `weekStartDate + i` for `i in [0, planDuration)`.
+3. Falls back to the old Monday-based `getPlanDates()` if no active plan exists (edge case).
+
+**Adherence denominator fix (stats endpoint):** Previously `totalMeals = 7 * mealsPerDay` hardcoded 7 days regardless of plan duration or elapsed time. Now `elapsedDays` = number of plan days that have passed including today, capped at `planDuration`. This ensures adherence on day 1 of a 14-day plan counts meals eaten today, not 0/56.
+
+### Monday-snapping in the frontend (confirmed acceptable)
+`MealsTab.tsx`: `getWeekDates(weekOffset)` uses `startOfWeek(today, {weekStartsOn:1})` only for the visual week strip calendar display — this is purely cosmetic and does not affect plan-day mapping or adherence counting. Left as-is.
+`TrackerTab.tsx`: Similarly uses `startOfWeek` only for the calendar grid display.
+
+### SQL patch for existing plans with wrong weekStartDate
+```sql
+-- For any existing plan generated mid-week, reset weekStartDate to today so the
+-- tracker aligns correctly. Run once per affected user. Replace USER_ID as needed.
+-- Note: this affects adherence history — only run if the plan was just generated.
+UPDATE "MealPlan"
+SET "weekStartDate" = CURRENT_DATE
+WHERE "isActive" = true
+  AND "userId" = '<USER_ID>';
+```
+Or to reset all active plans at once (use with caution — wipes historical date context):
+```sql
+UPDATE "MealPlan" SET "weekStartDate" = CURRENT_DATE WHERE "isActive" = true;
+```
+
+---
+
+## Change 6 — Auto-select Today on MealsTab Mount
+
+Added a `useEffect(() => { setSelectedDate(todayStr()); }, [])` after the `useAppStore()` destructure in `MealsTab.tsx`. The effect fires once on mount, ensuring that even if the store's `selectedDate` persists from a previous session, the user lands on today's meals immediately.

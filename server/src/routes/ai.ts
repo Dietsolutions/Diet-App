@@ -304,21 +304,16 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       data: { isActive: false }
     });
 
-    // weekStartDate = Monday of the current week.
-    // Bug fix: previously used (day===0 ? 1 : 1-day) which on Sundays gave +1 → NEXT Monday.
-    // Correct formula: on Sunday go back 6 days to reach the PREVIOUS Monday.
-    const now = new Date();
-    const day = now.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + diff);
-    monday.setHours(0, 0, 0, 0);
+    // weekStartDate = today (the day the plan was generated).
+    // Plans start from the actual generation date, not the Monday of the week.
+    const weekStartDate = new Date();
+    weekStartDate.setHours(0, 0, 0, 0);
 
     // Create meal plan
     const mealPlan = await prisma.mealPlan.create({
       data: {
         userId,
-        weekStartDate: monday,
+        weekStartDate,
         weekSummary: JSON.stringify(planData.weekSummary || {}),
         isActive: true,
         planDuration,

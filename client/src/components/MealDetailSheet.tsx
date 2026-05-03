@@ -13,6 +13,16 @@ import { track } from '../lib/analytics';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
+const INSTRUCTION_LANGUAGES = [
+  { code: 'en', label: 'English', nativeLabel: 'English' },
+  { code: 'hi', label: 'Hindi',   nativeLabel: 'हिंदी'   },
+  { code: 'kn', label: 'Kannada', nativeLabel: 'ಕನ್ನಡ'  },
+  { code: 'ta', label: 'Tamil',   nativeLabel: 'தமிழ்'  },
+  { code: 'te', label: 'Telugu',  nativeLabel: 'తెలుగు' },
+] as const;
+
+type InstructionLanguageCode = typeof INSTRUCTION_LANGUAGES[number]['code'];
+
 function clamp01(v: number) {
   return Math.min(1, Math.max(0, v));
 }
@@ -100,7 +110,8 @@ export function MealDetailSheet({
   const [audioError,      setAudioError]      = useState('');
   const [cookExpanded,    setCookExpanded]    = useState(false);
   const [shareOpen,       setShareOpen]       = useState(false);
-  const [servings,        setServings]        = useState(1);
+  const [servings,             setServings]             = useState(1);
+  const [instructionLanguage,  setInstructionLanguage]  = useState<InstructionLanguageCode>('en');
   const cookGenStartRef  = useRef<number>(0);
   const audioGenStartRef = useRef<number>(0);
 
@@ -124,7 +135,7 @@ export function MealDetailSheet({
     cookGenStartRef.current = Date.now();
     track('cooking_instructions_generate_tapped', { meal_name: name, servings });
     try {
-      const r = await axios.post('/api/meals/instructions/generate', { mealPlanId, dayIndex, mealIndex, servings }, { withCredentials: true });
+      const r = await axios.post('/api/meals/instructions/generate', { mealPlanId, dayIndex, mealIndex, servings, language: instructionLanguage }, { withCredentials: true });
       setCookInstr(r.data.instructions);
       setCookExpanded(true);
       track('cooking_instructions_generated', {
@@ -137,7 +148,7 @@ export function MealDetailSheet({
     } finally {
       setCookGenerating(false);
     }
-  }, [mealPlanId, dayIndex, mealIndex, servings, name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mealPlanId, dayIndex, mealIndex, servings, instructionLanguage, name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerateAudio = useCallback(async () => {
     if (!mealPlanId) return;
@@ -146,7 +157,7 @@ export function MealDetailSheet({
     audioGenStartRef.current = Date.now();
     track('audio_guide_generate_tapped', { meal_name: name });
     try {
-      const r = await axios.post('/api/meals/instructions/generate-audio', { mealPlanId, dayIndex, mealIndex }, { withCredentials: true });
+      const r = await axios.post('/api/meals/instructions/generate-audio', { mealPlanId, dayIndex, mealIndex, language: instructionLanguage }, { withCredentials: true });
       setCookInstr(r.data.instructions);
       track('audio_guide_generated', {
         meal_name:        name,
@@ -157,7 +168,7 @@ export function MealDetailSheet({
     } finally {
       setAudioGenerating(false);
     }
-  }, [mealPlanId, dayIndex, mealIndex, name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mealPlanId, dayIndex, mealIndex, instructionLanguage, name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Resolved macros (replacement overrides plan meal)
   const kcal = isReplaced ? replacement!.calories    : meal.calories ?? 0;
@@ -542,6 +553,34 @@ export function MealDetailSheet({
                       </div>
                     </div>
 
+                    {/* Language selector */}
+                    <div style={{ marginBottom: 14 }}>
+                      <HairLabel style={{ marginBottom: 8 }}>LANGUAGE</HairLabel>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {INSTRUCTION_LANGUAGES.map(lang => {
+                          const active = instructionLanguage === lang.code;
+                          return (
+                            <button
+                              key={lang.code}
+                              onClick={() => setInstructionLanguage(lang.code)}
+                              style={{
+                                padding:       '5px 10px',
+                                border:        `1px solid ${active ? s2.accent : s2.lineStrong}`,
+                                background:    active ? s2.accentFill : 'transparent',
+                                color:         active ? s2.accent : s2.textDim,
+                                fontFamily:    s2.sans,
+                                fontSize:      12,
+                                cursor:        'pointer',
+                                lineHeight:    1.3,
+                              }}
+                            >
+                              {lang.nativeLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     <div style={{
                       fontFamily: s2.sans, fontSize: 13, color: s2.textDim,
                       lineHeight: 1.5, marginBottom: 12, textAlign: 'center',
@@ -586,6 +625,31 @@ export function MealDetailSheet({
                 {/* ── Instructions loaded ── */}
                 {!cookLoading && !cookGenerating && cookInstr && (
                   <>
+                    {/* Language badge */}
+                    {cookInstr.language && cookInstr.language !== 'en' && (() => {
+                      const lang = INSTRUCTION_LANGUAGES.find(l => l.code === cookInstr.language);
+                      return lang ? (
+                        <div style={{
+                          padding: '5px 14px',
+                          borderBottom: `1px solid ${s2.line}`,
+                          display: 'flex', alignItems: 'center', gap: 6,
+                        }}>
+                          <span style={{
+                            fontFamily:    s2.mono, fontSize: 8, letterSpacing: '0.15em',
+                            color:         s2.textDimmer,
+                          }}>LANGUAGE</span>
+                          <span style={{
+                            fontFamily:    s2.sans, fontSize: 11,
+                            color:         s2.accent,
+                            padding:       '1px 6px',
+                            border:        `1px solid ${s2.accent}`,
+                            background:    s2.accentFill,
+                          }}>
+                            {lang.nativeLabel}
+                          </span>
+                        </div>
+                      ) : null;
+                    })()}
                     {/* Time strip + serves + share button */}
                     <div style={{
                       display: 'grid',

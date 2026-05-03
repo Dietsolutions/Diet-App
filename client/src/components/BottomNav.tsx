@@ -2,11 +2,11 @@ import { s2 } from '../theme/tokens';
 import { TabId } from '../types';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'meals',    label: 'MEALS'  },
-  { id: 'tracker',  label: 'TRACK'  },
-  { id: 'shopping', label: 'SHOP'   },
-  { id: 'tips',     label: 'LEARN'  },
-  { id: 'profile',  label: 'BODY'   },
+  { id: 'meals',    label: 'DIET PLAN' },
+  { id: 'tracker',  label: 'TRACK'     },
+  { id: 'shopping', label: 'SHOP'      },
+  { id: 'tips',     label: 'LEARN'     },
+  { id: 'profile',  label: 'PROFILE'   },
 ];
 
 interface BottomNavProps {

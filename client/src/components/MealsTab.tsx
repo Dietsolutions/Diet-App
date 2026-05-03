@@ -92,6 +92,9 @@ export function MealsTab() {
     profile,
     activePlanId,
   } = useAppStore();
+
+  // Auto-select today when the tab first mounts
+  useEffect(() => { setSelectedDate(todayStr()); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { weekData, toggleMeal } = useTracker();
   const { planDays: planDaysFromPlan, loadPlan } = usePlan();
   const { replacements, openReplacer, undoReplacement, fetchReplacementsForWeek } =

@@ -10,7 +10,7 @@ import { TrackerSummary, GoalCountdown } from '../types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { MonthlyCalorieChart } from './MonthlyCalorieChart';
 import { s2 } from '../theme/tokens';
-import { HairLabel, Card, Bar, Btn } from './ui';
+import { HairLabel, Card, Bar } from './ui';
 
 // ── helpers (unchanged from original) ─────────────────────────────────────
 function getMonthStr(date: Date): string { return format(date, 'yyyy-MM'); }
@@ -27,7 +27,7 @@ export function TrackerTab() {
   const {
     selectedDate, setSelectedDate,
     trackerCalendarMonth, setTrackerCalendarMonth,
-    navigateToMealsFromTracker, mealsPerDay, planDuration,
+    mealsPerDay, planDuration,
   } = useAppStore();
   const { fetchReplacementsForWeek } = useMealReplacerStore();
   const { fetchForDate, getForDate } = useAdditionalMealsStore();
@@ -73,15 +73,6 @@ export function TrackerTab() {
   const selectedDayIndex = selectedDayData?.dayIndex ?? weekData.findIndex(d => d.date === selectedDate);
   const eatenCount       = selectedDayData?.meals.filter(m => m.eaten).length ?? 0;
   const allEaten         = eatenCount === mealsPerDay;
-
-  const handleMarkAll = () => {
-    if (!selectedDayData) return;
-    selectedDayData.meals.forEach(m => { if (!m.eaten) toggleMeal(selectedDayData.date, m.mealIndex, false); });
-  };
-  const handleUnmarkAll = () => {
-    if (!selectedDayData) return;
-    selectedDayData.meals.forEach(m => { if (m.eaten) toggleMeal(selectedDayData.date, m.mealIndex, true); });
-  };
 
   // Calendar grid
   const calendarMonthDate = parseISO(trackerCalendarMonth + '-01');
@@ -248,23 +239,6 @@ export function TrackerTab() {
                 <span>{Math.round((eatenCount / Math.max(mealsPerDay, 1)) * 100)}%</span>
               </div>
               <Bar pct={eatenCount / Math.max(mealsPerDay, 1)} color={s2.accent} h={3} />
-            </div>
-
-            {/* CTAs */}
-            <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
-              <Btn
-                small
-                primary
-                onClick={() => navigateToMealsFromTracker(selectedDayIndex, selectedDate)}
-              >
-                VIEW PLAN
-              </Btn>
-              <Btn
-                small
-                onClick={allEaten ? handleUnmarkAll : handleMarkAll}
-              >
-                {allEaten ? 'UNMARK ALL' : 'MARK ALL'}
-              </Btn>
             </div>
 
             {/* Extra meals for selected day */}

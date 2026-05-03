@@ -314,6 +314,7 @@ export interface CookingStep {
 export interface MealCookingInstructions {
   id: string;
   mealName: string;
+  language?: string | null;          // 'en'|'hi'|'kn'|'ta'|'te' — instruction language
   prepTime: string;
   cookTime: string;
   totalTime: string;
