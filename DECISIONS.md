@@ -1760,3 +1760,44 @@ FROM meal_plans
 WHERE "cnChecks" > 0
 GROUP BY "planDuration";
 ```
+
+---
+
+# Confirm Plan Button Fix — 2026-05-04
+
+## Files Modified
+
+| File | Change |
+|---|---|
+| `server/src/routes/plan.ts` | Rewrote `POST /api/plan/confirm-review` with granular try/catch, entry logs, and `reviewConfirmed` fallback |
+| `client/src/components/PlanReviewScreen.tsx` | Fixed silent `catch {}` to capture and display real server error |
+
+## Root Cause (Check C + schema drift)
+
+Adding `cnChecks` and `cnCorrections` to `schema.prisma` in commit `5629b32` caused the Prisma-generated client to SELECT those columns in every `mealPlan` query. Because the columns did not yet exist in the Neon production DB, every `prisma.mealPlan.findFirst(...)` call — including the one at the top of `confirm-review` — threw a PostgreSQL `column does not exist` error.
+
+The bare `catch {}` in the frontend and the `catch (err) { console.error(err.message) }` on the server both swallowed the error silently, showing only "Failed to confirm. Please try again."
+
+The immediate fix was the user manually running:
+```sql
+ALTER TABLE meal_plans
+  ADD COLUMN IF NOT EXISTS "cnChecks"      INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "cnCorrections" INTEGER NOT NULL DEFAULT 0;
+```
+
+## Hardening Applied
+
+### Server — `POST /api/plan/confirm-review`
+
+1. **Entry log**: `console.log('[confirm-review] start — planId, userId')` at the top of the handler, before any DB call
+2. **`mealPlanId` required guard**: returns 400 if body is missing the field
+3. **Granular try/catch per step**: each of the 5 steps (deactivate others, activate+confirm, onboardingDone, clear instructions, shopping list) is independently wrapped so a failure in one non-critical step cannot block the success response
+4. **`reviewConfirmed` fallback**: if the `mealPlan.update` with `reviewConfirmed: true` throws (e.g. column doesn't exist in DB), the catch retries with only `{ isActive: true }` — plan is still confirmed even under schema drift
+5. **Full error log**: catch block logs `err.message` + `err.stack` so Vercel logs show the complete trace
+
+### Frontend — `handleConfirm` in `PlanReviewScreen.tsx`
+
+- Changed `catch {}` (silently discards error) to `catch (err: any)`
+- Extracts `err.response.data.message` → `err.response.data.error` → generic fallback
+- Displays the real server message to the user (e.g. "Could not confirm: Plan not found")
+- `console.error` logs the raw server response for debugging in browser devtools

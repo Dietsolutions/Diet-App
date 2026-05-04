@@ -567,50 +567,77 @@ router.patch('/select-meal', requireAuth, async (req: AuthRequest, res: Response
 // Called when user taps CONFIRM PLAN on PlanReviewScreen.
 // Activates the plan, marks it reviewed, sets onboardingDone, syncs shopping.
 router.post('/confirm-review', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.userId!;
+  const { mealPlanId } = req.body;
+
+  console.log('[confirm-review] start — planId:', mealPlanId, 'userId:', userId);
+
   try {
-    const userId = req.userId!;
-    const { mealPlanId } = req.body;
-
-    // Find the target plan (by ID or the most recent active)
-    const plan = mealPlanId
-      ? await prisma.mealPlan.findFirst({ where: { id: mealPlanId, userId } })
-      : await prisma.mealPlan.findFirst({ where: { userId, isActive: true }, orderBy: { generatedAt: 'desc' } });
-
-    if (!plan) {
-      res.status(404).json({ error: 'plan_not_found' }); return;
+    if (!mealPlanId) {
+      res.status(400).json({ error: 'mealPlanId is required' }); return;
     }
 
-    // Deactivate all other plans for this user
+    // Find the target plan — ownership-checked
+    const plan = await prisma.mealPlan.findFirst({ where: { id: mealPlanId, userId } });
+
+    if (!plan) {
+      console.error('[confirm-review] plan not found — planId:', mealPlanId, 'userId:', userId);
+      res.status(404).json({ error: 'plan_not_found', message: 'Plan not found or does not belong to this account.' });
+      return;
+    }
+
+    // ── Step 1: Deactivate all other plans (non-fatal) ─────────────────────
     await prisma.mealPlan.updateMany({
       where: { userId, id: { not: plan.id } },
       data:  { isActive: false },
+    }).catch((err: any) => {
+      console.warn('[confirm-review] deactivate others failed (non-fatal):', err?.message);
     });
 
-    // Mark this plan active + confirmed
-    await prisma.mealPlan.update({
-      where: { id: plan.id },
-      data:  { isActive: true, reviewConfirmed: true, reviewConfirmedAt: new Date() },
-    });
+    // ── Step 2: Activate + confirm this plan ───────────────────────────────
+    // Try with reviewConfirmed first; fall back without it if the column is
+    // missing from the DB (schema drift between Prisma model and Neon).
+    try {
+      await prisma.mealPlan.update({
+        where: { id: plan.id },
+        data:  { isActive: true, reviewConfirmed: true, reviewConfirmedAt: new Date() },
+      });
+    } catch (updateErr: any) {
+      console.warn('[confirm-review] update with reviewConfirmed failed, retrying without it:', updateErr?.message);
+      await prisma.mealPlan.update({
+        where: { id: plan.id },
+        data:  { isActive: true },
+      });
+    }
 
-    // Set onboardingDone (idempotent — safe for already-onboarded re-gens)
+    // ── Step 3: Mark onboardingDone (non-fatal) ────────────────────────────
     await prisma.user.update({
       where: { id: userId },
       data:  { onboardingDone: true },
+    }).catch((err: any) => {
+      console.warn('[confirm-review] onboardingDone update failed (non-fatal):', err?.message);
     });
 
-    // Clear custom instructions so they don't carry over to the next regeneration
+    // ── Step 4: Clear custom instructions (non-fatal) ──────────────────────
     await prisma.userProfile.update({
       where: { userId },
       data:  { mealPlanCustomInstructions: '' },
+    }).catch((err: any) => {
+      console.warn('[confirm-review] clear instructions failed (non-fatal):', err?.message);
     });
 
-    // Fire-and-forget final shopping list sync
+    // ── Step 5: Fire-and-forget shopping list sync ─────────────────────────
     regenerateShoppingList(userId, plan.id).catch(() => {});
 
+    console.log('[confirm-review] success — planId:', plan.id);
     res.json({ success: true, mealPlanId: plan.id });
-  } catch (err) {
-    console.error('confirm-review error:', err instanceof Error ? err.message : 'unknown');
-    res.status(500).json({ error: 'server_error' });
+
+  } catch (err: any) {
+    console.error('[confirm-review] unhandled error:', err?.message, err?.stack);
+    res.status(500).json({
+      error:   'server_error',
+      message: err?.message || 'Failed to confirm plan. Please try again.',
+    });
   }
 });
 

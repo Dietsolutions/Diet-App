@@ -156,8 +156,13 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
         plan_duration: plan?.planDuration,
       });
       onComplete();
-    } catch {
-      setConfirmError('Failed to confirm. Please try again.');
+    } catch (err: any) {
+      const serverMsg = err?.response?.data?.message || err?.response?.data?.error;
+      const displayMsg = serverMsg
+        ? `Could not confirm: ${serverMsg}`
+        : `Failed to confirm (${err?.response?.status ?? 'network error'}). Please try again.`;
+      console.error('[handleConfirm] error:', err?.response?.data ?? err?.message);
+      setConfirmError(displayMsg);
       setConfirming(false);
     }
   };
