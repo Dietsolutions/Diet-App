@@ -1,0 +1,137 @@
+// Macro validation logic for the CalorieNinjas verification pipeline.
+// Compares CN-verified daily totals against user targets and builds
+// correction prompts for out-of-range macros.
+
+import { CNMacros } from './calorieNinjasService';
+
+interface DailyTargets {
+  calories: number;
+  proteinG: number;
+  carbsG:   number;
+  fatG:     number;
+  fibreG:   number;
+}
+
+export interface DailyGap {
+  macro:  string;
+  actual: number;
+  target: number;
+  delta:  number; // negative = short, positive = over
+  pct:    number; // actual / target × 100
+}
+
+export interface ValidationResult {
+  isValid:        boolean;
+  gaps:           DailyGap[];
+  totalVerified:  DailyTargets;
+}
+
+// Acceptable tolerance per macro.
+// Deliberately generous — a meal plan that is ±12% on calories is fine.
+// Protein tolerance is asymmetric (being over is acceptable; being short triggers correction).
+const TOLERANCE: Record<string, { min: number; max: number }> = {
+  calories: { min: 0.88, max: 1.12 }, // ±12%
+  proteinG: { min: 0.85, max: 1.20 }, // −15% to +20%
+  carbsG:   { min: 0.80, max: 1.20 }, // ±20%
+  fatG:     { min: 0.80, max: 1.20 }, // ±20%
+};
+
+export function validateDayMacros(
+  verifiedMacros: CNMacros[],
+  targets:        DailyTargets,
+): ValidationResult {
+  // Sum CN-verified macros across all meals for this day
+  const total = verifiedMacros.reduce(
+    (acc, m) => ({
+      calories: acc.calories + (m.calories ?? 0),
+      proteinG: acc.proteinG + (m.proteinG ?? 0),
+      carbsG:   acc.carbsG   + (m.carbsG   ?? 0),
+      fatG:     acc.fatG     + (m.fatG     ?? 0),
+      fibreG:   acc.fibreG   + (m.fibreG   ?? 0),
+    }),
+    { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fibreG: 0 },
+  );
+
+  const gaps:    DailyGap[] = [];
+  let   isValid              = true;
+
+  for (const [macro, tol] of Object.entries(TOLERANCE)) {
+    const actual = (total  as any)[macro] as number;
+    const target = (targets as any)[macro] as number;
+    if (!target || target <= 0) continue;
+
+    const pct = actual / target;
+    if (pct < tol.min || pct > tol.max) {
+      isValid = false;
+      gaps.push({
+        macro,
+        actual: Math.round(actual),
+        target: Math.round(target),
+        delta:  Math.round(actual - target),
+        pct:    Math.round(pct * 100),
+      });
+    }
+  }
+
+  return { isValid, gaps, totalVerified: total as DailyTargets };
+}
+
+export function buildCorrectionPrompt(
+  gaps:        DailyGap[],
+  currentMeals: any[],
+  userProfile:  any,
+): string {
+  const gapDescriptions = gaps.map(g => {
+    const direction = g.delta < 0 ? 'short' : 'over';
+    const amount    = Math.abs(g.delta);
+    const unit      = g.macro === 'calories' ? 'kcal' : 'g';
+    return `${g.macro}: ${amount}${unit} ${direction} (at ${g.pct}% of target)`;
+  }).join('\n');
+
+  // Prefer replacing the snack (lowest caloric impact on other meals),
+  // then lunch, then the second meal in the list as a last resort.
+  const mealToReplace =
+    currentMeals.find(m => m.type === 'snack')  ??
+    currentMeals.find(m => m.type === 'lunch')  ??
+    currentMeals[1];
+
+  return `You are adjusting a meal plan to better meet daily macro targets.
+
+CURRENT MEALS:
+${currentMeals.map((m, i) =>
+  `${i + 1}. ${m.type}: ${m.name} — ${m.calories}kcal P:${m.protein}g C:${m.carbs}g F:${m.fat}g`
+).join('\n')}
+
+MACRO GAPS (verified by CalorieNinjas database):
+${gapDescriptions}
+
+MEAL TO REPLACE: ${mealToReplace.name} (${mealToReplace.type})
+
+USER PREFERENCES:
+Diet: ${userProfile.mealPreference || 'non_vegetarian'}
+Cuisine: ${(JSON.parse(userProfile.cuisinePreferences || '[]') as string[]).join(', ') || 'Indian'}
+Allergies: ${(JSON.parse(userProfile.allergies || '[]') as string[]).join(', ') || 'None'}
+Custom instructions: ${userProfile.mealPlanCustomInstructions || 'None'}
+
+Generate ONE replacement meal for ${mealToReplace.type} that:
+1. Addresses the macro gaps listed above
+2. Brings the daily total within acceptable range of targets
+3. Respects all user preferences and allergies
+4. Is different from the current "${mealToReplace.name}"
+5. Is appropriate for ${mealToReplace.type} at ${mealToReplace.time || ''}
+
+Respond ONLY with valid JSON — no explanation, no preamble:
+{
+  "name": "<meal name>",
+  "type": "${mealToReplace.type}",
+  "time": "${mealToReplace.time || ''}",
+  "description": "<brief cooking instructions with gram quantities>",
+  "ingredients": ["<ingredient 1>", "<ingredient 2>"],
+  "calories": <number>,
+  "protein": <number>,
+  "carbs": <number>,
+  "fat": <number>,
+  "fibre": <number>,
+  "prepTime": "<e.g. 10 min>"
+}`;
+}

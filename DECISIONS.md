@@ -1570,3 +1570,117 @@ WHERE "language" != 'en'
 ```
 
 Self-healing: users who tap "Generate Audio" again will get a correct English audio file.
+
+---
+
+# CalorieNinjas Macro Verification Pipeline — 2026-05-04
+
+## Files Created / Modified
+
+| File | Action | Description |
+|---|---|---|
+| `server/src/services/calorieNinjasService.ts` | Created | CN API client — `getMealMacrosFromCalorieNinjas`, `verifyDayMacros`, `extractIngredients` |
+| `server/src/services/macroValidation.ts` | Created | `validateDayMacros` (tolerance checks) + `buildCorrectionPrompt` (Claude correction prompt) |
+| `server/src/routes/ai.ts` | Modified | Import both services; add verification + correction loop before DB save |
+| `server/.env.example` | Modified | Added `CALORIE_NINJAS_API_KEY` entry with comment |
+
+---
+
+## Architecture
+
+### Where the pipeline runs
+
+Inserted in `POST /api/ai/generate-meal-plan`, between plan JSON validation and Prisma DB save:
+
+```
+1. Claude generates plan (SSE streaming)
+2. JSON parse + day count validation (unchanged)
+3. NEW: CalorieNinjas verification pipeline (if CN_ENABLED)
+   ├── For each day:
+   │   ├── verifyDayMacros() — one CN API call per meal (sequential)
+   │   ├── validateDayMacros() — check against user targets with tolerance
+   │   ├── If invalid → buildCorrectionPrompt() → Claude correction call
+   │   ├── Re-verify after correction (up to MAX_CORRECTIONS = 2 iterations)
+   │   └── Write corrected meals + recalculated day totals back to planData
+4. Prisma DB save (unchanged — saves corrected planData)
+```
+
+### On/off switch
+
+`CN_ENABLED = !!process.env.CALORIE_NINJAS_API_KEY`
+
+When the env var is absent: the block is completely skipped, Claude's macro estimates are saved as-is, and no error is raised. Zero breaking change.
+
+---
+
+## API Call Budget
+
+| Plan type | Meals/day | CN calls (verification) | CN calls (1 correction/day) |
+|---|---|---|---|
+| 7-day | 4 | 28 | up to +28 |
+| 14-day | 4 | 56 | up to +56 |
+
+Free tier limit: **100 calls/day**. A 7-day plan with no corrections = 28 calls. A 14-day plan with no corrections = 56 calls. Both well within the daily limit for a single user generation. Multiple users generating simultaneously could hit the limit — the pipeline degrades gracefully by falling back to Claude estimates on individual meals when CN returns an error.
+
+Sequential calls with 200 ms delay between meals avoid burst rate limiting.
+
+---
+
+## Tolerance Thresholds
+
+| Macro | Min | Max | Rationale |
+|---|---|---|---|
+| calories | 88% | 112% | ±12% — primary fat-loss metric |
+| proteinG | 85% | 120% | Being over on protein is fine; short triggers correction |
+| carbsG | 80% | 120% | ±20% — carbs are flexible for fat loss |
+| fatG | 80% | 120% | ±20% — dietary fat is highly variable by ingredient |
+
+Fibre is tracked but not in the tolerance table (no correction triggered for fibre alone).
+
+---
+
+## Correction Strategy
+
+When a day fails validation:
+1. Identify gaps (which macros are out of tolerance, by how much)
+2. Choose the meal to replace: snack first (lowest ripple effect), then lunch, then index 1
+3. Call Claude with a structured correction prompt — returns one replacement meal as JSON
+4. Restore `mealIndex` from the original meal (prevents index drift)
+5. Re-verify the corrected day (iteration 2)
+6. If still failing after `MAX_CORRECTIONS = 2` iterations → accept best available verified macros
+
+### Parse failure fallback
+If Claude's correction response fails JSON.parse → accept the last CN-verified macros and mark the day as validated. Never blocks the plan save.
+
+---
+
+## Day Total Recalculation
+
+After the verification/correction loop for each day:
+
+```typescript
+planData.days[dayIdx].totalCalories = currentMeals.reduce((s, m) => s + (m.calories || 0), 0);
+planData.days[dayIdx].totalProtein  = currentMeals.reduce((s, m) => s + (m.protein  || 0), 0);
+planData.days[dayIdx].totalCarbs    = currentMeals.reduce((s, m) => s + (m.carbs    || 0), 0);
+planData.days[dayIdx].totalFat      = currentMeals.reduce((s, m) => s + (m.fat      || 0), 0);
+planData.days[dayIdx].totalFibre    = currentMeals.reduce((s, m) => s + (m.fibre    || 0), 0);
+```
+
+This ensures the DB's `MealPlanDay.totalCalories` etc. reflect the CN-verified numbers, not Claude's original estimates.
+
+---
+
+## SSE Progress Events Added
+
+| Event | When |
+|---|---|
+| `'Verifying macro accuracy with nutrition database...'` | Before verification loop |
+| `'Adjusting Day N to hit your targets...'` | Before each correction Claude call |
+| `'Macro verification complete...'` | After all days verified |
+| `'Saving your meal plan...'` | Moved to after verification (was before) |
+
+---
+
+## Graceful Degradation
+
+`CALORIE_NINJAS_API_KEY` absent → `CN_ENABLED = false` → entire block skipped → console.log only → plan saved with Claude estimates exactly as before. No error thrown, no SSE error event, no user-visible change.

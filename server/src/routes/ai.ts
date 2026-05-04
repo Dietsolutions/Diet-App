@@ -3,6 +3,8 @@ import prisma from '../lib/prisma';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { calculateBMI } from '../utils/tdee';
+import { verifyDayMacros } from '../services/calorieNinjasService';
+import { validateDayMacros, buildCorrectionPrompt } from '../services/macroValidation';
 
 const router = Router();
 
@@ -290,13 +292,156 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       return;
     }
 
-    sendEvent('progress', { step: 'Saving your meal plan...' });
-
-    // Calorie check (warning only)
+    // Calorie check (warning only — pre-verification estimate)
     const avgCalories = planData.weekSummary?.avgCalories || 0;
     if (Math.abs(avgCalories - profile.targetCalories) > 100) {
       console.warn(`AI plan calories (${avgCalories}) differ from target (${profile.targetCalories}) by >100 kcal`);
     }
+
+    // ── MACRO VERIFICATION PIPELINE ──────────────────────────────────────────
+    // Runs after Claude generation, before DB save.
+    // Uses CalorieNinjas to verify actual macro content per ingredient.
+    // Replaces Claude's estimates with CN-verified numbers.
+    // If a day is out of tolerance, asks Claude to replace one meal and re-verifies.
+    // Completely skipped when CALORIE_NINJAS_API_KEY is not set.
+    const CN_ENABLED        = !!process.env.CALORIE_NINJAS_API_KEY;
+    const MAX_CORRECTIONS   = 2;   // max correction iterations per day
+    const DAYS_TO_VALIDATE  = planData.days.length; // 7 or 14
+
+    const dailyTargets = {
+      calories: profile.targetCalories ?? 1700,
+      proteinG: (profile as any).proteinTarget ?? 150,
+      carbsG:   (profile as any).carbTarget    ?? 80,
+      fatG:     (profile as any).fatTarget     ?? 50,
+      fibreG:   (profile as any).fibreTarget   ?? 25,
+    };
+
+    if (CN_ENABLED) {
+      const estimatedCalls = DAYS_TO_VALIDATE * (planData.days[0]?.meals?.length ?? 4);
+      console.log(
+        `[CalorieNinjas] Starting verification — estimated ${estimatedCalls} API calls` +
+        ` for ${DAYS_TO_VALIDATE}-day plan`
+      );
+
+      sendEvent('progress', { step: 'Verifying macro accuracy with nutrition database...' });
+
+      // Process each day sequentially — free tier is 100 calls/day
+      for (let dayIdx = 0; dayIdx < DAYS_TO_VALIDATE; dayIdx++) {
+        const day         = planData.days[dayIdx];
+        let currentMeals  = [...day.meals];
+        let iteration     = 0;
+        let validated     = false;
+
+        while (!validated && iteration < MAX_CORRECTIONS) {
+          // Verify CN macros for all meals in this day
+          const verifiedMacros = await verifyDayMacros(currentMeals);
+          const validation     = validateDayMacros(verifiedMacros, dailyTargets);
+
+          if (validation.isValid) {
+            // Replace Claude estimates with CN-verified numbers
+            currentMeals = currentMeals.map((meal, i) => ({
+              ...meal,
+              calories: verifiedMacros[i].calories,
+              protein:  verifiedMacros[i].proteinG,
+              carbs:    verifiedMacros[i].carbsG,
+              fat:      verifiedMacros[i].fatG,
+              fibre:    verifiedMacros[i].fibreG,
+            }));
+            validated = true;
+            console.log(`[Validation] Day ${dayIdx + 1} passed on iteration ${iteration}`);
+
+          } else {
+            iteration++;
+            console.log(
+              `[Validation] Day ${dayIdx + 1} iteration ${iteration} — gaps:`,
+              validation.gaps.map(g => `${g.macro} ${g.pct}%`).join(', ')
+            );
+
+            if (iteration < MAX_CORRECTIONS) {
+              sendEvent('progress', { step: `Adjusting Day ${dayIdx + 1} to hit your targets...` });
+
+              const correctionPrompt = buildCorrectionPrompt(
+                validation.gaps,
+                currentMeals,
+                profile,
+              );
+
+              try {
+                const corrResp = await client.messages.create({
+                  model:      CLAUDE_MODEL,
+                  max_tokens: 600,
+                  messages:   [{ role: 'user', content: correctionPrompt }],
+                });
+
+                const corrText = corrResp.content[0]?.type === 'text'
+                  ? corrResp.content[0].text : '';
+
+                const corrMeal = JSON.parse(
+                  corrText.replace(/```json|```/g, '').trim()
+                );
+
+                // Replace the snack if present, otherwise lunch, otherwise index 1
+                const replaceIdx =
+                  currentMeals.findIndex(m => m.type === 'snack') !== -1
+                    ? currentMeals.findIndex(m => m.type === 'snack')
+                    : currentMeals.findIndex(m => m.type === 'lunch') !== -1
+                    ? currentMeals.findIndex(m => m.type === 'lunch')
+                    : 1;
+
+                currentMeals = currentMeals.map((m, i) =>
+                  i === replaceIdx ? { ...corrMeal, mealIndex: m.mealIndex } : m
+                );
+
+              } catch (parseErr) {
+                console.warn(
+                  `[Validation] Correction parse failed day ${dayIdx + 1}:`, parseErr
+                );
+                // Accept current verified macros and move on
+                currentMeals = currentMeals.map((meal, i) => ({
+                  ...meal,
+                  calories: verifiedMacros[i].calories,
+                  protein:  verifiedMacros[i].proteinG,
+                  carbs:    verifiedMacros[i].carbsG,
+                  fat:      verifiedMacros[i].fatG,
+                  fibre:    verifiedMacros[i].fibreG,
+                }));
+                validated = true;
+              }
+
+            } else {
+              // Max iterations reached — use best verified macros available
+              currentMeals = currentMeals.map((meal, i) => ({
+                ...meal,
+                calories: verifiedMacros[i].calories,
+                protein:  verifiedMacros[i].proteinG,
+                carbs:    verifiedMacros[i].carbsG,
+                fat:      verifiedMacros[i].fatG,
+                fibre:    verifiedMacros[i].fibreG,
+              }));
+              validated = true;
+              console.log(`[Validation] Day ${dayIdx + 1} accepted after max iterations`);
+            }
+          }
+        }
+
+        // Write corrected meals back to planData and recalculate day totals
+        planData.days[dayIdx].meals        = currentMeals;
+        planData.days[dayIdx].totalCalories = currentMeals.reduce((s: number, m: any) => s + (m.calories || 0), 0);
+        planData.days[dayIdx].totalProtein  = currentMeals.reduce((s: number, m: any) => s + (m.protein  || 0), 0);
+        planData.days[dayIdx].totalCarbs    = currentMeals.reduce((s: number, m: any) => s + (m.carbs    || 0), 0);
+        planData.days[dayIdx].totalFat      = currentMeals.reduce((s: number, m: any) => s + (m.fat      || 0), 0);
+        planData.days[dayIdx].totalFibre    = currentMeals.reduce((s: number, m: any) => s + (m.fibre    || 0), 0);
+      }
+
+      sendEvent('progress', { step: 'Macro verification complete...' });
+
+    } else {
+      // CalorieNinjas not configured — skip silently, use Claude estimates as before
+      console.log('[Validation] CalorieNinjas not configured — skipping macro verification');
+    }
+    // ── END MACRO VERIFICATION ────────────────────────────────────────────────
+
+    sendEvent('progress', { step: 'Saving your meal plan...' });
 
     // Deactivate old meal plans
     await prisma.mealPlan.updateMany({
