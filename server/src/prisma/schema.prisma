@@ -109,6 +109,8 @@ model MealPlan {
   isActive          Boolean       @default(true)
   weekSummary       String        @default("{}")
   planDuration      Int           @default(7)
+  cnChecks          Int           @default(0)   // total CalorieNinjas API calls made during generation
+  cnCorrections     Int           @default(0)   // total Claude correction calls made during generation
   mealPrepGuide     Json?
   reviewConfirmed   Boolean       @default(false)
   reviewConfirmedAt DateTime?

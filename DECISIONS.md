@@ -1684,3 +1684,79 @@ This ensures the DB's `MealPlanDay.totalCalories` etc. reflect the CN-verified n
 ## Graceful Degradation
 
 `CALORIE_NINJAS_API_KEY` absent → `CN_ENABLED = false` → entire block skipped → console.log only → plan saved with Claude estimates exactly as before. No error thrown, no SSE error event, no user-visible change.
+
+---
+
+## CN Audit Columns on MealPlan — 2026-05-04
+
+### Columns added to `MealPlan`
+
+| Column | Type | Default | Meaning |
+|---|---|---|---|
+| `cnChecks` | `Int` | `0` | Total CalorieNinjas API calls made during generation (one per meal per verification pass) |
+| `cnCorrections` | `Int` | `0` | Total Claude correction calls that succeeded during generation |
+
+Both default to `0` — existing rows are unaffected. Plans generated without CN configured also store `0`.
+
+### Migration
+
+Applied directly in Neon (no `prisma migrate` to avoid drift):
+
+```sql
+ALTER TABLE meal_plans
+  ADD COLUMN IF NOT EXISTS "cnChecks"      INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "cnCorrections" INTEGER NOT NULL DEFAULT 0;
+
+-- Verify:
+SELECT column_name, data_type, column_default
+FROM information_schema.columns
+WHERE table_name = 'meal_plans'
+  AND column_name IN ('cnChecks', 'cnCorrections');
+```
+
+Prisma client regenerated with `npx prisma generate` (no migration file created).
+
+### How counts are accumulated in `ai.ts`
+
+```typescript
+let cnChecksTotal      = 0;   // declared before CN_ENABLED block
+let cnCorrectionsTotal = 0;
+
+// Inside per-day loop:
+cnChecksTotal += currentMeals.length;   // after each verifyDayMacros() call
+cnCorrectionsTotal += 1;                // after each successful correction JSON.parse
+
+// After loop — summary log visible in Vercel logs:
+console.log(`[CN Summary] 7-day plan: 28 CN checks, 2 corrections`);
+```
+
+Counts are saved in `prisma.mealPlan.create({ data: { cnChecks, cnCorrections } })` and also returned in the SSE `done` event for browser network-tab inspection.
+
+### Useful queries
+
+```sql
+-- Latest 20 plans with their CN stats:
+SELECT id, "userId", "generatedAt", "planDuration",
+       "cnChecks", "cnCorrections"
+FROM meal_plans
+ORDER BY "generatedAt" DESC
+LIMIT 20;
+
+-- Plans where corrections were needed:
+SELECT id, "userId", "generatedAt", "planDuration",
+       "cnChecks", "cnCorrections"
+FROM meal_plans
+WHERE "cnCorrections" > 0
+ORDER BY "generatedAt" DESC;
+
+-- Average checks and corrections per plan (CN-enabled only):
+SELECT
+  "planDuration",
+  COUNT(*)                          AS plans,
+  ROUND(AVG("cnChecks")::numeric, 1)       AS avg_checks,
+  ROUND(AVG("cnCorrections")::numeric, 1)  AS avg_corrections,
+  SUM("cnCorrections")              AS total_corrections
+FROM meal_plans
+WHERE "cnChecks" > 0
+GROUP BY "planDuration";
+```

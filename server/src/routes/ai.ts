@@ -316,6 +316,9 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       fibreG:   (profile as any).fibreTarget   ?? 25,
     };
 
+    let cnChecksTotal      = 0;
+    let cnCorrectionsTotal = 0;
+
     if (CN_ENABLED) {
       const estimatedCalls = DAYS_TO_VALIDATE * (planData.days[0]?.meals?.length ?? 4);
       console.log(
@@ -335,6 +338,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         while (!validated && iteration < MAX_CORRECTIONS) {
           // Verify CN macros for all meals in this day
           const verifiedMacros = await verifyDayMacros(currentMeals);
+          cnChecksTotal += currentMeals.length; // one CN call per meal
           const validation     = validateDayMacros(verifiedMacros, dailyTargets);
 
           if (validation.isValid) {
@@ -391,6 +395,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 currentMeals = currentMeals.map((m, i) =>
                   i === replaceIdx ? { ...corrMeal, mealIndex: m.mealIndex } : m
                 );
+                cnCorrectionsTotal += 1; // successful correction call
 
               } catch (parseErr) {
                 console.warn(
@@ -434,6 +439,10 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       }
 
       sendEvent('progress', { step: 'Macro verification complete...' });
+      console.log(
+        `[CN Summary] ${planDuration}-day plan: ${cnChecksTotal} CN checks,` +
+        ` ${cnCorrectionsTotal} corrections`
+      );
 
     } else {
       // CalorieNinjas not configured — skip silently, use Claude estimates as before
@@ -462,6 +471,8 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         weekSummary: JSON.stringify(planData.weekSummary || {}),
         isActive: true,
         planDuration,
+        cnChecks:      cnChecksTotal,
+        cnCorrections: cnCorrectionsTotal,
         mealPrepGuide: planData.mealPrepGuide ?? null
       }
     });
@@ -503,11 +514,13 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     console.log(`Meal plan saved in ${totalTime}s total`);
 
     sendEvent('done', {
-      success: true,
-      mealPlanId: mealPlan.id,
+      success:       true,
+      mealPlanId:    mealPlan.id,
       shoppingListId: shoppingList.id,
-      weekSummary: planData.weekSummary,
-      daysCount: planData.days.length
+      weekSummary:   planData.weekSummary,
+      daysCount:     planData.days.length,
+      cnChecks:      cnChecksTotal,
+      cnCorrections: cnCorrectionsTotal,
     });
     res.end();
   } catch (err: any) {
