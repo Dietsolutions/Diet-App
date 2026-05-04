@@ -1386,3 +1386,100 @@ The `/api/tracker/week` endpoint queries the active plan's `weekStartDate` from 
 Before: `selectedDayData?.dayIndex ?? weekData.findIndex(d => d.date === selectedDate)` — would return -1 for cycling dates.
 
 After: `getPlanDayIndex(selectedDate, planWeekStartDate, planDuration)` — always returns the correct modulo-based index. The "DAY X OF Y" label in TrackerTab now correctly cycles (e.g., day 8 shows "DAY 1 OF 7").
+
+---
+
+# Audio English-Only Gate + buildAudioScript Refactor — 2026-05-04
+
+## Files Modified
+
+| File | Change |
+|---|---|
+| `server/src/routes/meals.ts` | Extracted `buildAudioScript` function; added English-only guard (400) in generate-audio endpoint |
+| `client/src/components/MealDetailSheet.tsx` | `handleGenerateAudio` always sends `language: 'en'`; handles `language_not_supported_for_audio` error code |
+| `client/src/components/AudioGuidePlayer.tsx` | Added static English language indicator + "More languages coming soon" in `!audioUrl` section |
+
+---
+
+## Fix 1 — `buildAudioScript` Extraction (audioScript was null for non-English)
+
+### Root cause (Cause A)
+The audio script was built inline inside the generate-audio route handler. When a non-English language was requested, the TTS call would fail (Unreal Speech is English-only) and the route would return an error — but `audioScript` was only saved *after* a successful TTS response. So non-English audio requests never persisted `audioScript`, leaving it `null` indefinitely.
+
+### Fix
+Extracted the inline script-building block into a standalone `buildAudioScript()` function placed above the router definition. The function:
+- Takes a typed `existing` object (mealName, totalTime, servings, ingredients, steps)
+- Returns the narration string (empty string on failure — never throws)
+- Guards each ingredient's parts with `?.trim()` and `.filter(Boolean)` to avoid `undefined undefined undefined.` fragments
+
+```typescript
+function buildAudioScript(existing: {
+  mealName: string; totalTime: string; servings: number | null;
+  ingredients: unknown; steps: unknown;
+}): string {
+  try {
+    // ... builds narration ...
+    return parts.filter(Boolean).join(' ');
+  } catch (err) {
+    console.error('[buildAudioScript] Failed:', err);
+    return '';
+  }
+}
+```
+
+The inline block in the route handler is replaced with:
+```typescript
+const audioScript = buildAudioScript(existing);
+if (!audioScript) {
+  res.status(500).json({ error: 'Failed to build audio script. Please try again.' });
+  return;
+}
+```
+
+---
+
+## Fix 2 — English-Only Audio Language Selector (two independent selectors)
+
+### Decision
+Two **independent** selectors:
+- **Text instructions**: 5-language pill selector (`en/hi/kn/ta/te`) already in MealDetailSheet — unchanged
+- **Audio**: always English-only. The `!audioUrl` section in `AudioGuidePlayer` now shows a static "AUDIO LANGUAGE" row with a permanently-selected "English" pill and the italicised note *"More languages coming soon"*. No state, no click handlers.
+
+### Client change — MealDetailSheet.tsx
+`handleGenerateAudio` now always passes `language: 'en'` (was `language: instructionLanguage`). `instructionLanguage` removed from `useCallback` deps.
+
+### Client change — AudioGuidePlayer.tsx
+Static language row inserted between the AUDIO GUIDE label and the error/button area:
+```
+AUDIO LANGUAGE
+[ English ]  _More languages coming soon_
+```
+Styled identically to the text instruction pills — `s2.accent` border + `accentFill` background — but `cursor: 'default'` to signal non-interactivity.
+
+---
+
+## Fix 3 — Server-side English-Only Gate
+
+Added immediately after the reuse check, before the rate-limit check:
+
+```typescript
+if (audioLanguage !== 'en') {
+  res.status(400).json({
+    error:              'language_not_supported_for_audio',
+    message:            `Audio generation is currently only available in English. Support for ${audioLanguage} is coming soon.`,
+    supportedLanguages: ['en'],
+  });
+  return;
+}
+```
+
+The gate is placed **after** the reuse check so that if a non-English record somehow already has audio (e.g., from a future implementation), it would be served from cache without re-generating. The gate prevents new TTS calls for non-English languages at the server level, independent of client-side restrictions.
+
+### Client error handling
+`handleGenerateAudio` in `MealDetailSheet.tsx` checks for `errCode === 'language_not_supported_for_audio'` and shows a friendly message: *"Audio is only available in English for now."*
+
+---
+
+## DB Backfill Note (Fix 4)
+
+No backfill required for `audioScript`. The column already exists on all rows. The refactored `buildAudioScript` is called immediately before the TTS request — if TTS was previously failing for non-English, those rows will still have `audioScript: null` but will now correctly return a 400 before reaching the TTS call. Existing English-language rows with valid `audioUrl` + `audioScript` are unaffected.

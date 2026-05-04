@@ -9,6 +9,42 @@ const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
 
 const router = Router();
 
+// ── Audio script builder ───────────────────────────────────────────────────
+// Extracted so it can be tested independently and safely reused.
+// Returns empty string on failure (never throws).
+function buildAudioScript(existing: {
+  mealName:   string;
+  totalTime:  string;
+  servings:   number | null;
+  ingredients: unknown;
+  steps:       unknown;
+}): string {
+  try {
+    const ingredients   = (existing.ingredients as any[]) || [];
+    const steps         = (existing.steps       as any[]) || [];
+    const audioServings = existing.servings ?? 1;
+    const servingsPhrase = audioServings === 1 ? 'one person' : `${audioServings} people`;
+    const parts: string[] = [];
+
+    parts.push(`Let's cook ${existing.mealName} for ${servingsPhrase}. Total time: ${existing.totalTime}.`);
+    parts.push(`Here's what you'll need for ${audioServings === 1 ? 'one serving' : `${audioServings} servings`}.`);
+    ingredients.forEach((i: any) => {
+      const part = `${i.quantity ?? ''} ${i.unit ?? ''} ${i.name ?? ''}`.trim();
+      if (part) parts.push(`${part}.`);
+    });
+    parts.push("Let's begin.");
+    steps.forEach((step: any) => {
+      parts.push(`Step ${step.stepNumber}: ${step.title}. ${step.instruction}`);
+    });
+    parts.push(`Your ${existing.mealName} for ${servingsPhrase} is ready. Enjoy your meal.`);
+
+    return parts.filter(Boolean).join(' ');
+  } catch (err) {
+    console.error('[buildAudioScript] Failed to build audio script:', err);
+    return '';
+  }
+}
+
 // POST /api/meals/replace
 router.post('/replace', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -569,6 +605,16 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
       res.json({ instructions: instrForClient }); return;
     }
 
+    // ── English-only gate: TTS provider only supports English ─────────────────
+    if (audioLanguage !== 'en') {
+      res.status(400).json({
+        error:              'language_not_supported_for_audio',
+        message:            `Audio generation is currently only available in English. Support for ${audioLanguage} is coming soon.`,
+        supportedLanguages: ['en'],
+      });
+      return;
+    }
+
     // ── Rate limit: 10 new TTS calls per user per day ─────────────────────────
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
     const audioCount = await prisma.mealCookingInstructions.count({
@@ -578,27 +624,12 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
       res.status(429).json({ error: 'Daily audio generation limit reached (10/day). Try again tomorrow.' }); return;
     }
 
-    // ── Build the narration script (concise — keeps most meals under 2800 chars) ─
-    const ingredients    = existing.ingredients as any[];
-    const steps          = existing.steps       as any[];
-    const audioServings  = existing.servings ?? 1;
-    const servingsPhrase = audioServings === 1
-      ? 'one person'
-      : `${audioServings} people`;
-    const parts: string[] = [];
-
-    parts.push(`Let's cook ${existing.mealName} for ${servingsPhrase}. Total time: ${existing.totalTime}.`);
-    parts.push(`Here's what you'll need for ${audioServings === 1 ? 'one serving' : `${audioServings} servings`}.`);
-    ingredients.forEach((i: any) => {
-      parts.push(`${i.quantity} ${i.unit} ${i.name}.`);
-    });
-    parts.push("Let's begin.");
-    steps.forEach((step: any) => {
-      parts.push(`Step ${step.stepNumber}: ${step.title}. ${step.instruction}`);
-    });
-    parts.push(`Your ${existing.mealName} for ${servingsPhrase} is ready. Enjoy your meal.`);
-
-    const audioScript   = parts.join(' ');
+    // ── Build the narration script ────────────────────────────────────────────
+    const audioScript = buildAudioScript(existing);
+    if (!audioScript) {
+      res.status(500).json({ error: 'Failed to build audio script. Please try again.' });
+      return;
+    }
     const wordCount     = audioScript.split(/\s+/).length;
     const audioDuration = Math.round((wordCount / 130) * 60);
 

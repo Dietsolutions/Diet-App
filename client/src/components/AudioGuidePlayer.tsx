@@ -91,6 +91,37 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
     return (
       <div style={{ padding: '12px 14px', borderBottom: `1px solid ${s2.line}` }}>
         <HairLabel style={{ marginBottom: 8 }}>AUDIO GUIDE</HairLabel>
+
+        {/* Audio language selector — English only, more coming soon */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{
+            fontFamily: s2.mono, fontSize: 7, letterSpacing: '0.16em',
+            color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', marginBottom: 5,
+          }}>
+            AUDIO LANGUAGE
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* Static English pill — always selected */}
+            <div style={{
+              padding: '4px 10px',
+              border: `1px solid rgba(196,113,58,0.7)`,
+              background: 'rgba(196,113,58,0.12)',
+              fontFamily: s2.mono, fontSize: 9, fontWeight: 600,
+              letterSpacing: '0.12em', color: '#C4713A',
+              cursor: 'default',
+            }}>
+              English
+            </div>
+            <div style={{
+              fontFamily: s2.sans, fontSize: 10,
+              color: 'rgba(255,255,255,0.25)',
+              fontStyle: 'italic',
+            }}>
+              More languages coming soon
+            </div>
+          </div>
+        </div>
+
         {error && (
           <div style={{
             marginBottom: 8, padding: '7px 10px',

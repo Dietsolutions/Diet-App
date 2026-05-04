@@ -157,18 +157,23 @@ export function MealDetailSheet({
     audioGenStartRef.current = Date.now();
     track('audio_guide_generate_tapped', { meal_name: name });
     try {
-      const r = await axios.post('/api/meals/instructions/generate-audio', { mealPlanId, dayIndex, mealIndex, language: instructionLanguage }, { withCredentials: true });
+      const r = await axios.post('/api/meals/instructions/generate-audio', { mealPlanId, dayIndex, mealIndex, language: 'en' }, { withCredentials: true });
       setCookInstr(r.data.instructions);
       track('audio_guide_generated', {
         meal_name:        name,
         duration_seconds: Math.round((Date.now() - audioGenStartRef.current) / 1000),
       });
     } catch (err: any) {
-      setAudioError(err?.response?.data?.error || 'Failed to generate audio. Try again.');
+      const errCode = err?.response?.data?.error;
+      if (errCode === 'language_not_supported_for_audio') {
+        setAudioError('Audio is only available in English for now.');
+      } else {
+        setAudioError(err?.response?.data?.error || 'Failed to generate audio. Try again.');
+      }
     } finally {
       setAudioGenerating(false);
     }
-  }, [mealPlanId, dayIndex, mealIndex, instructionLanguage, name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mealPlanId, dayIndex, mealIndex, name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Resolved macros (replacement overrides plan meal)
   const kcal = isReplaced ? replacement!.calories    : meal.calories ?? 0;
