@@ -23,6 +23,24 @@ function todayStr(): string {
   return format(new Date(), 'yyyy-MM-dd');
 }
 
+/**
+ * Maps a calendar date to a plan day index using modulo arithmetic.
+ * Returns -1 only if the date is before the plan started.
+ * For any date on or after plan start, cycles 0 → planDuration-1 indefinitely.
+ */
+function getPlanDayIndex(
+  dateStr:       string,
+  planStartStr:  string | null,
+  planDuration:  number,
+): number {
+  if (!planStartStr || !planDuration) return -1;
+  const d = new Date(dateStr    + 'T00:00:00'); d.setHours(0, 0, 0, 0);
+  const s = new Date(planStartStr + 'T00:00:00'); s.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((d.getTime() - s.getTime()) / 86400000);
+  if (diffDays < 0) return -1;
+  return diffDays % planDuration;
+}
+
 function getWeekDates(weekOffset: number): string[] {
   const today = new Date();
   const monday = startOfWeek(today, { weekStartsOn: 1 });
@@ -89,19 +107,30 @@ export function MealsTab() {
     planDays,
     mealsPerDay,
     planDuration,
+    planWeekStartDate,
     profile,
     activePlanId,
   } = useAppStore();
 
   // Auto-select today when the tab first mounts
   useEffect(() => { setSelectedDate(todayStr()); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const { weekData, toggleMeal } = useTracker();
+  const { weekData, toggleMeal, loadWeekData } = useTracker();
   const { planDays: planDaysFromPlan, loadPlan } = usePlan();
   const { replacements, openReplacer, undoReplacement, fetchReplacementsForWeek } =
     useMealReplacerStore();
   const { fetchForDate, getForDate } = useAdditionalMealsStore();
 
   const today = todayStr();
+
+  const calendarDates = getWeekDates(mealsCalendarOffset);
+  const canGoForward  = mealsCalendarOffset < 1;  // allow 1 week ahead to preview cycling plan
+  const canGoBack     = mealsCalendarOffset > -8;
+
+  // Re-fetch tracker logs whenever the visible calendar week changes so that
+  // the meal-toggle and eaten-status lookups always have data for the current week.
+  useEffect(() => {
+    loadWeekData(calendarDates[0]);
+  }, [mealsCalendarOffset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchReplacementsForWeek();
@@ -115,24 +144,26 @@ export function MealsTab() {
 
   const additionalMeals = getForDate(selectedDate);
 
-  const calendarDates = getWeekDates(mealsCalendarOffset);
-  const canGoForward  = mealsCalendarOffset < 0;
-  const canGoBack     = mealsCalendarOffset > -8;
-
+  // Build date-keyed lookup for O(1) eaten-status access
   const weekDataByDate: Record<string, typeof weekData[0]> = {};
   weekData.forEach((d) => { weekDataByDate[d.date] = d; });
 
-  const planDayIdx    = weekData.findIndex((d) => d.date === selectedDate);
-  const isPlanDate    = planDayIdx !== -1;
-  const planDay       = isPlanDate ? planDaysFromPlan[planDayIdx] || planDays[planDayIdx] : null;
-  const meals: Meal[] = planDay?.meals || [];
-  const dayTrackerData = weekData[planDayIdx];
+  // ── Cycling day-index calculation ────────────────────────────────────────
+  // Use modulo arithmetic so plans repeat indefinitely after plan start.
+  // -1 only for dates before the plan started (genuinely no plan).
+  const planDayIdx     = getPlanDayIndex(selectedDate, planWeekStartDate, planDuration);
+  const isPlanDate     = planDayIdx >= 0;
+  // planDays is ordered 0..planDuration-1 — direct index lookup is safe
+  const planDay        = isPlanDate ? (planDaysFromPlan[planDayIdx] ?? planDays[planDayIdx] ?? null) : null;
+  const meals: Meal[]  = planDay?.meals || [];
+  // Tracker data: look up by date (independent of position in weekData array)
+  const dayTrackerData = weekDataByDate[selectedDate] ?? null;
 
   const getMealEaten = (mealIndex: number) =>
-    dayTrackerData?.meals[mealIndex]?.eaten ?? false;
+    dayTrackerData?.meals.find(m => m.mealIndex === mealIndex)?.eaten ?? false;
 
   const handleToggle = (mealIndex: number) => {
-    if (!dayTrackerData) return;
+    if (!isPlanDate || selectedIsFuture) return; // can't mark future meals
     const wasEaten = getMealEaten(mealIndex);
     const meal = meals[mealIndex];
     const mealType = meal?.type || ['Breakfast', 'Lunch', 'Snack', 'Dinner', 'Snack 2'][mealIndex] || 'Meal';
@@ -141,7 +172,7 @@ export function MealsTab() {
       meal_type:  mealType,
       day_index:  planDayIdx,
     });
-    toggleMeal(dayTrackerData.date, mealIndex, wasEaten);
+    toggleMeal(selectedDate, mealIndex, wasEaten);
   };
 
   const handleOpenReplacer = (mealIdx: number) => {
@@ -239,17 +270,20 @@ export function MealsTab() {
             const dayLetter  = format(parseISO(date), 'EEEEE');
             const dayNum     = format(parseISO(date), 'd');
 
+            // Future dates: allow tapping to preview cycling plan meals (just can't mark eaten)
+            const hasPlanOnDate = getPlanDayIndex(date, planWeekStartDate, planDuration) >= 0;
+            const clickable     = hasPlanOnDate || !isFuture;
             return (
               <button
                 key={date}
-                disabled={isFuture}
-                onClick={() => { if (!isFuture) setSelectedDate(date); }}
+                disabled={!clickable}
+                onClick={() => { if (clickable) setSelectedDate(date); }}
                 style={{
-                  cursor: isFuture ? 'default' : 'pointer',
+                  cursor: clickable ? 'pointer' : 'default',
                   background: isSelected ? s2.accentFill : 'transparent',
                   border: `1px solid ${isSelected ? s2.accent : s2.line}`,
                   padding: '8px 4px',
-                  opacity: isFuture ? 0.35 : 1,
+                  opacity: !clickable ? 0.35 : isFuture ? 0.65 : 1,
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
@@ -307,7 +341,7 @@ export function MealsTab() {
               {format(parseISO(selectedDate), 'EEEE').toUpperCase()}
             </HairLabel>
           ) : (
-            <HairLabel>{selectedIsFuture ? 'FUTURE DATE' : 'NOT A PLAN DAY'}</HairLabel>
+            <HairLabel>{selectedIsFuture ? 'FUTURE DATE' : 'BEFORE PLAN START'}</HairLabel>
           )}
           <div style={{
             fontFamily: s2.sans,
@@ -337,7 +371,7 @@ export function MealsTab() {
         )}
       </div>
 
-      {/* ── No-plan empty state ───────────────────────────────────────────── */}
+      {/* ── No-plan empty state — only shown for dates BEFORE plan started ── */}
       {!isPlanDate && !selectedIsFuture && (
         <div style={{ padding: '22px 20px 0' }}>
           <Card padding={18}>
@@ -350,9 +384,8 @@ export function MealsTab() {
               lineHeight: 1.5,
             }}>
               No meal plan for this date.
-              {weekData.length > 0 && (
-                <> Your active plan covers{' '}
-                  {weekData[0]?.date} – {weekData[weekData.length - 1]?.date}.
+              {planWeekStartDate && (
+                <> Your plan started on {planWeekStartDate} and repeats every {planDuration} days.
                 </>
               )}
             </div>
@@ -553,20 +586,22 @@ export function MealsTab() {
                         </div>
                       </div>
 
-                      {/* ── Check square ────────────────────────────────── */}
-                      <div style={{ paddingTop: 4, flexShrink: 0 }}>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleToggle(mealIdx); }}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            padding: 0,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <Check on={eaten} size={18} />
-                        </button>
-                      </div>
+                      {/* ── Check square (hidden for future dates) ─────── */}
+                      {!selectedIsFuture && (
+                        <div style={{ paddingTop: 4, flexShrink: 0 }}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleToggle(mealIdx); }}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              padding: 0,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <Check on={eaten} size={18} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </Card>
                 </div>

@@ -8,10 +8,12 @@ export function useTracker() {
     setWeekData, setStats, setWeekStart, toggleMealEaten, setMealsPerDay, setPlanDuration
   } = useAppStore();
 
-  const loadWeekData = useCallback(async () => {
+  const loadWeekData = useCallback(async (startDate?: string) => {
     try {
+      const params: Record<string, string> = {};
+      if (startDate) params.start = startDate;
       const [weekRes, statsRes] = await Promise.all([
-        axios.get('/api/tracker/week', { withCredentials: true }),
+        axios.get('/api/tracker/week', { params, withCredentials: true }),
         axios.get('/api/tracker/stats', { withCredentials: true })
       ]);
       // Validate week data is an array of day tracker objects

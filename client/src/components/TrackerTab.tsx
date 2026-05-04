@@ -12,7 +12,7 @@ import { MonthlyCalorieChart } from './MonthlyCalorieChart';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card, Bar } from './ui';
 
-// ── helpers (unchanged from original) ─────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────────────
 function getMonthStr(date: Date): string { return format(date, 'yyyy-MM'); }
 function todayStr(): string { return format(new Date(), 'yyyy-MM-dd'); }
 function getWeekStartStr(): string {
@@ -20,14 +20,27 @@ function getWeekStartStr(): string {
   const monday = startOfWeek(today, { weekStartsOn: 1 });
   return monday.toISOString().split('T')[0];
 }
+/** Monday of the week containing dateStr (for tracker fetch) */
+function getMondayOfWeek(dateStr: string): string {
+  return format(startOfWeek(parseISO(dateStr), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+}
+/** Modulo-based plan day index — cycles indefinitely after plan start. Returns -1 before start. */
+function getPlanDayIndex(dateStr: string, planStartStr: string | null, planDuration: number): number {
+  if (!planStartStr || !planDuration) return -1;
+  const d = new Date(dateStr     + 'T00:00:00'); d.setHours(0, 0, 0, 0);
+  const s = new Date(planStartStr + 'T00:00:00'); s.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((d.getTime() - s.getTime()) / 86400000);
+  if (diffDays < 0) return -1;
+  return diffDays % planDuration;
+}
 
 // ── TrackerTab ─────────────────────────────────────────────────────────────
 export function TrackerTab() {
-  const { weekData, stats, toggleMeal } = useTracker();
+  const { weekData, stats, loadWeekData } = useTracker();
   const {
     selectedDate, setSelectedDate,
     trackerCalendarMonth, setTrackerCalendarMonth,
-    mealsPerDay, planDuration,
+    mealsPerDay, planDuration, planWeekStartDate,
   } = useAppStore();
   const { fetchReplacementsForWeek } = useMealReplacerStore();
   const { fetchForDate, getForDate } = useAdditionalMealsStore();
@@ -68,9 +81,18 @@ export function TrackerTab() {
   const weekDataByDate: Record<string, typeof weekData[0]> = {};
   weekData.forEach(d => { weekDataByDate[d.date] = d; });
 
+  // When the user taps a date in the month calendar, re-fetch tracker logs
+  // for that date's week if we don't already have them.
+  useEffect(() => {
+    if (!weekDataByDate[selectedDate]) {
+      loadWeekData(getMondayOfWeek(selectedDate));
+    }
+  }, [selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const adherenceValue   = typeof stats?.adherence === 'number' ? stats.adherence : 0;
   const selectedDayData  = weekDataByDate[selectedDate] ?? null;
-  const selectedDayIndex = selectedDayData?.dayIndex ?? weekData.findIndex(d => d.date === selectedDate);
+  // Use modulo-based dayIndex so cycling plans show the correct "DAY X OF Y" label
+  const selectedDayIndex = getPlanDayIndex(selectedDate, planWeekStartDate, planDuration);
   const eatenCount       = selectedDayData?.meals.filter(m => m.eaten).length ?? 0;
   const allEaten         = eatenCount === mealsPerDay;
 

@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAppStore } from '../store/appStore';
 
 export function usePlan() {
-  const { planDays, isGenerated, setPlanDays, setMealsPerDay, setPlanDuration, setActivePlanId } = useAppStore();
+  const { planDays, isGenerated, setPlanDays, setMealsPerDay, setPlanDuration, setActivePlanId, setPlanWeekStartDate } = useAppStore();
 
   const loadPlan = useCallback(async () => {
     try {
@@ -22,6 +22,10 @@ export function usePlan() {
         // Capture active plan ID for cooking instructions lookups
         if (res.data.mealPlanId) {
           setActivePlanId(res.data.mealPlanId);
+        }
+        // Store plan start date for modulo-based day cycling
+        if (res.data.weekStartDate) {
+          setPlanWeekStartDate(res.data.weekStartDate);
         }
       } else {
         setPlanDays([], false);

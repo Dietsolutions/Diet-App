@@ -243,13 +243,13 @@ router.get('/stats', requireAuth, async (req: AuthRequest, res: Response): Promi
   }
 });
 
-// GET /api/tracker/week
+// GET /api/tracker/week?start=YYYY-MM-DD
+// Returns 7 days of tracker data starting from `start` (defaults to plan start).
+// dayIndex is computed via modulo so plans cycle indefinitely after plan start.
 router.get('/week', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
 
-    // Use the active plan's actual weekStartDate so tracker days align with
-    // the plan's Day 0, not Monday of the calendar week.
     const activePlan = await prisma.mealPlan.findFirst({
       where: { userId, isActive: true },
       orderBy: { generatedAt: 'desc' },
@@ -257,25 +257,42 @@ router.get('/week', requireAuth, async (req: AuthRequest, res: Response): Promis
     });
 
     const planDuration = activePlan?.planDuration || 7;
-    const planDates = activePlan
-      ? (() => {
-          const start = new Date(activePlan.weekStartDate);
-          start.setHours(0, 0, 0, 0);
-          return Array.from({ length: planDuration }, (_, i) => {
-            const d = new Date(start);
-            d.setDate(start.getDate() + i);
-            return localDateStr(d);
-          });
-        })()
-      : getPlanDates(planDuration);
+
+    // Plan start in local date (used for modulo dayIndex computation)
+    const planStartDate: Date | null = activePlan
+      ? (() => { const d = new Date(activePlan.weekStartDate); d.setHours(0, 0, 0, 0); return d; })()
+      : null;
+
+    // Window start: use ?start= if provided, otherwise plan start (or today fallback)
+    const rawStart = req.query.start as string | undefined;
+    const windowStart: Date = rawStart
+      ? (() => { const d = new Date(rawStart + 'T00:00:00'); d.setHours(0, 0, 0, 0); return d; })()
+      : planStartDate ?? (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
+
+    // Build 7-date window
+    const windowDates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(windowStart);
+      d.setDate(windowStart.getDate() + i);
+      return localDateStr(d);
+    });
 
     const mealsPerDay = await getMealsPerDay(userId);
 
     const logs = await prisma.mealLog.findMany({
-      where: { userId, date: { in: planDates } }
+      where: { userId, date: { in: windowDates } }
     });
 
-    const week = planDates.map((date, dayIndex) => {
+    const week = windowDates.map((date) => {
+      // Compute dayIndex via modulo — cycles indefinitely after plan start.
+      // Returns -1 only for dates before the plan started.
+      let dayIndex = -1;
+      if (planStartDate) {
+        const dateMs  = new Date(date + 'T00:00:00').getTime();
+        const startMs = planStartDate.getTime();
+        const diffDays = Math.round((dateMs - startMs) / 86400000);
+        if (diffDays >= 0) dayIndex = diffDays % planDuration;
+      }
+
       const dayLogs = logs.filter(l => l.date === date);
       const meals = Array.from({ length: mealsPerDay }, (_, mealIndex) => {
         const log = dayLogs.find(l => l.mealIndex === mealIndex);
@@ -284,7 +301,7 @@ router.get('/week', requireAuth, async (req: AuthRequest, res: Response): Promis
       return { date, dayIndex, meals };
     });
 
-    res.json({ week, weekStart: planDates[0], mealsPerDay, planDuration });
+    res.json({ week, weekStart: localDateStr(windowStart), mealsPerDay, planDuration });
   } catch (err) {
     console.error('Tracker week error:', err instanceof Error ? err.message : 'unknown');
     res.status(500).json({ error: 'server_error', message: 'Failed to load tracker week.' });

@@ -50,6 +50,9 @@ interface AppState {
   // Active plan ID (populated when plan loads — needed for cooking instructions)
   activePlanId: string | null;
 
+  // Plan start date (stored from /api/plan — used for modulo-based day cycling)
+  planWeekStartDate: string | null; // "YYYY-MM-DD"
+
   // Plan review overlay (shown after generation / re-generation)
   showPlanReview: boolean;
   planReviewMealPlanId: string | null;
@@ -74,6 +77,7 @@ interface AppState {
   setPeopleCount: (n: number) => void;
   setProfile: (profile: UserProfile | null) => void;
   setActivePlanId: (id: string | null) => void;
+  setPlanWeekStartDate: (date: string | null) => void;
   setLastShoppingUpdateTime: (t: number | null) => void;
   setWater: (date: string, glasses: number) => void;
   navigateToMealsFromTracker: (dayIndex: number, date: string) => void;
@@ -104,6 +108,7 @@ export const useAppStore = create<AppState>((set) => ({
   waterByDate: {},
   lastShoppingUpdateTime: null,
   activePlanId: null,
+  planWeekStartDate: null,
   showPlanReview: false,
   planReviewMealPlanId: null,
 
@@ -154,6 +159,7 @@ export const useAppStore = create<AppState>((set) => ({
   setPeopleCount: (peopleCount) => set({ peopleCount }),
   setProfile: (profile) => set({ profile }),
   setActivePlanId: (activePlanId) => set({ activePlanId }),
+  setPlanWeekStartDate: (planWeekStartDate) => set({ planWeekStartDate }),
   setLastShoppingUpdateTime: (lastShoppingUpdateTime) => set({ lastShoppingUpdateTime }),
 
   navigateToMealsFromTracker: (dayIndex, date) =>

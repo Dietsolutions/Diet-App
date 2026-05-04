@@ -1283,3 +1283,106 @@ UPDATE "MealPlan" SET "weekStartDate" = CURRENT_DATE WHERE "isActive" = true;
 ## Change 6 — Auto-select Today on MealsTab Mount
 
 Added a `useEffect(() => { setSelectedDate(todayStr()); }, [])` after the `useAppStore()` destructure in `MealsTab.tsx`. The effect fires once on mount, ensuring that even if the store's `selectedDate` persists from a previous session, the user lands on today's meals immediately.
+
+---
+
+# Cycling Plan — Plans Repeat Indefinitely via Modulo — 2026-05-04
+
+## Files Modified
+
+| File | Change |
+|---|---|
+| `client/src/store/appStore.ts` | Added `planWeekStartDate: string \| null` + `setPlanWeekStartDate` action |
+| `client/src/hooks/usePlan.ts` | Store `weekStartDate` from `/api/plan` response into `planWeekStartDate` |
+| `client/src/hooks/useTracker.ts` | `loadWeekData(startDate?: string)` — pass optional `?start=` to tracker API |
+| `client/src/components/MealsTab.tsx` | `getPlanDayIndex` helper (modulo), cycling day lookup, per-week tracker refetch, future-week preview |
+| `client/src/components/TrackerTab.tsx` | `getPlanDayIndex` helper, modulo dayIndex, per-selectedDate tracker refetch |
+| `server/src/routes/tracker.ts` | `/week` endpoint accepts `?start=YYYY-MM-DD`, computes dayIndex via modulo, returns 7-day window |
+
+---
+
+## Root Cause
+
+`MealsTab` determined "is this a plan date?" using:
+```typescript
+const planDayIdx = weekData.findIndex((d) => d.date === selectedDate);
+const isPlanDate = planDayIdx !== -1;
+```
+
+`weekData` came from `/api/tracker/week` which only returned `planDuration` days. On day `planDuration + 1`, the date was absent from `weekData` → `planDayIdx = -1` → `isPlanDate = false` → "No meal plan for this date."
+
+---
+
+## The Fix — `getPlanDayIndex` (modulo)
+
+```typescript
+function getPlanDayIndex(
+  dateStr:      string,
+  planStartStr: string | null,
+  planDuration: number,
+): number {
+  if (!planStartStr || !planDuration) return -1;
+  const d = new Date(dateStr     + 'T00:00:00'); d.setHours(0, 0, 0, 0);
+  const s = new Date(planStartStr + 'T00:00:00'); s.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((d.getTime() - s.getTime()) / 86400000);
+  if (diffDays < 0) return -1;          // before plan start — genuinely no plan
+  return diffDays % planDuration;        // cycles forever after plan start
+}
+```
+
+Defined in both `MealsTab.tsx` and `TrackerTab.tsx` (pure helper, no shared import needed).
+
+---
+
+## `planWeekStartDate` in the Store
+
+`/api/plan` already returned `weekStartDate` in its response but it was not stored. Added `planWeekStartDate: string | null` to `appStore`. `usePlan` now calls `setPlanWeekStartDate(res.data.weekStartDate)` when the plan loads. Both `MealsTab` and `TrackerTab` read this to compute cycling dayIndex.
+
+---
+
+## Tracker Week Endpoint — `?start=YYYY-MM-DD`
+
+`/api/tracker/week` now accepts an optional `?start=YYYY-MM-DD` query param:
+- With `?start=`: returns 7 days from that date, with dayIndex computed via modulo
+- Without `?start=`: uses plan start as the window start (backwards compat)
+
+The `dayIndex` in every returned day object is now the modulo-computed index (0..planDuration-1), not the position in the array. This means:
+- Day 8 of a 7-day plan returns `dayIndex: 0`
+- Day 9 returns `dayIndex: 1`, etc.
+
+`MealsTab` passes `calendarDates[0]` (the Monday of the visible week) to `loadWeekData` whenever `mealsCalendarOffset` changes. `TrackerTab` refetches for the Monday of the selected date's week when `selectedDate` changes to a date not in current `weekData`.
+
+---
+
+## "No meal plan for this date" — Only Shown Before Plan Start
+
+`!isPlanDate` now only fires when `planDayIdx === -1`, which only happens for dates before `planWeekStartDate`. The message was updated:
+
+**Before:** "No meal plan for this date. Your active plan covers {start} – {end}."
+**After:** "No meal plan for this date. Your plan started on {date} and repeats every {planDuration} days."
+
+---
+
+## Future Week Preview
+
+- `canGoForward` extended from `mealsCalendarOffset < 0` to `mealsCalendarOffset < 1` (one week ahead)
+- Future calendar dates are now tappable if the plan has a cycling day for that date
+- Meals are shown (read-only) for future cycling dates
+- The check-mark/toggle button is hidden for future dates (`selectedIsFuture` guard)
+- `handleToggle` returns early if `selectedIsFuture`
+
+---
+
+## `getPlanForDate` — Historical Plan Lookup (Server)
+
+The `/api/tracker/week` endpoint queries the active plan's `weekStartDate` from the `isActive: true` plan. When a user regenerates a plan, the new plan becomes active. Historical dates before the regeneration would use the new plan's modulo, not the old plan's.
+
+**Accepted trade-off:** Historical adherence for dates under a previous plan will use the new plan's cycling pattern. This is a reasonable simplification — the tracker shows forward-looking adherence, not historical forensics.
+
+---
+
+## TrackerTab `selectedDayIndex`
+
+Before: `selectedDayData?.dayIndex ?? weekData.findIndex(d => d.date === selectedDate)` — would return -1 for cycling dates.
+
+After: `getPlanDayIndex(selectedDate, planWeekStartDate, planDuration)` — always returns the correct modulo-based index. The "DAY X OF Y" label in TrackerTab now correctly cycles (e.g., day 8 shows "DAY 1 OF 7").
