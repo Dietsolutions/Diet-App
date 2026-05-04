@@ -1483,3 +1483,90 @@ The gate is placed **after** the reuse check so that if a non-English record som
 ## DB Backfill Note (Fix 4)
 
 No backfill required for `audioScript`. The column already exists on all rows. The refactored `buildAudioScript` is called immediately before the TTS request — if TTS was previously failing for non-English, those rows will still have `audioScript: null` but will now correctly return a 400 before reaching the TTS call. Existing English-language rows with valid `audioUrl` + `audioScript` are unaffected.
+
+---
+
+# English audioScript Fix — audioScript Now Always Generated via Claude from English Plan Data — 2026-05-04
+
+## Files Modified
+
+| File | Change |
+|---|---|
+| `server/src/routes/meals.ts` | Added `buildEnglishAudioScript()` async function; updated generate-audio handler to use it; deprecated `buildAudioScript()` for TTS use |
+
+---
+
+## Root Cause
+
+`buildAudioScript(existing)` read `existing.ingredients` and `existing.steps` directly from the `MealCookingInstructions` DB record. When a user generates text instructions in Hindi, those fields are stored in Hindi. The resulting audio script was therefore Hindi text fed into Unreal Speech (an English-only TTS service) — producing either garbled output or a failed request.
+
+---
+
+## Fix — `buildEnglishAudioScript()` (async, Claude-based)
+
+New function placed above the router that:
+1. Accepts `mealName`, `originalMeal` (the plan day meal object), and `servings`
+2. Calls Claude with the original English ingredients list from the plan day (never from stored instructions)
+3. Prompts Claude for a concise spoken-word guide (max 2500 chars, plain text, no JSON/headers)
+4. Hard-caps output at 2800 chars (Unreal Speech limit)
+5. Throws on missing API key so the generate-audio handler returns 500 cleanly
+
+```typescript
+async function buildEnglishAudioScript(
+  mealName:     string,
+  originalMeal: any,   // plan meal object — always English
+  servings:     number,
+): Promise<string>
+```
+
+---
+
+## Updated generate-audio Endpoint Flow
+
+```
+1. Validate body params
+2. Fetch MealCookingInstructions record (must exist)
+3. Short-circuit if audioUrl already exists for matching language
+4. Reuse check (same meal name + language, another record)
+5. English-only gate (400 for non-English)
+6. Rate limit check (10/day)
+7. NEW: Fetch MealPlanDay and parse meals JSON → originalMeal
+8. NEW: await buildEnglishAudioScript(mealName, originalMeal, servings)
+         ↑ calls Claude with English plan data, NOT existing.ingredients
+9. TTS → storeAudioFile → save audioScript + audioUrl to DB
+```
+
+`buildAudioScript(existing)` is no longer called in the audio generation path. It is deprecated with a comment warning that ingredients/steps may be non-English.
+
+---
+
+## Why Plan Day Data Is Always English
+
+The `MealPlanDay.meals` JSON is produced by the AI generation endpoint (`POST /api/ai/generate-meal-plan`) which always generates in English. The per-language translation only happens at the cooking instructions level (`MealCookingInstructions.ingredients` and `.steps`). The original plan data is immutable after generation.
+
+---
+
+## SQL — Identify and Clear Affected Non-English Audio Records
+
+Run in Neon SQL editor to check for records where Hindi/Kannada/Tamil/Telugu audio may have been generated before this fix:
+
+```sql
+-- Identify affected records (non-English with audio already generated):
+SELECT id, "mealName", "language", "audioUrl",
+  LEFT("audioScript", 100) AS script_preview
+FROM meal_cooking_instructions
+WHERE "language" != 'en'
+  AND "audioUrl" IS NOT NULL;
+
+-- Clear audioUrl for affected records so users are prompted to regenerate:
+-- (New audio will be generated in English from plan data via buildEnglishAudioScript)
+UPDATE meal_cooking_instructions
+SET "audioUrl"          = NULL,
+    "audioScript"       = NULL,
+    "audioGeneratedAt"  = NULL,
+    "audioProviderUsed" = NULL
+WHERE "language" != 'en'
+  AND "audioUrl" IS NOT NULL;
+```
+
+Self-healing: users who tap "Generate Audio" again will get a correct English audio file.

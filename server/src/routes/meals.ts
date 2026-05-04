@@ -9,9 +9,12 @@ const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
 
 const router = Router();
 
-// ── Audio script builder ───────────────────────────────────────────────────
-// Extracted so it can be tested independently and safely reused.
-// Returns empty string on failure (never throws).
+// ── Audio script builder (DEPRECATED for TTS use) ─────────────────────────
+// DO NOT call this in the audio generation path — existing.ingredients and
+// existing.steps may be in a non-English language (Hindi, Kannada, etc.).
+// Use buildEnglishAudioScript() instead, which calls Claude with the original
+// English plan meal data.
+// This function is kept only in case it is useful for non-TTS purposes.
 function buildAudioScript(existing: {
   mealName:   string;
   totalTime:  string;
@@ -43,6 +46,57 @@ function buildAudioScript(existing: {
     console.error('[buildAudioScript] Failed to build audio script:', err);
     return '';
   }
+}
+
+// ── English-only audio script builder (TTS-safe) ──────────────────────────
+// Calls Claude with the original English plan meal object (always in English)
+// to produce a concise, spoken-word cooking guide.
+// The stored instructions (ingredients/steps) are intentionally NOT used here
+// because they may be in a non-English language chosen by the user.
+async function buildEnglishAudioScript(
+  mealName:     string,
+  originalMeal: any,   // plan meal object — always English
+  servings:     number,
+): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
+
+  const client = new Anthropic({ apiKey });
+
+  const ingredientsList = Array.isArray(originalMeal?.ingredients)
+    ? originalMeal.ingredients.join(', ')
+    : '';
+
+  const prompt = `You are writing a short cooking audio guide in English only.
+
+MEAL: ${mealName}
+SERVINGS: ${servings}
+DESCRIPTION: ${originalMeal?.description || ''}
+INGREDIENTS (from plan): ${ingredientsList}
+
+Write a concise cooking audio script in English.
+Maximum 2500 characters total (must stay under this limit).
+Structure:
+1. One opening line naming the meal and servings
+2. List ingredients with quantities (brief)
+3. 4-6 cooking steps (brief, practical)
+4. One closing line
+
+Output plain text only. No JSON. No headers. No bullet points.
+Write as natural spoken English — short sentences, easy to follow while cooking.`;
+
+  const response = await client.messages.create({
+    model:      CLAUDE_MODEL,
+    max_tokens: 800,
+    messages:   [{ role: 'user', content: prompt }],
+  });
+
+  const text = response.content[0]?.type === 'text'
+    ? response.content[0].text.trim()
+    : '';
+
+  // Hard cap at 2800 chars to stay within Unreal Speech limit
+  return text.substring(0, 2800);
 }
 
 // POST /api/meals/replace
@@ -624,10 +678,23 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
       res.status(429).json({ error: 'Daily audio generation limit reached (10/day). Try again tomorrow.' }); return;
     }
 
-    // ── Build the narration script ────────────────────────────────────────────
-    const audioScript = buildAudioScript(existing);
+    // ── Fetch original English plan meal (ingredients/steps always in English) ──
+    const planDay = await prisma.mealPlanDay.findFirst({ where: { mealPlanId, dayIndex } });
+    const originalMeal = planDay
+      ? (JSON.parse(planDay.meals as string) as any[])[mealIndex] ?? {}
+      : {};
+
+    // ── Build narration script in English using original plan data ─────────────
+    // Do NOT use existing.ingredients / existing.steps — they may be in a
+    // non-English language. buildEnglishAudioScript() calls Claude with the
+    // original English meal data from the plan day.
+    const audioScript = await buildEnglishAudioScript(
+      existing.mealName,
+      originalMeal,
+      existing.servings ?? 1,
+    );
     if (!audioScript) {
-      res.status(500).json({ error: 'Failed to build audio script. Please try again.' });
+      res.status(500).json({ error: 'Failed to build English audio script. Please try again.' });
       return;
     }
     const wordCount     = audioScript.split(/\s+/).length;
