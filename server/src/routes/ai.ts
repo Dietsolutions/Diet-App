@@ -319,6 +319,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     let cnChecksTotal      = 0;
     let cnCorrectionsTotal = 0;
 
+    try {
     if (CN_ENABLED) {
       const estimatedCalls = DAYS_TO_VALIDATE * (planData.days[0]?.meals?.length ?? 4);
       console.log(
@@ -447,6 +448,10 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     } else {
       // CalorieNinjas not configured — skip silently, use Claude estimates as before
       console.log('[Validation] CalorieNinjas not configured — skipping macro verification');
+    }
+    } catch (cnErr: any) {
+      // CalorieNinjas failure must NEVER kill the generation — fall back to Claude's original estimates
+      console.error('[CalorieNinjas] Verification pipeline failed — skipping, using Claude estimates:', cnErr.message);
     }
     // ── END MACRO VERIFICATION ────────────────────────────────────────────────
 
