@@ -27,7 +27,7 @@ import * as path from 'path';
 
 const prisma = new PrismaClient();
 
-// ── CSV parser ─────────────────────────────────────────────────────────────
+// ── CSV parser (supports multi-line quoted fields) ─────────────────────────
 
 function parseCSV(filePath: string): { headers: string[]; rows: string[][] } | null {
   if (!fs.existsSync(filePath)) {
@@ -38,27 +38,45 @@ function parseCSV(filePath: string): { headers: string[]; rows: string[][] } | n
 
   const content = fs.readFileSync(filePath, 'utf-8')
     .replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-    // strip BOM
-    .replace(/^﻿/, '');
+    .replace(/^﻿/, ''); // strip BOM
 
-  const lines = content.split('\n').filter(l => l.trim());
-  if (lines.length === 0) return null;
-
-  function parseLine(line: string): string[] {
-    const result: string[] = [];
-    let current = '';
+  // Character-by-character parse — handles embedded newlines inside quoted fields
+  function parseAll(raw: string): string[][] {
+    const records: string[][] = [];
+    let field = '';
+    let fields: string[] = [];
     let inQuotes = false;
-    for (const ch of line) {
-      if (ch === '"') { inQuotes = !inQuotes; }
-      else if (ch === ',' && !inQuotes) { result.push(current.trim().replace(/^"|"$/g, '')); current = ''; }
-      else { current += ch; }
+
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (ch === '"') {
+        if (inQuotes && raw[i + 1] === '"') { field += '"'; i++; } // escaped ""
+        else { inQuotes = !inQuotes; }
+      } else if (ch === ',' && !inQuotes) {
+        fields.push(field.trim().replace(/^"|"$/g, ''));
+        field = '';
+      } else if (ch === '\n' && !inQuotes) {
+        fields.push(field.trim().replace(/^"|"$/g, ''));
+        field = '';
+        if (fields.some(f => f.length > 0)) records.push(fields);
+        fields = [];
+      } else {
+        field += ch;
+      }
     }
-    result.push(current.trim().replace(/^"|"$/g, ''));
-    return result;
+    // flush last record
+    if (field.trim() || fields.length > 0) {
+      fields.push(field.trim().replace(/^"|"$/g, ''));
+      if (fields.some(f => f.length > 0)) records.push(fields);
+    }
+    return records;
   }
 
-  const headers = parseLine(lines[0]).map(h => h.toLowerCase().trim().replace(/[^a-z0-9_]/g, '_'));
-  const rows    = lines.slice(1).map(l => parseLine(l));
+  const records = parseAll(content);
+  if (records.length === 0) return null;
+
+  const headers = records[0].map(h => h.toLowerCase().trim().replace(/[^a-z0-9_]/g, '_'));
+  const rows    = records.slice(1);
 
   console.log(`\n[CSV] ${path.basename(filePath)}: ${rows.length} rows`);
   console.log(`[CSV] Headers: ${headers.slice(0, 12).join(' | ')}`);
@@ -92,6 +110,22 @@ function toFloat(val: string): number {
   return isNaN(n) ? 0 : Math.round(n * 10) / 10;
 }
 
+/**
+ * Parse energy from formatted strings like "84 kj\n(20 kcal)" or "335 kJ".
+ * Prefers the explicit kcal value when present; falls back to kJ ÷ 4.184.
+ */
+function toKcal(val: string): number {
+  if (!val) return 0;
+  // Explicit kcal e.g. "(20 kcal)" or "20 kcal"
+  const kcalMatch = val.match(/\(?\s*(\d+(?:\.\d+)?)\s*kcal\s*\)?/i);
+  if (kcalMatch) return parseFloat(kcalMatch[1]);
+  // kJ only — convert
+  const kjMatch = val.match(/(\d+(?:\.\d+)?)\s*kj/i);
+  if (kjMatch) return Math.round(parseFloat(kjMatch[1]) / 4.184 * 10) / 10;
+  // Plain number fallback
+  return toFloat(val);
+}
+
 function toCode(name: string, prefix: string, index: number): string {
   return `${prefix}_${name.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 28)}_${index}`;
 }
@@ -111,25 +145,28 @@ async function upsertRecipe(data: {
   servingName:     string;
   source:          string;
   dataSource:      string;
+  allowNoMacros?:  boolean;   // sooryaprakash: name-only rows are useful for search index
 }): Promise<boolean> {
   if (data.recipeName.length < 3) return false;
   // Skip rows that have zero for both calories and protein — almost certainly bad data
-  if (data.caloriesPer100g === 0 && data.proteinPer100g === 0) return false;
+  // (unless this dataset is name-only by design)
+  if (!data.allowNoMacros && data.caloriesPer100g === 0 && data.proteinPer100g === 0) return false;
   // Skip implausible calories (>900 kcal/100g is only possible for pure fats)
   if (data.caloriesPer100g > 950) return false;
 
+  const { allowNoMacros: _ignored, ...prismaData } = data;
+
   try {
     await prisma.indianRecipe.upsert({
-      where:  { recipeCode: data.recipeCode },
-      create: data,
+      where:  { recipeCode: prismaData.recipeCode },
+      create: prismaData,
       update: {
-        // Only overwrite macros; preserve recipeName from the first source that added it
-        caloriesPer100g: data.caloriesPer100g,
-        proteinPer100g:  data.proteinPer100g,
-        carbsPer100g:    data.carbsPer100g,
-        fatPer100g:      data.fatPer100g,
-        fibrePer100g:    data.fibrePer100g,
-        aliases:         data.aliases,
+        caloriesPer100g: prismaData.caloriesPer100g,
+        proteinPer100g:  prismaData.proteinPer100g,
+        carbsPer100g:    prismaData.carbsPer100g,
+        fatPer100g:      prismaData.fatPer100g,
+        fibrePer100g:    prismaData.fibrePer100g,
+        aliases:         prismaData.aliases,
       },
     });
     return true;
@@ -140,7 +177,9 @@ async function upsertRecipe(data: {
 
 // ─────────────────────────────────────────────────────────────────────────
 // DATASET 1 — batthulavinay/indian-food-nutrition
-// Typical columns: food_name, energy_kcal, protein_g, carbohydrate_g, fat_g, fibre_g
+// Headers (after normalization):
+//   dish_name | calories__kcal_ | carbohydrates__g_ | protein__g_ | fats__g_ | fibre__g_
+// The double-underscore comes from "Calories (kcal)" → "calories__kcal_".
 // ─────────────────────────────────────────────────────────────────────────
 
 async function seedBatthulavinay(): Promise<number> {
@@ -154,17 +193,16 @@ async function seedBatthulavinay(): Promise<number> {
 
   for (let i = 0; i < rows.length; i++) {
     const row  = rows[i];
-    const name = col(row, 'food_name', 'name', 'item', 'food', 'dish', 'food name',
-                       'item_name', 'dish_name', 'recipe', 'recipe_name');
+    const name = col(row, 'dish_name', 'food_name', 'name', 'item', 'food', 'dish');
     if (!name) continue;
 
-    const cal   = toFloat(col(row, 'energy_kcal', 'calories', 'energy', 'kcal', 'cal', 'calorie'));
-    const prot  = toFloat(col(row, 'protein_g', 'protein', 'proteins'));
-    const carb  = toFloat(col(row, 'carbohydrate_g', 'carbohydrates', 'carbs', 'carbohydrate',
-                               'cho', 'total_carbohydrate', 'total carbohydrate'));
-    const fat   = toFloat(col(row, 'fat_g', 'fat', 'total_fat', 'fats', 'total fat'));
-    const fibre = toFloat(col(row, 'fibre_g', 'fiber', 'fibre', 'dietary_fiber', 'dietary fiber',
-                               'dietary_fibre'));
+    // Actual normalized column names from this dataset use double-underscores
+    // e.g. "Calories (kcal)" → "calories__kcal_"
+    const cal   = toFloat(col(row, 'calories__kcal_',   'energy_kcal', 'calories', 'energy', 'kcal'));
+    const prot  = toFloat(col(row, 'protein__g_',        'protein_g',   'protein',  'proteins'));
+    const carb  = toFloat(col(row, 'carbohydrates__g_',  'carbohydrate_g', 'carbohydrates', 'carbs'));
+    const fat   = toFloat(col(row, 'fats__g_',           'fat_g',       'fat',      'total_fat'));
+    const fibre = toFloat(col(row, 'fibre__g_',          'fiber_g',     'fiber',    'fibre', 'dietary_fiber'));
     const servG = toFloat(col(row, 'serving_size', 'serving_g', 'portion', 'serving')) || 100;
 
     const ok = await upsertRecipe({
@@ -190,7 +228,12 @@ async function seedBatthulavinay(): Promise<number> {
 
 // ─────────────────────────────────────────────────────────────────────────
 // DATASET 2 — syedkhalid076/indian-food-nutrition
-// Typical columns: food_name (or name), energy, protein, carbohydrate, fat, fibre
+// Headers: food_link | name | brand | nutri_score | processing_score |
+//          nutri_energy | nutri_fat | nutri_satufat | nutri_carbohydrate |
+//          nutri_sugar | nutri_fiber | nutri_protein | nutri_salt
+//
+// Energy field is a formatted string: "84 kj\n(20 kcal)" — handled by toKcal().
+// Other macro fields are like "1.5 g" — toFloat() strips the unit.
 // ─────────────────────────────────────────────────────────────────────────
 
 async function seedSyedkhalid(): Promise<number> {
@@ -204,16 +247,16 @@ async function seedSyedkhalid(): Promise<number> {
 
   for (let i = 0; i < rows.length; i++) {
     const row  = rows[i];
-    const name = col(row, 'food_name', 'name', 'food', 'item', 'dish',
-                       'food_name', 'item_name', 'dish_name');
+    const name = col(row, 'name', 'food_name', 'food', 'item', 'dish');
     if (!name) continue;
 
-    const cal   = toFloat(col(row, 'energy', 'calories', 'kcal', 'energy_kcal', 'cal'));
-    const prot  = toFloat(col(row, 'protein', 'protein_g', 'proteins'));
-    const carb  = toFloat(col(row, 'carbohydrate', 'carbohydrates', 'carbs',
-                               'carbohydrate_g', 'cho'));
-    const fat   = toFloat(col(row, 'fat', 'fat_g', 'total_fat', 'fats'));
-    const fibre = toFloat(col(row, 'fibre', 'fiber', 'fibre_g', 'dietary_fiber', 'dietary_fibre'));
+    // Energy is a formatted string — use toKcal() instead of toFloat()
+    const calRaw = col(row, 'nutri_energy', 'energy_kcal', 'energy', 'calories', 'kcal');
+    const cal    = toKcal(calRaw);
+    const prot   = toFloat(col(row, 'nutri_protein',       'protein_g',  'protein',  'proteins'));
+    const carb   = toFloat(col(row, 'nutri_carbohydrate',  'carbohydrate_g', 'carbohydrates', 'carbs'));
+    const fat    = toFloat(col(row, 'nutri_fat',            'fat_g',      'fat',      'total_fat'));
+    const fibre  = toFloat(col(row, 'nutri_fiber',  'nutri_fibre', 'fiber_g', 'fiber', 'fibre'));
 
     const ok = await upsertRecipe({
       recipeCode:      toCode(name, 'KGSK', i),
@@ -238,8 +281,11 @@ async function seedSyedkhalid(): Promise<number> {
 
 // ─────────────────────────────────────────────────────────────────────────
 // DATASET 3 — sooryaprakash12/cleaned-indian-recipes-dataset
-// This dataset contains recipe names + ingredients but typically no macros.
-// Even without macros, recipe names improve search matching.
+// Headers: TranslatedRecipeName | TranslatedIngredients | TotalTimeInMins |
+//          Cuisine | TranslatedInstructions | URL | Cleaned-Ingredients | ...
+//
+// No macro columns — allowNoMacros is set so name-only rows go through.
+// Recipe names expand the fuzzy search index even without nutrition data.
 // ─────────────────────────────────────────────────────────────────────────
 
 async function seedSooryaprakash(): Promise<number> {
@@ -254,8 +300,10 @@ async function seedSooryaprakash(): Promise<number> {
 
   for (let i = 0; i < rows.length; i++) {
     const row  = rows[i];
-    const name = col(row, 'recipe_name', 'name', 'translated_recipe_name',
-                       'recipe name', 'dish', 'food_name', 'recipename');
+    // "TranslatedRecipeName" normalizes to "translatedrecipename" (no separators)
+    // The resolver variant that strips all non-alnum chars will match it.
+    const name = col(row, 'translated_recipe_name', 'translatedrecipename',
+                       'recipe_name', 'name', 'dish', 'food_name', 'recipename');
     if (!name) continue;
 
     const cal   = toFloat(col(row, 'calories', 'energy', 'kcal', 'energy_kcal'));
@@ -266,13 +314,10 @@ async function seedSooryaprakash(): Promise<number> {
 
     if (cal > 0 || prot > 0) withMacros++;
 
-    // Build aliases from cuisine / diet columns for better fuzzy matching
     const cuisine = col(row, 'cuisine', 'region', 'course', 'category');
     const diet    = col(row, 'diet', 'veg_or_nonveg', 'type', 'dietary_preference');
     const aliases = [cuisine, diet].filter(s => s && s.length < 40).join(',') || null;
 
-    // Even name-only rows (no macros) are useful if cal+prot are 0 —
-    // they still expand the search name index.
     const ok = await upsertRecipe({
       recipeCode:      toCode(name, 'KGSP', i),
       recipeName:      name,
@@ -286,6 +331,7 @@ async function seedSooryaprakash(): Promise<number> {
       servingName:     '100g',
       source:          'KAGGLE',
       dataSource:      'Kaggle: sooryaprakash12/cleaned-indian-recipes-dataset',
+      allowNoMacros:   true, // name-only rows still expand the search index
     });
     if (ok) count++;
   }
