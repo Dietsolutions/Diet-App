@@ -156,12 +156,15 @@ export interface FoodResult {
   id: string;
   name: string;
   description: string;
-  source: 'open_food_facts' | 'usda' | 'ai_estimate';
+  source: 'open_food_facts' | 'usda' | 'ai_estimate' | 'indian_db' | 'calorie_ninjas';
+  sourceLabel?: string;   // 'INDB' | 'ICMR-NIN' | 'OFF' | 'USDA' | 'AI' | 'CN'
   servingSizes: ServingSize[];
   defaultServing: ServingSize;
   per100g: FoodMacros;
   perServing: FoodMacros;
   isAiEstimate: boolean;
+  matchScore?: number;
+  dataSource?: string;
 }
 
 export interface AdditionalMealLog {

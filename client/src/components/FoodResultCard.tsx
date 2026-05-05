@@ -13,6 +13,8 @@ const SOURCE_LABELS: Record<string, string> = {
   open_food_facts: 'OFF',
   usda:            'USDA',
   ai_estimate:     'AI',
+  indian_db:       'INDB',   // sourceLabel will be 'INDB' or 'ICMR-NIN'
+  calorie_ninjas:  'CN',
 };
 
 export function FoodResultCard({ food, onSelect }: FoodResultCardProps) {
@@ -86,7 +88,7 @@ export function FoodResultCard({ food, onSelect }: FoodResultCardProps) {
       {/* Source tag */}
       <div style={{ marginTop: 8 }}>
         <HairLabel color={isAI ? s2.accent : s2.textDimmer} style={{ fontSize: 7 }}>
-          {SOURCE_LABELS[food.source] || food.source}
+          {food.sourceLabel || SOURCE_LABELS[food.source] || food.source}
           {isAI ? ' · ESTIMATE — ACCURACY MAY VARY' : ''}
         </HairLabel>
       </div>

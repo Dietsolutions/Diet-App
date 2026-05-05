@@ -15,12 +15,15 @@ export interface FoodResult {
   id: string;
   name: string;
   description: string;
-  source: 'open_food_facts' | 'usda' | 'ai_estimate';
+  source: 'open_food_facts' | 'usda' | 'ai_estimate' | 'indian_db' | 'calorie_ninjas';
+  sourceLabel?: string;   // display label: 'INDB' | 'ICMR-NIN' | 'OFF' | 'USDA' | 'AI' | 'CN'
   servingSizes: ServingSize[];
   defaultServing: ServingSize;
   per100g: Macros;
   perServing: Macros;
   isAiEstimate: boolean;
+  matchScore?: number;    // fuzzy match confidence 0–1 (Indian food service)
+  dataSource?: string;    // e.g. 'ICMR-NIN IFCT 2017 via INDB'
 }
 
 export interface AIComponent {

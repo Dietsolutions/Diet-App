@@ -1801,3 +1801,73 @@ ALTER TABLE meal_plans
 - Extracts `err.response.data.message` → `err.response.data.error` → generic fallback
 - Displays the real server message to the user (e.g. "Could not confirm: Plan not found")
 - `console.error` logs the raw server response for debugging in browser devtools
+
+---
+
+## Indian Food Search Waterfall (2026-05-05)
+
+### What was built
+A 6-step food search waterfall replacing the previous parallel OFF + USDA fetch:
+1. INDB Indian Recipes (self-hosted, 1,014 recipes)
+2. ICMR-NIN Raw Ingredients (self-hosted, 542 foods)
+3. Open Food Facts (global packaged foods)
+4. CalorieNinjas (natural-language nutrition API, optional key)
+5. USDA FoodData Central (US/global nutrients, optional key)
+6. Claude AI fallback (last resort, 5 calls/user/hour)
+
+### INDB Dataset
+- **Source**: `INDB.xlsx` downloaded from `github.com/lindsayjaacks/Indian-Nutrient-Databank-INDB-`
+- **Format**: The repo contains only XLSX files (no CSV). Used `xlsx` npm package to parse.
+- **Columns (per 100g)**: `food_code`, `food_name`, `energy_kcal`, `protein_g`, `carb_g`, `fat_g`, `fibre_g`
+- **Serving size**: computed as `round((unit_serving_energy_kcal / energy_kcal) * 100)` grams
+- **Records seeded**: 1,014 recipes
+
+### ICMR-NIN Dataset
+- **Source**: `@ifct2017/compositions/index.csv` (bundled with the `ifct2017` npm package)
+- **Note**: The `ifct2017` npm package's JavaScript API (`compositions()`) returns empty arrays — it requires a running PostgreSQL database with `lunr` + `sql-extra`. The raw CSV was read directly instead.
+- **Energy unit**: **kJ** (kilojoules), not kcal. Divided by 4.184 to convert.
+- **Column indices used**: 0=code, 1=name, 3=local_names (aliases), 4=group, 7=energy_kJ, 15=fat_g, 19=fibre_g, 21=carb_g, 23=protein_g
+- **Records seeded**: 542 ingredients
+
+### Waterfall step result for test queries
+| Query | Step 1 INDB | Step 2 ICMR-NIN |
+|---|---|---|
+| "chicken biryani" | Chicken yakhni (0.61) | MISS — falls to OFF/USDA |
+| "dal tadka" | Green gram whole with baghar (Sabut moong dal with tadka) (1.00) | MISS |
+| "banana" | Raw banana kofta curry + Banana milkshake (1.00) | Plantain green + Banana ripe robusta (1.00) |
+| "masoor dal" | Whole masoor (Masoor ki dal) (1.00) | Lentil dal (1.00) |
+| "amul butter" | MISS (correct — branded product, falls to OFF) | MISS |
+| "paneer" | Paneer pea sandwich + Paneer paratha + Paneer curry (1.00) | Paneer (1.00) |
+
+### Fuzzy matching design
+- Trigram similarity + word coverage + exact-substring bonus (max=1.0)
+- Score threshold: 0.55 for both INDB and ICMR-NIN (calibrated to filter "butter" → "butter chicken" false positives at 0.50 while keeping "chicken biryani" → "Chicken yakhni" at 0.61)
+- High-confidence shortcut: score ≥ 0.70 → return INDB results immediately, skip steps 2-6
+
+### Bug fixes from audit
+1. **OFF serving size parsing**: expanded regex to handle ml, cup (×240), tbsp (×15), tsp (×5), oz (×28.35)
+2. **AI search fallback rate limit**: added 5 calls/user/hour in-memory limit (separate from the 20/day explicit estimate endpoint)
+3. **Cache TTL**: AI-containing results cached for 2 days instead of 7
+4. **Missing env vars in `.env.example`**: added `USDA_API_KEY` and `AI_FOOD_ESTIMATE_DAILY_LIMIT`
+
+### Schema changes
+- Added `IndianRecipe` model → `indian_recipes` table
+- Added `IndianIngredient` model → `indian_ingredients` table
+- Applied via `prisma db push` (Neon database). Migration SQL saved to `migrations/20260505000000_add_indian_food_databases/`.
+
+### Files created
+- `server/src/scripts/seedIndianFoodDatabases.ts`
+- `server/src/services/indianFoodService.ts`
+- `server/src/data/indian-food/INDB.xlsx`
+- `server/src/prisma/migrations/20260505000000_add_indian_food_databases/migration.sql`
+
+### Files modified
+- `server/src/routes/food.ts` — full waterfall rewrite
+- `server/src/services/foodTypes.ts` — added `indian_db`, `calorie_ninjas` to source union; added `sourceLabel`, `matchScore`, `dataSource` optional fields
+- `server/src/services/openFoodFactsService.ts` — expanded serving size parsing
+- `server/src/prisma/schema.prisma` — added two new models
+- `server/.env.example` — added `USDA_API_KEY` and `AI_FOOD_ESTIMATE_DAILY_LIMIT`
+- `client/src/types/index.ts` — updated `FoodResult` to match server
+- `client/src/components/FoodResultCard.tsx` — added INDB/CN source labels; uses `sourceLabel` when available
+- `client/src/components/MealReplacerSearch.tsx` — updated recent foods source badge
+- `client/src/components/MealReplacerResults.tsx` — updated sources footer label

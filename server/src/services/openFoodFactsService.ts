@@ -15,8 +15,25 @@ function scaleMacros(caloriesPer100g: number, n: any, servingGrams: number): Mac
 
 function parseServingSize(s: string | undefined): number | null {
   if (!s) return null;
-  const match = s.match(/(\d+(?:\.\d+)?)\s*g/i);
-  return match ? parseFloat(match[1]) : null;
+  // Grams: "30g" or "30 g"
+  const gMatch = s.match(/(\d+(?:\.\d+)?)\s*g\b/i);
+  if (gMatch) return parseFloat(gMatch[1]);
+  // ml (density ~1g/ml for most foods)
+  const mlMatch = s.match(/(\d+(?:\.\d+)?)\s*ml\b/i);
+  if (mlMatch) return parseFloat(mlMatch[1]);
+  // Cup: 1 cup ≈ 240g
+  const cupMatch = s.match(/(\d+(?:\.\d+)?)\s*cup/i);
+  if (cupMatch) return parseFloat(cupMatch[1]) * 240;
+  // Tbsp: 1 tbsp ≈ 15g
+  const tbspMatch = s.match(/(\d+(?:\.\d+)?)\s*tbsp/i);
+  if (tbspMatch) return parseFloat(tbspMatch[1]) * 15;
+  // Tsp: 1 tsp ≈ 5g
+  const tspMatch = s.match(/(\d+(?:\.\d+)?)\s*tsp/i);
+  if (tspMatch) return parseFloat(tspMatch[1]) * 5;
+  // oz: 1 oz ≈ 28.35g
+  const ozMatch = s.match(/(\d+(?:\.\d+)?)\s*oz\b/i);
+  if (ozMatch) return parseFloat(ozMatch[1]) * 28.35;
+  return null;
 }
 
 function mapOpenFoodFactsProduct(p: any): FoodResult {

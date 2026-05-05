@@ -154,7 +154,13 @@ export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Pro
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: s2.sans, fontSize: 14, color: s2.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.foodName}</div>
                   <HairLabel style={{ marginTop: 2 }}>
-                    {r.foodData?.calories || 0} KCAL · {r.foodSource === 'ai_estimate' ? 'AI' : r.foodSource === 'open_food_facts' ? 'OFF' : 'USDA'}
+                    {r.foodData?.calories || 0} KCAL · {
+                      r.foodSource === 'ai_estimate'   ? 'AI'      :
+                      r.foodSource === 'open_food_facts'? 'OFF'     :
+                      r.foodSource === 'indian_db'     ? (r.foodData?.sourceLabel || 'INDB') :
+                      r.foodSource === 'calorie_ninjas' ? 'CN'      :
+                      'USDA'
+                    }
                   </HairLabel>
                 </div>
               </button>

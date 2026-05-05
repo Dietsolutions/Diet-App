@@ -124,7 +124,7 @@ export function MealReplacerResults({ initialQuery, onBack }: Props) {
 
         {!isSearching && searchResults.length > 0 && (
           <HairLabel style={{ textAlign: 'center', padding: '8px 0' }}>
-            SOURCES: OPEN FOOD FACTS · USDA · AI
+            SOURCES: INDB · ICMR-NIN · OFF · USDA · AI
           </HairLabel>
         )}
       </div>

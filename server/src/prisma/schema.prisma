@@ -222,6 +222,45 @@ model FoodSearchCache {
   @@map("food_search_cache")
 }
 
+model IndianRecipe {
+  id          String  @id @default(cuid())
+  recipeCode  String  @unique
+  recipeName  String
+  aliases     String? // comma-separated alternate/regional names
+  // macros per 100g
+  caloriesPer100g  Float  @default(0)
+  proteinPer100g   Float  @default(0)
+  carbsPer100g     Float  @default(0)
+  fatPer100g       Float  @default(0)
+  fibrePer100g     Float  @default(0)
+  // standard serving
+  servingGrams     Float  @default(100)
+  servingName      String @default("1 serving (100g)")
+  source      String  @default("INDB")
+  dataSource  String? // e.g. "ICMR-NIN IFCT 2017 via INDB"
+
+  @@index([recipeName])
+  @@map("indian_recipes")
+}
+
+model IndianIngredient {
+  id          String  @id @default(cuid())
+  foodCode    String  @unique
+  foodName    String
+  foodGroup   String?
+  aliases     String? // alternate regional names (local names from ICMR-NIN)
+  // macros per 100g
+  caloriesPer100g  Float  @default(0)
+  proteinPer100g   Float  @default(0)
+  carbsPer100g     Float  @default(0)
+  fatPer100g       Float  @default(0)
+  fibrePer100g     Float  @default(0)
+  source      String  @default("ICMR-NIN")
+
+  @@index([foodName])
+  @@map("indian_ingredients")
+}
+
 model RecentFoodLog {
   id         String   @id @default(cuid())
   userId     String
