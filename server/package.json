@@ -10,7 +10,8 @@
     "prisma:migrate": "prisma migrate deploy --schema=src/prisma/schema.prisma",
     "prisma:migrate:dev": "prisma migrate dev --schema=src/prisma/schema.prisma",
     "prisma:studio": "prisma studio --schema=src/prisma/schema.prisma",
-    "seed:indian": "tsx src/scripts/seedIndianFoodDatabases.ts"
+    "seed:indian": "tsx src/scripts/seedIndianFoodDatabases.ts",
+    "seed:kaggle": "tsx src/scripts/seedKaggleIndianFoods.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

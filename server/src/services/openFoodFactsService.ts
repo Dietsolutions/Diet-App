@@ -68,34 +68,67 @@ function mapOpenFoodFactsProduct(p: any): FoodResult {
   };
 }
 
-export async function searchOpenFoodFacts(query: string): Promise<FoodResult[]> {
-  const url =
-    `${BASE}/cgi/search.pl?` +
-    new URLSearchParams({
-      search_terms: query,
-      search_simple: '1',
-      action: 'process',
-      json: '1',
-      page_size: '8',
-      fields: 'code,product_name,brands,serving_size,nutriments',
-    });
+const HEADERS = { 'User-Agent': 'DietPlanTracker/1.0 (https://ai-dpt.vercel.app)' };
+const FIELDS  = 'code,product_name,brands,serving_size,nutriments';
 
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'DietPlanTracker/1.0 (https://ai-dpt.vercel.app)' },
-    signal: AbortSignal.timeout(8000),
+function hasCalories(p: any): boolean {
+  const n = p.nutriments || {};
+  return !!(p.product_name && (n['energy-kcal_100g'] || n['energy-kcal'] || n['energy_100g']));
+}
+
+async function fetchOFF(params: Record<string, string>): Promise<FoodResult[]> {
+  const url = `${BASE}/cgi/search.pl?` + new URLSearchParams({
+    search_simple: '1',
+    action:        'process',
+    json:          '1',
+    fields:        FIELDS,
+    ...params,
   });
 
+  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Open Food Facts responded with ${res.status}`);
 
   const data: any = await res.json();
-
   return (data.products || [])
-    .filter(
-      (p: any) =>
-        p.product_name &&
-        p.nutriments &&
-        (p.nutriments['energy-kcal_100g'] || p.nutriments['energy-kcal'] || p.nutriments['energy_100g'])
-    )
-    .map((p: any) => mapOpenFoodFactsProduct(p))
-    .slice(0, 6);
+    .filter(hasCalories)
+    .map((p: any) => mapOpenFoodFactsProduct(p));
+}
+
+/**
+ * Two-pass India-first search:
+ *   Pass 1 — India-only (country filter). Returns up to 6 results.
+ *   Pass 2 — Global search if Pass 1 returned fewer than 3 results;
+ *             appends novel products (not already seen) up to a total of 6.
+ */
+export async function searchOpenFoodFacts(query: string): Promise<FoodResult[]> {
+  const INDIA_MIN = 3;
+  const MAX       = 6;
+
+  // Pass 1: India-tagged products
+  const indiaResults = await fetchOFF({
+    search_terms: query,
+    tagtype_0:    'countries',
+    tag_0:        'india',
+    page_size:    String(MAX),
+  });
+
+  if (indiaResults.length >= INDIA_MIN) {
+    return indiaResults.slice(0, MAX);
+  }
+
+  // Pass 2: Global search — fetch more, then append anything not already in Pass 1
+  let globalResults: FoodResult[] = [];
+  try {
+    globalResults = await fetchOFF({
+      search_terms: query,
+      page_size:    String(MAX + 4), // fetch extra to have enough after dedup
+    });
+  } catch {
+    // Global pass failing must not discard the India results we already have
+  }
+
+  const seenIds = new Set(indiaResults.map(r => r.id));
+  const novel   = globalResults.filter(r => !seenIds.has(r.id));
+
+  return [...indiaResults, ...novel].slice(0, MAX);
 }

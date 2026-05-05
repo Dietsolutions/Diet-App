@@ -1871,3 +1871,52 @@ A 6-step food search waterfall replacing the previous parallel OFF + USDA fetch:
 - `client/src/components/FoodResultCard.tsx` — added INDB/CN source labels; uses `sourceLabel` when available
 - `client/src/components/MealReplacerSearch.tsx` — updated recent foods source badge
 - `client/src/components/MealReplacerResults.tsx` — updated sources footer label
+
+---
+
+## Task 4 — Kaggle Indian Food Datasets + OFF India Filter (2026-05-05)
+
+### Kaggle seeder (`server/src/scripts/seedKaggleIndianFoods.ts`)
+
+Three Kaggle datasets are merged into the existing `IndianRecipe` table:
+
+| Dataset slug | Source | Prefix |
+|---|---|---|
+| `batthulavinay/indian-food-nutrition` | energy, protein, carb, fat, fibre per 100g | `KGBV_` |
+| `syedkhalid076/indian-food-nutrition` | energy, protein, carb, fat, fibre per 100g | `KGSK_` |
+| `sooryaprakash12/cleaned-indian-recipes-dataset` | recipe names + optional macros; cuisine/diet as aliases | `KGSP_` |
+
+**Why upsert into `IndianRecipe` (not a new table):** The same fuzzy-search service already covers this table. Adding more recipes expands search recall without any route changes.
+
+**Manual download required** — Kaggle requires login; the seeder checks for file existence and skips gracefully if CSVs are not present. Download instructions are in the script header.
+
+CSV files must be placed at:
+- `server/src/data/indian-food/kaggle/batthulavinay.csv`
+- `server/src/data/indian-food/kaggle/syedkhalid076.csv`
+- `server/src/data/indian-food/kaggle/sooryaprakash12.csv`
+
+Quality guards in `upsertRecipe()`:
+- Skip rows with `name.length < 3`
+- Skip rows where both `calories == 0` and `protein == 0` (bad data)
+- Skip rows with `calories > 950` (implausible; only pure fats exceed this)
+
+The sooryaprakash dataset intentionally allows name-only rows (no macros) through — recipe names still expand the search index.
+
+**Run:** `cd server && npm run seed:kaggle`
+
+### Open Food Facts — India-first two-pass search
+
+**Problem:** Global OFF search returns international/US products for common Indian queries (e.g. "poha" returns unrelated US brands).
+
+**Solution:** Two-pass strategy in `searchOpenFoodFacts()`:
+1. **Pass 1** — Country-filtered search (`tagtype_0=countries&tag_0=india`). If ≥ 3 India results, return immediately (up to 6).
+2. **Pass 2** — Global search, triggered only if Pass 1 < 3 results. Deduplicates by `id` and appends novel results. Pass 2 failure is swallowed so Pass 1 results are never lost.
+
+**Why 3 as the India threshold:** Matches `WATERFALL_MIN_RESULTS` — if OFF India alone satisfies the waterfall early-exit, there's no reason to fetch global products.
+
+**`fetchOFF()` helper:** Extracted to avoid duplicating URL-building, header, timeout, and filter logic between the two passes.
+
+### Files created/modified in Task 4
+- `server/src/scripts/seedKaggleIndianFoods.ts` — new Kaggle seeder
+- `server/src/services/openFoodFactsService.ts` — India-first two-pass search
+- `server/package.json` — added `seed:kaggle` script
