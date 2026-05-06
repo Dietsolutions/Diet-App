@@ -305,7 +305,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     // If a day is out of tolerance, asks Claude to replace one meal and re-verifies.
     // Completely skipped when CALORIE_NINJAS_API_KEY is not set.
     const CN_ENABLED        = !!process.env.CALORIE_NINJAS_API_KEY;
-    const MAX_CORRECTIONS   = 2;   // max correction iterations per day
+    const MAX_CORRECTIONS   = 3;   // max correction iterations per day
     const DAYS_TO_VALIDATE  = planData.days.length; // 7 or 14
 
     const dailyTargets = {

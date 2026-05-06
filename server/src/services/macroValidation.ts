@@ -52,6 +52,14 @@ export function validateDayMacros(
     { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fibreG: 0 },
   );
 
+  // ── TRACE: log verified day totals vs targets ───────────────────────────
+  console.log('[macroValidation] Day totals (CN-verified):', {
+    calories: `${Math.round(total.calories)} / ${targets.calories} (${targets.calories ? Math.round((total.calories / targets.calories) * 100) : '?'}%)`,
+    proteinG: `${Math.round(total.proteinG)} / ${targets.proteinG} (${targets.proteinG ? Math.round((total.proteinG / targets.proteinG) * 100) : '?'}%)`,
+    carbsG:   `${Math.round(total.carbsG)}   / ${targets.carbsG}   (${targets.carbsG   ? Math.round((total.carbsG   / targets.carbsG)   * 100) : '?'}%)`,
+    fatG:     `${Math.round(total.fatG)}     / ${targets.fatG}     (${targets.fatG     ? Math.round((total.fatG     / targets.fatG)     * 100) : '?'}%)`,
+  });
+
   const gaps:    DailyGap[] = [];
   let   isValid              = true;
 
@@ -61,6 +69,15 @@ export function validateDayMacros(
     if (!target || target <= 0) continue;
 
     const pct = actual / target;
+
+    // ── TRACE: log per-macro deviation check ─────────────────────────────
+    const status = pct < tol.min ? '❌ LOW' : pct > tol.max ? '❌ HIGH' : '✅ OK';
+    console.log(
+      `[macroValidation]   ${macro.padEnd(10)} actual=${Math.round(actual).toString().padStart(5)}` +
+      `  target=${Math.round(target).toString().padStart(5)}  pct=${Math.round(pct * 100)}%` +
+      `  window=[${Math.round(tol.min * 100)}%–${Math.round(tol.max * 100)}%]  ${status}`
+    );
+
     if (pct < tol.min || pct > tol.max) {
       isValid = false;
       gaps.push({
@@ -72,6 +89,8 @@ export function validateDayMacros(
       });
     }
   }
+
+  console.log(`[macroValidation] Result: isValid=${isValid}, gaps=[${gaps.map(g => g.macro).join(', ')}]`);
 
   return { isValid, gaps, totalVerified: total as DailyTargets };
 }
@@ -88,12 +107,27 @@ export function buildCorrectionPrompt(
     return `${g.macro}: ${amount}${unit} ${direction} (at ${g.pct}% of target)`;
   }).join('\n');
 
-  // Prefer replacing the snack (lowest caloric impact on other meals),
-  // then lunch, then the second meal in the list as a last resort.
-  const mealToReplace =
-    currentMeals.find(m => m.type === 'snack')  ??
-    currentMeals.find(m => m.type === 'lunch')  ??
-    currentMeals[1];
+  const totalCalorieGap = Math.abs(
+    gaps.find(g => g.macro === 'calories')?.delta ?? 0
+  );
+
+  // Gap-aware meal targeting:
+  // Large gap (>250 kcal) — a snack cannot close it; target lunch or dinner.
+  // Small gap — snack adjustment is sufficient.
+  const mealToReplace = (() => {
+    if (totalCalorieGap > 250) {
+      return (
+        currentMeals.find(m => m.type === 'lunch')  ??
+        currentMeals.find(m => m.type === 'dinner') ??
+        currentMeals[1]
+      );
+    }
+    return (
+      currentMeals.find(m => m.type === 'snack') ??
+      currentMeals.find(m => m.type === 'lunch') ??
+      currentMeals[1]
+    );
+  })();
 
   return `You are adjusting a meal plan to better meet daily macro targets.
 
@@ -112,6 +146,10 @@ Diet: ${userProfile.mealPreference || 'non_vegetarian'}
 Cuisine: ${(JSON.parse(userProfile.cuisinePreferences || '[]') as string[]).join(', ') || 'Indian'}
 Allergies: ${(JSON.parse(userProfile.allergies || '[]') as string[]).join(', ') || 'None'}
 Custom instructions: ${userProfile.mealPlanCustomInstructions || 'None'}
+
+The calorie gap is ${totalCalorieGap} kcal. ${totalCalorieGap > 250
+  ? 'This is a large gap — generate a substantial meal, not a snack.'
+  : 'This is a small gap — a light meal or snack adjustment is appropriate.'}
 
 Generate ONE replacement meal for ${mealToReplace.type} that:
 1. Addresses the macro gaps listed above
