@@ -321,6 +321,9 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
 
     try {
     if (CN_ENABLED) {
+      const isRegen = !!(await prisma.mealPlan.count({ where: { userId } }));
+      console.log(`[CN Pipeline] Starting — userId: ${userId}, isRegeneration: ${isRegen}, targetCalories: ${dailyTargets.calories}`);
+
       const estimatedCalls = DAYS_TO_VALIDATE * (planData.days[0]?.meals?.length ?? 4);
       console.log(
         `[CalorieNinjas] Starting verification — estimated ${estimatedCalls} API calls` +
