@@ -51,13 +51,20 @@ function computeConsumed(
   );
 }
 
+// Local-timezone date as YYYY-MM-DD — must match how selectedDate is computed in MealsTab.
+// new Date().toISOString() gives UTC, which is behind IST by 5h30m, causing both this
+// card and AddMealButton to disappear between midnight and 05:30 IST every day.
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function MacroAchievementCard({
   meals, eatenMask, replacements, date, profile, eatenCount, mealsPerDay,
   additionalMeals = [],
 }: Props) {
-  // Don't render for future dates
-  const today = new Date().toISOString().split('T')[0];
-  if (date > today) return null;
+  // Don't render for future dates (compare using LOCAL date, not UTC)
+  if (date > localToday()) return null;
 
   const consumed = computeConsumed(meals, eatenMask, replacements, date, additionalMeals);
 

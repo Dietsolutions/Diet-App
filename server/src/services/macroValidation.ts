@@ -151,12 +151,19 @@ The calorie gap is ${totalCalorieGap} kcal. ${totalCalorieGap > 250
   ? 'This is a large gap — generate a substantial meal, not a snack.'
   : 'This is a small gap — a light meal or snack adjustment is appropriate.'}
 
+INGREDIENT QUANTITIES — MANDATORY:
+- EVERY item in the ingredients array MUST include a numeric quantity (e.g. "150g chicken", "1g turmeric")
+- Oils/ghee: grams only, never ml (e.g. "10g ghee")
+- Spice reference: turmeric 1-2g · red chili powder 2-3g · coriander powder 3-5g · cumin seeds 2-3g · garam masala 2g · salt 2g
+- Proteins: 80–200g · Grains (raw): 60–100g · Vegetables: 50–150g
+
 Generate ONE replacement meal for ${mealToReplace.type} that:
 1. Addresses the macro gaps listed above
 2. Brings the daily total within acceptable range of targets
 3. Respects all user preferences and allergies
 4. Is different from the current "${mealToReplace.name}"
 5. Is appropriate for ${mealToReplace.type} at ${mealToReplace.time || ''}
+6. Has EVERY ingredient quantified (see mandatory rule above)
 
 Respond ONLY with valid JSON — no explanation, no preamble:
 {
@@ -164,7 +171,7 @@ Respond ONLY with valid JSON — no explanation, no preamble:
   "type": "${mealToReplace.type}",
   "time": "${mealToReplace.time || ''}",
   "description": "<brief cooking instructions with gram quantities>",
-  "ingredients": ["<ingredient 1>", "<ingredient 2>"],
+  "ingredients": ["150g chicken breast", "80g onion", "1g turmeric", "2g red chili powder", "5g ghee"],
   "calories": <number>,
   "protein": <number>,
   "carbs": <number>,

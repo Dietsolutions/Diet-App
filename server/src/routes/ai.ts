@@ -76,8 +76,19 @@ RULES:
 - Short descriptions with gram quantities (e.g. "Sauté 150g chicken, 100g onions, serve with 80g rice")
 - ONLY valid JSON, no markdown
 
+INGREDIENT QUANTITIES — MANDATORY:
+- EVERY item in the ingredients array MUST include a numeric quantity — no bare names like "turmeric" or "oil"
+- Proteins: 80–200g · Grains (raw): 60–100g · Vegetables: 50–150g · Legumes (raw): 60–80g
+- Oils and ghee: use grams, never ml (e.g. "10g ghee", "8g oil")
+- Spice reference — use these real-world cooking amounts:
+  turmeric 1-2g · red chili powder 2-3g · coriander powder 3-5g · cumin seeds 2-3g
+  mustard seeds 3-5g · curry leaves 5g · ginger 5g · garlic 5g
+  garam masala 2g · sambar powder 5g · tamarind paste 10g · salt 2g
+- Liquids: coconut milk 50-150ml · lemon juice 10ml · water 100-200ml
+- Discrete items are fine as count with weight: "2 eggs (100g)" · "1 whole wheat roti (40g)"
+
 JSON STRUCTURE (use exactly this shape):
-{"weekSummary":{"avgCalories":0,"avgProtein":0,"avgCarbs":0,"avgFat":0,"avgFibre":0},"days":[{"dayIndex":0,"dayName":"Monday","totalCalories":0,"totalProtein":0,"totalCarbs":0,"totalFat":0,"totalFibre":0,"meals":[{"mealIndex":0,"type":"Breakfast","time":"8:00 AM","name":"meal name","description":"brief instructions with gram quantities","ingredients":["150g chicken breast","80g onion"],"calories":0,"protein":0,"carbs":0,"fat":0,"fibre":0}]}],"shoppingList":[{"category":"Proteins","items":[{"name":"Chicken breast","quantity":"1","unit":"kg"}]}],"mealPrepGuide":{"estimatedMinutes":45,"intro":"Do these tasks on Sunday to set yourself up for the week.","sections":[{"category":"Proteins","emoji":"🥩","tasks":[{"instruction":"Marinate 600g chicken in curd and spices. Use Mon–Wed.","usedOn":"Mon, Tue, Wed"}]}]}}
+{"weekSummary":{"avgCalories":0,"avgProtein":0,"avgCarbs":0,"avgFat":0,"avgFibre":0},"days":[{"dayIndex":0,"dayName":"Monday","totalCalories":0,"totalProtein":0,"totalCarbs":0,"totalFat":0,"totalFibre":0,"meals":[{"mealIndex":0,"type":"Breakfast","time":"8:00 AM","name":"meal name","description":"brief instructions with gram quantities","ingredients":["150g chicken breast","80g onion","1g turmeric","2g red chili powder","3g coriander powder","5g ghee"],"calories":0,"protein":0,"carbs":0,"fat":0,"fibre":0}]}],"shoppingList":[{"category":"Proteins","items":[{"name":"Chicken breast","quantity":"1","unit":"kg"}]}],"mealPrepGuide":{"estimatedMinutes":45,"intro":"Do these tasks on Sunday to set yourself up for the week.","sections":[{"category":"Proteins","emoji":"🥩","tasks":[{"instruction":"Marinate 600g chicken in curd and spices. Use Mon–Wed.","usedOn":"Mon, Tue, Wed"}]}]}}
 
 Keep descriptions under 20 words. Include mealPrepGuide with practical weekly prep tasks. Be concise.`;
 
@@ -93,8 +104,19 @@ RULES:
 - ONLY valid JSON, no markdown
 - Generate ALL 14 days (dayIndex 0-13)
 
+INGREDIENT QUANTITIES — MANDATORY:
+- EVERY item in the ingredients array MUST include a numeric quantity — no bare names like "turmeric" or "oil"
+- Proteins: 80–200g · Grains (raw): 60–100g · Vegetables: 50–150g · Legumes (raw): 60–80g
+- Oils and ghee: use grams, never ml (e.g. "10g ghee", "8g oil")
+- Spice reference — use these real-world cooking amounts:
+  turmeric 1-2g · red chili powder 2-3g · coriander powder 3-5g · cumin seeds 2-3g
+  mustard seeds 3-5g · curry leaves 5g · ginger 5g · garlic 5g
+  garam masala 2g · sambar powder 5g · tamarind paste 10g · salt 2g
+- Liquids: coconut milk 50-150ml · lemon juice 10ml · water 100-200ml
+- Discrete items are fine as count with weight: "2 eggs (100g)" · "1 whole wheat roti (40g)"
+
 JSON STRUCTURE (same as 7-day but with 14 days in the days array):
-{"weekSummary":{"avgCalories":0,"avgProtein":0,"avgCarbs":0,"avgFat":0,"avgFibre":0},"days":[{"dayIndex":0,"dayName":"Day 1","totalCalories":0,"totalProtein":0,"totalCarbs":0,"totalFat":0,"totalFibre":0,"meals":[{"mealIndex":0,"type":"Breakfast","time":"8:00 AM","name":"meal name","description":"brief instructions","ingredients":[],"calories":0,"protein":0,"carbs":0,"fat":0,"fibre":0}]}],"shoppingList":[{"category":"Proteins","items":[{"name":"Chicken breast","quantity":"1.5","unit":"kg"}]}],"mealPrepGuide":{"estimatedMinutes":60,"intro":"Do these tasks on Sunday to set yourself up for two full weeks.","sections":[{"category":"Proteins","emoji":"🥩","tasks":[{"instruction":"Prep instruction with quantities.","usedOn":"Days 1–5"}]}]}}
+{"weekSummary":{"avgCalories":0,"avgProtein":0,"avgCarbs":0,"avgFat":0,"avgFibre":0},"days":[{"dayIndex":0,"dayName":"Day 1","totalCalories":0,"totalProtein":0,"totalCarbs":0,"totalFat":0,"totalFibre":0,"meals":[{"mealIndex":0,"type":"Breakfast","time":"8:00 AM","name":"meal name","description":"brief instructions","ingredients":["150g chicken breast","80g onion","1g turmeric","2g red chili powder","5g oil"],"calories":0,"protein":0,"carbs":0,"fat":0,"fibre":0}]}],"shoppingList":[{"category":"Proteins","items":[{"name":"Chicken breast","quantity":"1.5","unit":"kg"}]}],"mealPrepGuide":{"estimatedMinutes":60,"intro":"Do these tasks on Sunday to set yourself up for two full weeks.","sections":[{"category":"Proteins","emoji":"🥩","tasks":[{"instruction":"Prep instruction with quantities.","usedOn":"Days 1–5"}]}]}}
 
 Keep descriptions under 20 words. Be concise.`;
 

@@ -7,8 +7,12 @@ interface Props {
   date: string;
 }
 
+// Local-timezone date — must match how selectedDate is computed in MealsTab (date-fns format).
+// new Date().toISOString() gives UTC, which lags IST by 5h30m and makes this button
+// vanish between midnight and 05:30 IST every day.
 function todayStr() {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export function AddMealButton({ date }: Props) {
