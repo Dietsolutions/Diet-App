@@ -98,6 +98,19 @@ JSON STRUCTURE (same as 7-day but with 14 days in the days array):
 
 Keep descriptions under 20 words. Be concise.`;
 
+const GOAL_LABELS: Record<string, string> = {
+  lose_weight:     'Lose fat (calorie deficit)',
+  gain_muscle:     'Gain muscle (calorie surplus)',
+  maintain:        'Maintain weight',
+  improve_fitness: 'Improve athletic fitness',
+  manage_health:   'Manage health condition',
+  eat_healthy:     'General healthy eating — balanced nutrition based on daily RDA',
+};
+
+function goalLabel(goal: string): string {
+  return GOAL_LABELS[goal] ?? goal;
+}
+
 function buildUserPrompt(profile: any): string {
   const bmi = calculateBMI(profile.weightKg, profile.heightCm);
   const cuisines = JSON.parse(profile.cuisinePreferences);
@@ -146,8 +159,8 @@ and keep the restriction. Otherwise, honour these instructions precisely.` : '';
   return `${dayRange}
 
 Profile: ${profile.name}, ${profile.age}y ${profile.gender}, ${profile.city} ${profile.country}
-${profile.weightKg}kg → ${profile.targetWeightKg}kg, ${profile.heightCm}cm, BMI ${bmi}
-Goal: ${profile.primaryGoal}, Intensity: ${profile.dietIntensity}
+${profile.weightKg}kg${profile.targetWeightKg != null ? ` → ${profile.targetWeightKg}kg` : ''}, ${profile.heightCm}cm, BMI ${bmi}
+Goal: ${goalLabel(profile.primaryGoal)}${profile.dietIntensity ? `, Intensity: ${profile.dietIntensity}` : ''}
 Activity: ${profile.activityLevel}, Diet: ${profile.mealPreference}
 Cuisines: ${cuisines.join(', ') || 'Any'}
 ${profile.mealsPerDay} meals/day: ${mealTypes.join(', ')}

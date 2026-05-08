@@ -79,7 +79,7 @@ export interface OnboardingData {
   // Step 2: Body
   weightKg: number;
   heightCm: number;
-  targetWeightKg: number;
+  targetWeightKg: number; // 0 = not set (optional for non-weight goals)
   // Step 3: Diet
   mealPreference: string;
   cuisinePreferences: string[];
@@ -95,7 +95,7 @@ export interface OnboardingData {
   avoidOther: string;
   // Step 7: Goals
   primaryGoal: string;
-  dietIntensity: string;
+  dietIntensity: string; // '' for goals that do not need a deficit magnitude
   activityLevel: string;
   healthConditions: string[];
   wakeUpTime: string;

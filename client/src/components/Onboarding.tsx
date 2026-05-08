@@ -14,13 +14,13 @@ import { track } from '../lib/analytics';
 const INITIAL: OnboardingData = {
   name: '', age: 25, gender: 'male', country: 'India', city: '',
   countryCode: 'IN',
-  weightKg: 70, heightCm: 170, targetWeightKg: 65,
+  weightKg: 70, heightCm: 170, targetWeightKg: 0,
   mealPreference: 'non_vegetarian', cuisinePreferences: ['South Indian'], mealsPerDay: 4, eatingWindow: 'standard',
   eatingWindowHours: 8, fastingWindowHours: 16, eatingStartTime: '07:00', eatingEndTime: '15:00',
   allergies: [], allergyOther: '',
   preferredIngredients: [],
   avoidIngredients: [], avoidOther: '', avoidNone: false,
-  primaryGoal: 'lose_weight', dietIntensity: 'moderate', activityLevel: 'lightly_active',
+  primaryGoal: 'eat_healthy', dietIntensity: '', activityLevel: 'lightly_active',
   healthConditions: [], wakeUpTime: '07:00', sleepTime: '23:00',
   cookingStyle: 'home', kitchenEquipment: ['Stovetop'],
   weeklyBudget: null, budgetCurrency: 'INR', waterIntakeGoal: 8,
@@ -157,12 +157,15 @@ export function Onboarding({ onComplete, userName }: Props) {
   const canNext = () => {
     switch (step) {
       case 1: return data.name.trim() && data.age >= 10 && data.age <= 100 && data.country && data.city.trim();
-      case 2: return data.weightKg > 0 && data.heightCm > 0 && data.targetWeightKg > 0;
+      case 2: return data.weightKg > 0 && data.heightCm > 0; // targetWeightKg is optional
       case 3: return data.mealPreference && data.cuisinePreferences.length > 0;
       case 4: return true;
       case 5: return data.preferredIngredients.length >= 5;
       case 6: return data.avoidIngredients.length > 0 || data.avoidNone === true;
-      case 7: return data.primaryGoal && data.dietIntensity && data.activityLevel;
+      case 7: {
+        const needsIntensity = ['lose_weight', 'gain_muscle'].includes(data.primaryGoal);
+        return !!(data.primaryGoal && data.activityLevel && (!needsIntensity || data.dietIntensity));
+      }
       default: return true;
     }
   };
@@ -183,7 +186,13 @@ export function Onboarding({ onComplete, userName }: Props) {
     }
     try {
       setGenStep('Saving your profile...');
-      await axios.post('/api/profile', data, { withCredentials: true });
+      // Sanitise optional fields: 0/empty string → null so the server accepts them
+      const profilePayload = {
+        ...data,
+        targetWeightKg: data.targetWeightKg > 0 ? data.targetWeightKg : null,
+        dietIntensity:  data.dietIntensity || null,
+      };
+      await axios.post('/api/profile', profilePayload, { withCredentials: true });
       // Save custom instructions so the generate endpoint picks them up from the profile
       if (onboardingCustomInstructions.trim()) {
         await axios.patch('/api/profile/meal-instructions',
@@ -256,7 +265,12 @@ export function Onboarding({ onComplete, userName }: Props) {
     setError('');
     try {
       setGenStep('Saving your profile...');
-      await axios.post('/api/profile', data, { withCredentials: true });
+      const skipPayload = {
+        ...data,
+        targetWeightKg: data.targetWeightKg > 0 ? data.targetWeightKg : null,
+        dietIntensity:  data.dietIntensity || null,
+      };
+      await axios.post('/api/profile', skipPayload, { withCredentials: true });
       await refreshUser();
       onComplete();
     } catch {
@@ -360,10 +374,17 @@ export function Onboarding({ onComplete, userName }: Props) {
 
           <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <SummaryCard label="PERSONAL" items={[`${data.name}, ${data.age}y, ${data.gender}`, `${data.city}, ${data.country}`]} onEdit={() => { setShowSummary(false); setStep(1); }} />
-            <SummaryCard label="BODY" items={[`${data.weightKg}kg → ${data.targetWeightKg}kg`, `Height: ${data.heightCm}cm`]} onEdit={() => { setShowSummary(false); setStep(2); }} />
+            <SummaryCard label="BODY" items={[
+              data.targetWeightKg > 0 ? `${data.weightKg}kg → ${data.targetWeightKg}kg` : `${data.weightKg}kg`,
+              `Height: ${data.heightCm}cm`,
+            ]} onEdit={() => { setShowSummary(false); setStep(2); }} />
             <SummaryCard label="DIET" items={[data.mealPreference, `${data.mealsPerDay} meals/day`, data.cuisinePreferences.join(', ')]} onEdit={() => { setShowSummary(false); setStep(3); }} />
             <SummaryCard label="ALLERGIES" items={[data.allergies.length > 0 ? data.allergies.join(', ') : 'None']} onEdit={() => { setShowSummary(false); setStep(4); }} />
-            <SummaryCard label="GOAL" items={[data.primaryGoal, `Intensity: ${data.dietIntensity}`, data.activityLevel]} onEdit={() => { setShowSummary(false); setStep(7); }} />
+            <SummaryCard label="GOAL" items={[
+              data.primaryGoal,
+              ...(data.dietIntensity ? [`Intensity: ${data.dietIntensity}`] : []),
+              data.activityLevel,
+            ]} onEdit={() => { setShowSummary(false); setStep(7); }} />
           </div>
 
           {/* ── Custom instructions ── */}
@@ -902,9 +923,9 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
         )}
       </div>
 
-      {/* ── TARGET WEIGHT — shares weightUnit with current weight ── */}
+      {/* ── TARGET WEIGHT — optional, shares weightUnit with current weight ── */}
       <div style={{ border: `1px solid ${s2.line}`, padding: 16, marginBottom: 20 }}>
-        <LabelRow label="TARGET WEIGHT">
+        <LabelRow label="TARGET WEIGHT (OPTIONAL)">
           {(['kg', 'lb'] as const).map(u => (
             <button key={u} onClick={() => handleWeightUnitChange(u)} style={unitBtnStyle(weightUnit === u)}>{u}</button>
           ))}
@@ -1351,17 +1372,30 @@ function StepAvoid({ data, toggleArr, update }: { data: OnboardingData; toggleAr
 // ── Step 7 · Goals ────────────────────────────────────────────────────────────
 function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void; toggleArr: (f: keyof OnboardingData, v: string) => void }) {
   const GOALS = [
-    { val: 'lose_weight',    label: 'LOSE FAT',      desc: 'Calorie deficit with protein priority' },
-    { val: 'maintain',       label: 'MAINTAIN',       desc: 'Stay at current weight, recomp' },
-    { val: 'gain_muscle',    label: 'GAIN MUSCLE',    desc: 'Small surplus, high protein' },
-    { val: 'improve_fitness',label: 'ATHLETIC PERF',  desc: 'Energy dense, timed carbs' },
-    { val: 'manage_health',  label: 'MANAGE HEALTH',  desc: 'Condition-specific nutrition' },
+    { val: 'eat_healthy',    label: 'EAT HEALTHY',   desc: 'Balanced daily nutrition from WHO/RDA — no weight target', generic: true },
+    { val: 'lose_weight',    label: 'LOSE FAT',       desc: 'Calorie deficit, protein priority, weekly pace', generic: false },
+    { val: 'maintain',       label: 'MAINTAIN',       desc: 'Stay at current weight, body recomposition', generic: false },
+    { val: 'gain_muscle',    label: 'GAIN MUSCLE',    desc: 'Small calorie surplus, high protein', generic: false },
+    { val: 'improve_fitness',label: 'ATHLETIC PERF',  desc: 'Maintenance + energy for training, higher carbs', generic: false },
+    { val: 'manage_health',  label: 'MANAGE HEALTH',  desc: 'Condition-specific macros, moderate protein', generic: false },
   ];
   const INTENSITY = [
-    { val: 'low',      label: 'GENTLE',     sub: '0.25kg/w' },
-    { val: 'moderate', label: 'STEADY',     sub: '0.5kg/w' },
-    { val: 'high',     label: 'AGGRESSIVE', sub: '0.75kg/w' },
+    { val: 'low',      label: 'GENTLE',     sub: '0.25 kg/w' },
+    { val: 'moderate', label: 'STEADY',     sub: '0.5 kg/w' },
+    { val: 'high',     label: 'AGGRESSIVE', sub: '0.75 kg/w' },
   ];
+
+  // Intensity is only meaningful for these two goals
+  const needsIntensity = ['lose_weight', 'gain_muscle'].includes(data.primaryGoal);
+
+  function selectGoal(val: string) {
+    const isDeficitGoal = ['lose_weight', 'gain_muscle'].includes(val);
+    update({
+      primaryGoal: val,
+      // Clear intensity for goals that don't need it; restore a default for those that do
+      dietIntensity: isDeficitGoal ? (data.dietIntensity || 'moderate') : '',
+    });
+  }
 
   return (
     <div style={{ paddingTop: 30 }}>
@@ -1375,10 +1409,10 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
         {GOALS.map(g => {
           const on = data.primaryGoal === g.val;
           return (
-            <div key={g.val} onClick={() => update({ primaryGoal: g.val })} style={{
+            <div key={g.val} onClick={() => selectGoal(g.val)} style={{
               padding: 18, marginBottom: 8,
-              border: `1px solid ${on ? s2.accent : s2.line}`,
-              background: on ? s2.accentFill : 'transparent',
+              border: `1px solid ${on ? s2.accent : g.generic ? s2.lineStrong : s2.line}`,
+              background: on ? s2.accentFill : g.generic ? s2.surface : 'transparent',
               cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}>
               <div>
@@ -1413,26 +1447,28 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
         </div>
       </div>
 
-      {/* Intensity 3-col */}
-      <div style={{ marginBottom: 24 }}>
-        <HairLabel style={{ marginBottom: 10 }}>INTENSITY</HairLabel>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
-          {INTENSITY.map(x => {
-            const on = data.dietIntensity === x.val;
-            return (
-              <button key={x.val} onClick={() => update({ dietIntensity: x.val })} style={{
-                background: on ? s2.accentFill : 'transparent',
-                border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
-                color: on ? s2.accent : s2.text,
-                padding: '12px 6px', cursor: 'pointer',
-              }}>
-                <div style={{ fontFamily: s2.mono, fontSize: 10, fontWeight: 600, letterSpacing: '0.15em' }}>{x.label}</div>
-                <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDim, marginTop: 4 }}>{x.sub}</div>
-              </button>
-            );
-          })}
+      {/* Intensity 3-col — only for lose_weight and gain_muscle */}
+      {needsIntensity && (
+        <div style={{ marginBottom: 24 }}>
+          <HairLabel style={{ marginBottom: 10 }}>PACE</HairLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+            {INTENSITY.map(x => {
+              const on = data.dietIntensity === x.val;
+              return (
+                <button key={x.val} onClick={() => update({ dietIntensity: x.val })} style={{
+                  background: on ? s2.accentFill : 'transparent',
+                  border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
+                  color: on ? s2.accent : s2.text,
+                  padding: '12px 6px', cursor: 'pointer',
+                }}>
+                  <div style={{ fontFamily: s2.mono, fontSize: 10, fontWeight: 600, letterSpacing: '0.15em' }}>{x.label}</div>
+                  <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDim, marginTop: 4 }}>{x.sub}</div>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Health conditions */}
       <div style={{ marginBottom: 24 }}>

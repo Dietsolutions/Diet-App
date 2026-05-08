@@ -143,7 +143,20 @@ router.get('/goal-countdown', requireAuth, async (req: AuthRequest, res: Respons
       orderBy: { loggedAt: 'desc' }
     });
     const currentWeight = latestLog?.weightKg ?? profile.weightKg;
-    const targetWeight = profile.targetWeightKg;
+    const targetWeight = profile.targetWeightKg ?? null;
+
+    // Goal date is only meaningful when the user has a weight target and an intensity-based goal
+    if (targetWeight == null || !profile.dietIntensity) {
+      res.json({
+        goalDate: null,
+        daysLeft: null,
+        weeksLeft: null,
+        displayText: 'No weight target set',
+        isUrgent: false,
+      });
+      return;
+    }
+
     const weightToLose = currentWeight - targetWeight;
 
     if (weightToLose <= 0) {

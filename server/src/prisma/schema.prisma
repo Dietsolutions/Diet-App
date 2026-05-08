@@ -62,7 +62,7 @@ model UserProfile {
   city                 String
   weightKg             Float
   heightCm             Float
-  targetWeightKg       Float
+  targetWeightKg       Float?                // null for eat_healthy / no weight target
   mealPreference       String
   cuisinePreferences   String   @default("[]")
   mealsPerDay          Int      @default(4)
@@ -71,7 +71,7 @@ model UserProfile {
   preferredIngredients String   @default("[]")
   avoidIngredients     String   @default("[]")
   primaryGoal          String
-  dietIntensity        String
+  dietIntensity        String?               // null for goals that do not require a deficit magnitude
   activityLevel        String
   healthConditions     String   @default("[]")
   tdee                 Float

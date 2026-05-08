@@ -55,9 +55,12 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
       res.status(400).json({ error: 'age must be between 10 and 120' });
       return;
     }
-    if (typeof data.targetWeightKg !== 'number' || data.targetWeightKg < 20 || data.targetWeightKg > 500) {
-      res.status(400).json({ error: 'targetWeightKg must be between 20 and 500' });
-      return;
+    // targetWeightKg is optional for goals without a weight target
+    if (data.targetWeightKg != null) {
+      if (typeof data.targetWeightKg !== 'number' || data.targetWeightKg < 20 || data.targetWeightKg > 500) {
+        res.status(400).json({ error: 'targetWeightKg must be between 20 and 500' });
+        return;
+      }
     }
     // gender — 'prefer_not_to_say' is a valid onboarding choice
     const validGenders = ['male', 'female', 'other', 'prefer_not_to_say'];
@@ -65,16 +68,20 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
       res.status(400).json({ error: `gender must be one of: ${validGenders.join(', ')}` });
       return;
     }
-    // primaryGoal — must match the exact values sent by the onboarding form
-    const validGoals = ['lose_weight', 'maintain', 'gain_muscle', 'improve_fitness', 'manage_health'];
+    // primaryGoal — eat_healthy is the new generic meal-planning option
+    const validGoals = ['lose_weight', 'maintain', 'gain_muscle', 'improve_fitness', 'manage_health', 'eat_healthy'];
     if (!validGoals.includes(data.primaryGoal)) {
       res.status(400).json({ error: `primaryGoal must be one of: ${validGoals.join(', ')}` });
       return;
     }
+    // dietIntensity is only required for deficit/surplus goals
+    const DEFICIT_GOALS = ['lose_weight', 'gain_muscle'];
     const validIntensities = ['low', 'moderate', 'high'];
-    if (!validIntensities.includes(data.dietIntensity)) {
-      res.status(400).json({ error: `dietIntensity must be one of: ${validIntensities.join(', ')}` });
-      return;
+    if (DEFICIT_GOALS.includes(data.primaryGoal)) {
+      if (!validIntensities.includes(data.dietIntensity)) {
+        res.status(400).json({ error: `dietIntensity must be one of: ${validIntensities.join(', ')} for ${data.primaryGoal}` });
+        return;
+      }
     }
 
     // Calculate nutrition targets
@@ -97,7 +104,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
       city: data.city,
       weightKg: data.weightKg,
       heightCm: data.heightCm,
-      targetWeightKg: data.targetWeightKg,
+      targetWeightKg: data.targetWeightKg ?? null,
       mealPreference: data.mealPreference,
       cuisinePreferences: JSON.stringify(data.cuisinePreferences || []),
       mealsPerDay: data.mealsPerDay || 4,
@@ -106,7 +113,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
       preferredIngredients: JSON.stringify(data.preferredIngredients || []),
       avoidIngredients: JSON.stringify(data.avoidIngredients || []),
       primaryGoal: data.primaryGoal,
-      dietIntensity: data.dietIntensity,
+      dietIntensity: data.dietIntensity ?? null,
       activityLevel: data.activityLevel,
       healthConditions: JSON.stringify(data.healthConditions || []),
       wakeUpTime: data.wakeUpTime || '07:00',

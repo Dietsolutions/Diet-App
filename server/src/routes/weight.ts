@@ -156,7 +156,13 @@ router.get('/projection', requireAuth, async (req: AuthRequest, res: Response): 
 
     const startWeight = latestLog ? latestLog.weightKg : profile.weightKg;
     const startDate = latestLog ? new Date(latestLog.loggedAt) : new Date();
-    const targetWeight = profile.targetWeightKg;
+    const targetWeight = profile.targetWeightKg ?? null;
+
+    // Weight projection requires both a target weight and an intensity-based goal
+    if (targetWeight == null || !profile.dietIntensity) {
+      res.json({ projection: [], goalDate: null, weeklyLossKg: 0, startWeight, startDate: formatDate(startDate) });
+      return;
+    }
 
     const weeklyLoss = getWeeklyLoss(profile.dietIntensity, profile.activityLevel);
     const isLosing = startWeight > targetWeight;
