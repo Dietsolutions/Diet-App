@@ -1976,3 +1976,30 @@ Guard only fires when `claudeCal > 50` to avoid false positives for genuinely lo
   - Added `normaliseMl()` converter
   - Applied `normaliseMl()` in both `extractIngredients()` cases (plain strings + object arrays)
   - Added plausibility guard in `verifyDayMacros()` (>3× Claude estimate → fall back)
+
+## 252. Macro Validation Audit Trail — Full CN Pipeline Traceability
+
+**Decision**: Build a `MacroValidationLog` table that records every step of the CalorieNinjas verification and Claude correction pipeline.
+
+**Migration**: `20260509000000_add_macro_validation_logs` — marked as applied (table was provisioned via `prisma db push`; migration SQL file created for history tracking and then resolved with `prisma migrate resolve --applied`).
+
+**Files modified**:
+- `server/src/prisma/schema.prisma` — Added `MacroValidationLog` model (74-field audit table) and `macroValidationLogs` relation on `User`
+- `server/src/services/macroValidationLogger.ts` — Created: `logMealValidation()` writes one row per meal per CN iteration; `getValidationSummaryForPlan()` returns aggregate stats for a plan
+- `server/src/services/calorieNinjasService.ts` — Extended `CNResult` and `CNDetailedResult` interfaces to return `queryString`, `statusCode`, and `itemsMatched` from every CN API call
+- `server/src/routes/ai.ts` — Imports `logMealValidation`; buffers `pendingLogEntries[]` during CN pipeline; fires all entries fire-and-forget after `mealPlan.id` is known (line 749–753)
+- `server/src/routes/plan.ts` — Added `GET /:planId/validation-summary` endpoint returning aggregate summary + per-meal log rows
+
+**Safety**: `logMealValidation()` is wrapped in `try/catch` and called with `.catch(() => {})` — it can never crash plan generation under any circumstance.
+
+**What each log row captures**:
+- Claude's original estimate (before CN check)
+- Exact CN query string, HTTP status, items matched
+- CN-returned macros vs per-meal targets, delta and delta-% for all 4 macros
+- Whether the meal passed tolerance on this iteration
+- Day-level totals and whether the whole day passed
+- Correction details: triggered?, which meal replaced, calorie gap, corrected meal macros, recheck result
+- Final outcome: `passed_first_check | passed_after_correction | max_iterations_reached | cn_unavailable`
+- Accuracy delta: final CN-verified calories − Claude's original estimate
+
+**Row count**: 1 row per meal per iteration. A 7-day × 4-meal plan with 0 corrections = 28 rows; each correction adds another set of rows for the retry iteration.

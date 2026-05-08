@@ -707,4 +707,47 @@ router.get('/history', requireAuth, async (req: AuthRequest, res: Response): Pro
   }
 });
 
+// GET /api/plan/:planId/validation-summary
+// Returns a summary of the macro validation run for a specific plan
+router.get('/:planId/validation-summary', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { planId } = req.params;
+    const userId = req.userId!;
+
+    // Verify ownership
+    const plan = await prisma.mealPlan.findFirst({
+      where: { id: planId, userId },
+      select: { id: true },
+    });
+    if (!plan) {
+      res.status(404).json({ error: 'plan_not_found' });
+      return;
+    }
+
+    const { getValidationSummaryForPlan } = await import('../services/macroValidationLogger');
+    const summary = await getValidationSummaryForPlan(planId);
+
+    // Per-day breakdown
+    const dayLogs = await prisma.macroValidationLog.findMany({
+      where:   { mealPlanId: planId },
+      orderBy: [{ dayIndex: 'asc' }, { mealIndex: 'asc' }, { iteration: 'asc' }],
+      select:  {
+        dayIndex: true, mealIndex: true, iteration: true,
+        claudeMealName: true, claudeCalories: true,
+        cnReturnedCalories: true, cnApiSuccess: true,
+        deltaCalories: true, deltaPctCalories: true,
+        withinTolerance: true,
+        correctionTriggered: true, finalOutcome: true,
+        accuracyDeltaKcal: true,
+        dayValidationPassed: true,
+      },
+    });
+
+    res.json({ summary, logs: dayLogs });
+  } catch (err) {
+    console.error('Validation summary error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 export default router;

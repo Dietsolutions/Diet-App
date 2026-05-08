@@ -12,9 +12,20 @@ export interface CNMacros {
 }
 
 interface CNResult {
-  success: boolean;
-  macros:  CNMacros;
-  error?:  string;
+  success:       boolean;
+  macros:        CNMacros;
+  error?:        string;
+  queryString:   string;   // exact query string sent to CN
+  statusCode?:   number;   // HTTP status
+  itemsMatched?: number;   // how many items CN recognised
+}
+
+export interface CNDetailedResult {
+  macros:        CNMacros;
+  queryString:   string;
+  success:       boolean;
+  statusCode?:   number;
+  itemsMatched?: number;
 }
 
 function zeroed(): CNMacros {
@@ -30,11 +41,12 @@ export async function getMealMacrosFromCalorieNinjas(
 ): Promise<CNResult> {
   const apiKey = process.env.CALORIE_NINJAS_API_KEY;
   if (!apiKey) {
-    return { success: false, macros: zeroed(), error: 'CalorieNinjas not configured' };
+    return { success: false, macros: zeroed(), error: 'CalorieNinjas not configured', queryString: '' };
   }
 
+  const query = ingredients.join(', ');
+
   try {
-    const query = ingredients.join(', ');
     const url   = `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(query)}`;
 
     const response = await fetch(url, {
@@ -49,7 +61,13 @@ export async function getMealMacrosFromCalorieNinjas(
     if (!response.ok) {
       const text = await response.text();
       console.warn(`[CalorieNinjas] ${response.status} for "${mealName}":`, text);
-      return { success: false, macros: zeroed(), error: `CalorieNinjas ${response.status}` };
+      return {
+        success:    false,
+        macros:     zeroed(),
+        error:      `CalorieNinjas ${response.status}`,
+        queryString: query,
+        statusCode: response.status,
+      };
     }
 
     const data = await response.json() as any;
@@ -57,7 +75,14 @@ export async function getMealMacrosFromCalorieNinjas(
     // data.items — one entry per recognised ingredient; sum all items for meal total
     if (!data.items || data.items.length === 0) {
       console.warn(`[CalorieNinjas] No items returned for "${mealName}"`);
-      return { success: false, macros: zeroed(), error: 'No items returned' };
+      return {
+        success:      false,
+        macros:       zeroed(),
+        error:        'No items returned',
+        queryString:  query,
+        statusCode:   response.status,
+        itemsMatched: 0,
+      };
     }
 
     const totals = data.items.reduce(
@@ -83,19 +108,35 @@ export async function getMealMacrosFromCalorieNinjas(
       `[CalorieNinjas] "${mealName}": ${macros.calories}kcal ` +
       `P:${macros.proteinG}g C:${macros.carbsG}g F:${macros.fatG}g`
     );
-    return { success: true, macros };
+    return {
+      success:      true,
+      macros,
+      queryString:  query,
+      statusCode:   response.status,
+      itemsMatched: data.items.length,
+    };
 
   } catch (err: any) {
     console.warn(`[CalorieNinjas] Failed for "${mealName}":`, err.message);
-    return { success: false, macros: zeroed(), error: err.message };
+    return {
+      success:     false,
+      macros:      zeroed(),
+      error:       err.message,
+      queryString: query,
+    };
   }
 }
 
 // Verify all meals in one plan day sequentially.
 // Sequential (not parallel) to respect the 100 calls/day free-tier limit.
 // 4 meals × 7 days = 28 calls; 4 meals × 14 days = 56 calls — both within limit.
-export async function verifyDayMacros(meals: any[]): Promise<CNMacros[]> {
-  const results: CNMacros[] = [];
+// Returns both the summed CNMacros[] (for backward compat) and detailed CNDetailedResult[].
+export async function verifyDayMacros(meals: any[]): Promise<{
+  verifiedMacros:  CNMacros[];
+  detailedResults: CNDetailedResult[];
+}> {
+  const verifiedMacros:  CNMacros[]         = [];
+  const detailedResults: CNDetailedResult[] = [];
 
   for (const meal of meals) {
     const ingredients = extractIngredients(meal);
@@ -115,24 +156,47 @@ export async function verifyDayMacros(meals: any[]): Promise<CNMacros[]> {
           `[CalorieNinjas] PLAUSIBILITY FAIL "${meal.name}": ` +
           `CN=${cnCal}kcal is >3× Claude=${claudeCal}kcal — using Claude estimate`
         );
-        results.push({
+        const fallbackMacros: CNMacros = {
           calories: claudeCal,
           proteinG: meal.protein ?? 0,
           carbsG:   meal.carbs   ?? 0,
           fatG:     meal.fat     ?? 0,
           fibreG:   meal.fibre   ?? 0,
+        };
+        verifiedMacros.push(fallbackMacros);
+        detailedResults.push({
+          macros:       fallbackMacros,
+          queryString:  result.queryString,
+          success:      false,   // treat as failed for logging — plausibility guard fired
+          statusCode:   result.statusCode,
+          itemsMatched: result.itemsMatched,
         });
       } else {
-        results.push(result.macros);
+        verifiedMacros.push(result.macros);
+        detailedResults.push({
+          macros:       result.macros,
+          queryString:  result.queryString,
+          success:      true,
+          statusCode:   result.statusCode,
+          itemsMatched: result.itemsMatched,
+        });
       }
     } else {
       // Fall back to Claude's estimates when CN fails for this meal
-      results.push({
+      const fallbackMacros: CNMacros = {
         calories: meal.calories ?? 0,
         proteinG: meal.protein  ?? 0,
         carbsG:   meal.carbs    ?? 0,
         fatG:     meal.fat      ?? 0,
         fibreG:   meal.fibre    ?? 0,
+      };
+      verifiedMacros.push(fallbackMacros);
+      detailedResults.push({
+        macros:       fallbackMacros,
+        queryString:  result.queryString,
+        success:      false,
+        statusCode:   result.statusCode,
+        itemsMatched: result.itemsMatched,
       });
     }
 
@@ -140,7 +204,7 @@ export async function verifyDayMacros(meals: any[]): Promise<CNMacros[]> {
     await new Promise(resolve => setTimeout(resolve, 200));
   }
 
-  return results;
+  return { verifiedMacros, detailedResults };
 }
 
 // ── Ingredient extraction ────────────────────────────────────────────────────

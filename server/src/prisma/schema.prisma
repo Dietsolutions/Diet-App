@@ -37,6 +37,7 @@ model User {
   additionalMealLogs AdditionalMealLog[]
   cookingInstructions MealCookingInstructions[]
   planGenerationUsage PlanGenerationUsage[]
+  macroValidationLogs MacroValidationLog[]
 }
 
 model WeightLog {
@@ -377,4 +378,98 @@ model PlanGenerationUsage {
   @@unique([userId, month])
   @@index([userId, month])
   @@map("plan_generation_usage")
+}
+
+model MacroValidationLog {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+
+  userId        String
+  mealPlanId    String
+  planDuration  Int
+  dayIndex      Int
+  mealIndex     Int
+  iteration     Int
+
+  claudeMealName        String
+  claudeCalories        Float
+  claudeProtein         Float
+  claudeCarbs           Float
+  claudeFat             Float
+  claudeFibre           Float
+  claudeIngredients     String
+
+  cnQueryString         String
+  cnApiSuccess          Boolean
+  cnApiStatusCode       Int?
+  cnReturnedCalories    Float?
+  cnReturnedProtein     Float?
+  cnReturnedCarbs       Float?
+  cnReturnedFat         Float?
+  cnReturnedFibre       Float?
+  cnItemsMatched        Int?
+
+  userTargetCalories    Float
+  userTargetProtein     Float
+  userTargetCarbs       Float
+  userTargetFat         Float
+
+  mealTargetCalories    Float
+  mealTargetProtein     Float
+  mealTargetCarbs       Float
+  mealTargetFat         Float
+
+  deltaCalories         Float?
+  deltaProtein          Float?
+  deltaCarbs            Float?
+  deltaFat              Float?
+  deltaPctCalories      Float?
+  deltaPctProtein       Float?
+  deltaPctCarbs         Float?
+  deltaPctFat           Float?
+
+  withinTolerance       Boolean
+
+  dayTotalCnCalories    Float?
+  dayTotalCnProtein     Float?
+  dayTotalCnCarbs       Float?
+  dayTotalCnFat         Float?
+  dayDeltaCalories      Float?
+  dayDeltaPctCalories   Float?
+  dayValidationPassed   Boolean?
+
+  correctionTriggered   Boolean   @default(false)
+  correctionTargetMeal  String?
+  correctionReason      String?
+  correctionGapKcal     Float?
+
+  correctedMealName     String?
+  correctedCalories     Float?
+  correctedProtein      Float?
+  correctedCarbs        Float?
+  correctedFat          Float?
+  correctedFibre        Float?
+
+  recheckCalories           Float?
+  recheckProtein            Float?
+  recheckCarbs              Float?
+  recheckFat                Float?
+  recheckWithinTolerance    Boolean?
+
+  finalOutcome          String
+  finalCalories         Float
+  finalProtein          Float
+  finalCarbs            Float
+  finalFat              Float
+  finalFibre            Float
+
+  accuracyDeltaKcal     Float?
+  accuracyDeltaPct      Float?
+
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, mealPlanId])
+  @@index([mealPlanId, dayIndex, mealIndex])
+  @@index([createdAt])
+  @@map("macro_validation_logs")
 }
