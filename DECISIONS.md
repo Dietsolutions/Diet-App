@@ -1920,3 +1920,59 @@ The sooryaprakash dataset intentionally allows name-only rows (no macros) throug
 - `server/src/scripts/seedKaggleIndianFoods.ts` — new Kaggle seeder
 - `server/src/services/openFoodFactsService.ts` — India-first two-pass search
 - `server/package.json` — added `seed:kaggle` script
+
+---
+
+## Task 5 — CalorieNinjas Macro Inflation (2026-05-07)
+
+### Problem
+
+Day 1 daily totals were 2× the user's calorie target (e.g. 6389 kcal stored vs 3198 kcal target).
+
+**Root cause diagnosed from live DB:**
+
+| Meal | Stored kcal | Expected kcal | Factor |
+|---|---|---|---|
+| Paneer Scramble + Roti | 3015 | ~900 | 3.4× |
+| Cucumber Raita with Mint | 543 | ~250 | 2.2× |
+| Egg Curry + Vegetables | 2831 | ~850 | 3.3× |
+| Day total | **6389** | **~2000** | **2×** |
+
+**Bug A — ml→100g default (primary):** CalorieNinjas cannot parse `ml` units for fats. When it receives `"10ml oil"` or `"15ml ghee"`, it silently defaults the quantity to 100 g instead of the correct ~9–14 g. 100 g of cooking oil = 884 kcal; the actual amount (10 ml) is ~88 kcal. Single-meal fat inflation: ~+796 kcal per oil/ghee ingredient.
+
+**Bug B (secondary):** Ambiguous ingredient strings with no quantity (e.g. `"cucumber"`, `"plain yogurt"`) also default to 100 g each in CN, which is less critical but compounds the inflation for meals like raita.
+
+### Fixes Applied
+
+**Fix 1 — `normaliseMl()` in `calorieNinjasService.ts`:**
+
+Added a density lookup table (`FAT_DENSITY`, `LIQUID_DENSITY`) and a `normaliseMl()` pre-processing function that converts `Xml fat/oil/ghee/butter` → `Yg` (using ~0.91–0.92 g/ml density) and other liquids (milk, curd, water, broth) → approximate grams (1.00–1.05 g/ml) before the ingredient string is sent to CalorieNinjas. Non-ml ingredients pass through unchanged.
+
+Examples:
+- `"10ml ghee"` → `"9g ghee"` (CN receives 9 g → ~83 kcal, not 884 kcal)
+- `"15ml oil"` → `"14g oil"` (CN receives 14 g → ~125 kcal, not 884 kcal)
+- `"200ml milk"` → `"206g milk"` (minor rounding, negligible impact)
+
+**Fix 2 — Plausibility guard in `verifyDayMacros()`:**
+
+If CN returns calories > 3× Claude's original estimate for the same meal, the CN result is discarded and Claude's estimate is used instead (with a `PLAUSIBILITY FAIL` warning log). This catches any remaining CN mis-parses (ambiguous quantity strings, unrecognised units) that survive the ml→g conversion.
+
+The 3× threshold is deliberately generous: it allows for legitimate under-estimating by Claude (e.g. Claude says 400 kcal, CN says 600 kcal → accepted) while blocking clearly bad CN reads (Claude says 800 kcal, CN says 3015 kcal → rejected).
+
+Guard only fires when `claudeCal > 50` to avoid false positives for genuinely low-calorie items (snacks, condiments).
+
+### Before / After Ratio Table
+
+| Ingredient | Before fix (CN) | After fix (CN) | Δ kcal |
+|---|---|---|---|
+| 10 ml ghee/oil | 100 g → 884 kcal | 9 g → ~83 kcal | −801 |
+| 15 ml oil | 100 g → 884 kcal | 14 g → ~124 kcal | −760 |
+| 200 ml milk | (may → 100 g → 61 kcal) | 206 g → 126 kcal | +65 (more accurate) |
+| Day total (est.) | ~6389 kcal | ~2000–2500 kcal | −3900+ |
+
+### Files Modified in Task 5
+- `server/src/services/calorieNinjasService.ts`:
+  - Added `FAT_DENSITY` and `LIQUID_DENSITY` tables
+  - Added `normaliseMl()` converter
+  - Applied `normaliseMl()` in both `extractIngredients()` cases (plain strings + object arrays)
+  - Added plausibility guard in `verifyDayMacros()` (>3× Claude estimate → fall back)

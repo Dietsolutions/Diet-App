@@ -102,7 +102,29 @@ export async function verifyDayMacros(meals: any[]): Promise<CNMacros[]> {
     const result      = await getMealMacrosFromCalorieNinjas(meal.name, ingredients);
 
     if (result.success) {
-      results.push(result.macros);
+      const cnCal     = result.macros.calories;
+      const claudeCal = meal.calories ?? 0;
+
+      // Plausibility guard: if CN returns >3× Claude's own estimate, CN has
+      // almost certainly defaulted a zero-quantity ingredient to 100 g (or
+      // similarly mis-parsed something). Fall back to Claude's estimate.
+      // A 3× ceiling is generous enough to allow real discrepancies (e.g.
+      // Claude under-estimating by 50%) while blocking clearly bad CN reads.
+      if (claudeCal > 50 && cnCal > claudeCal * 3) {
+        console.warn(
+          `[CalorieNinjas] PLAUSIBILITY FAIL "${meal.name}": ` +
+          `CN=${cnCal}kcal is >3× Claude=${claudeCal}kcal — using Claude estimate`
+        );
+        results.push({
+          calories: claudeCal,
+          proteinG: meal.protein ?? 0,
+          carbsG:   meal.carbs   ?? 0,
+          fatG:     meal.fat     ?? 0,
+          fibreG:   meal.fibre   ?? 0,
+        });
+      } else {
+        results.push(result.macros);
+      }
     } else {
       // Fall back to Claude's estimates when CN fails for this meal
       results.push({
@@ -123,17 +145,78 @@ export async function verifyDayMacros(meals: any[]): Promise<CNMacros[]> {
 
 // ── Ingredient extraction ────────────────────────────────────────────────────
 
+// Density map for ml→g conversion.
+// CalorieNinjas cannot parse ml for fats/oils — it silently defaults to 100 g.
+// "10ml ghee" → CN reads as 100 g ghee → ~900 kcal instead of ~90 kcal.
+// Converting to grams before the query fixes this.
+const FAT_DENSITY: Array<[RegExp, number]> = [
+  [/ghee/i,             0.91],
+  [/butter/i,           0.91],
+  [/coconut oil/i,      0.92],
+  [/olive oil/i,        0.91],
+  [/sesame oil/i,       0.92],
+  [/mustard oil/i,      0.91],
+  [/sunflower oil/i,    0.92],
+  [/vegetable oil/i,    0.92],
+  [/canola oil/i,       0.92],
+  [/oil/i,              0.92],  // generic oil — must be last
+];
+
+// Liquid density map (approximately 1 g/ml, but listed explicitly for clarity)
+const LIQUID_DENSITY: Array<[RegExp, number]> = [
+  [/milk/i,             1.03],
+  [/yogurt|curd/i,      1.03],
+  [/water/i,            1.00],
+  [/broth|stock/i,      1.00],
+  [/sauce/i,            1.05],
+  [/juice/i,            1.04],
+  [/coconut milk/i,     1.00],
+];
+
+/**
+ * Convert "10ml ghee" → "9g ghee", "200ml milk" → "206g milk", etc.
+ * Leaves non-ml ingredients unchanged.
+ */
+function normaliseMl(ingredient: string): string {
+  const mlMatch = ingredient.match(/^(\d+(?:\.\d+)?)\s*ml\s+(.+)$/i);
+  if (!mlMatch) return ingredient;
+
+  const ml   = parseFloat(mlMatch[1]);
+  const rest = mlMatch[2];
+
+  // Check fats first (higher density deviation from 1g/ml)
+  for (const [pattern, density] of FAT_DENSITY) {
+    if (pattern.test(rest)) {
+      const grams = Math.round(ml * density);
+      console.log(`[CN] ml→g: "${ingredient}" → "${grams}g ${rest}"`);
+      return `${grams}g ${rest}`;
+    }
+  }
+
+  // Check other liquids
+  for (const [pattern, density] of LIQUID_DENSITY) {
+    if (pattern.test(rest)) {
+      const grams = Math.round(ml * density);
+      return `${grams}g ${rest}`;
+    }
+  }
+
+  // Default: 1 ml ≈ 1 g (water-like)
+  return `${Math.round(ml)}g ${rest}`;
+}
+
 function extractIngredients(meal: any): string[] {
   // Case 1 — ingredients is an array of plain strings: ["150g chicken", ...]
   if (Array.isArray(meal.ingredients) && typeof meal.ingredients[0] === 'string') {
-    return meal.ingredients;
+    return meal.ingredients.map(normaliseMl);
   }
 
   // Case 2 — ingredients is an array of objects: [{ quantity, unit, name }, ...]
   if (Array.isArray(meal.ingredients) && meal.ingredients[0]?.name) {
-    return meal.ingredients.map((ing: any) =>
-      `${ing.quantity || ''} ${ing.unit || ''} ${ing.name}`.trim()
-    );
+    return meal.ingredients.map((ing: any) => {
+      const raw = `${ing.quantity || ''} ${ing.unit || ''} ${ing.name}`.trim();
+      return normaliseMl(raw);
+    });
   }
 
   // Case 3 — fall back to meal name + description as a best-effort query
