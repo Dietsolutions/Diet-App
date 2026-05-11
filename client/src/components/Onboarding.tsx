@@ -392,6 +392,13 @@ export function Onboarding({ onComplete, userName }: Props) {
               ...(data.dietIntensity ? [`Intensity: ${data.dietIntensity}`] : []),
               data.activityLevel,
             ]} onEdit={() => { setShowSummary(false); setStep(7); }} />
+            <SummaryCard label="LIFESTYLE" items={[
+              (data.trainingType && data.trainingType !== 'none')
+                ? `Training: ${data.trainingType}${data.trainingDaysPerWeek ? `, ${data.trainingDaysPerWeek}×/wk` : ''}`
+                : 'No structured training',
+              `${((data.dailySteps ?? 5000) / 1000).toFixed(1).replace('.0', '')}k steps/day · ${data.occupationType?.replace('_', ' ') ?? 'desk job'}`,
+              `Sleep: ${data.sleepQuality ?? 'average'} · Stress: ${data.stressLevel ?? 'medium'} · Energy: ${data.energyLevel ?? 'moderate'}`,
+            ]} onEdit={() => { setShowSummary(false); setStep(8); }} />
           </div>
 
           {/* ── Custom instructions ── */}
