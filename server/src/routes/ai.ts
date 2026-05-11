@@ -5,7 +5,7 @@ import { requireAuth, AuthRequest } from '../middleware/auth';
 import { calculateBMI } from '../utils/tdee';
 import { verifyDayMacros } from '../services/calorieNinjasService';
 import { validateDayMacros, buildCorrectionPrompt } from '../services/macroValidation';
-import { logMealValidation, MealValidationEntry } from '../services/macroValidationLogger';
+import { logMealValidation, batchLogValidation, MealValidationEntry } from '../services/macroValidationLogger';
 
 const router = Router();
 
@@ -251,6 +251,14 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  // SSE heartbeat — declared outside try/catch so clearHeartbeat is always in scope.
+  // Keeps the Vercel/client SSE connection alive during the long CN pipeline;
+  // Vercel drops idle connections after ~25s without data.
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  const clearHeartbeat = () => {
+    if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+  };
+
   try {
     const client = new Anthropic({ apiKey });
     const userPrompt = buildUserPrompt(profile);
@@ -357,6 +365,13 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
 
     // Buffer for audit log entries — written after mealPlan.id is available
     const pendingLogEntries: MealValidationEntry[] = [];
+
+    // Start heartbeat now that we're entering the slow CN verification phase
+    heartbeat = setInterval(() => {
+      if (!res.writableEnded) {
+        res.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+      }
+    }, 10000);
 
     try {
     if (CN_ENABLED) {
@@ -714,6 +729,8 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     } catch (cnErr: any) {
       // CalorieNinjas failure must NEVER kill the generation — fall back to Claude's original estimates
       console.error('[CalorieNinjas] Verification pipeline failed — skipping, using Claude estimates:', cnErr.message);
+    } finally {
+      clearHeartbeat();
     }
     // ── END MACRO VERIFICATION ────────────────────────────────────────────────
 
@@ -744,13 +761,16 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       }
     });
 
-    // Fire-and-forget: write all buffered validation log entries now that we have mealPlan.id.
-    // Each write is independent — a failure on one entry never blocks the others or the response.
+    // Batch log all validation entries completely off the critical path.
+    // setImmediate defers execution until after the current event-loop tick —
+    // the response is sent first, then these DB writes happen in the background.
     if (pendingLogEntries.length > 0) {
-      for (const entry of pendingLogEntries) {
-        entry.mealPlanId = mealPlan.id;
-        logMealValidation(entry).catch(() => {}); // fire-and-forget; logMealValidation already swallows errors
-      }
+      const entriesToLog = pendingLogEntries.map(e => ({ ...e, mealPlanId: mealPlan.id }));
+      setImmediate(() => {
+        batchLogValidation(entriesToLog).catch(err =>
+          console.error('[ValidationLog] Batch write failed:', err.message)
+        );
+      });
     }
 
     // Create all days in parallel
@@ -800,6 +820,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     });
     res.end();
   } catch (err: any) {
+    clearHeartbeat();
     console.error('AI generation error:', err?.message || err, err?.status, err?.error);
     let errorMsg = 'Failed to generate meal plan. Please try again.';
     if (err.message?.includes('timeout') || err.message?.includes('ETIMEDOUT')) {

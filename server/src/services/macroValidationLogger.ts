@@ -210,6 +210,26 @@ export async function logMealValidation(entry: MealValidationEntry): Promise<voi
   }
 }
 
+// ── Batch write — call via setImmediate so it never blocks the response ───────
+// Writes all buffered entries sequentially with a 50ms pause between each to
+// stay gentle on the Neon connection pool. Any per-entry failure is swallowed
+// and logged; the loop always continues to the next entry.
+export async function batchLogValidation(entries: MealValidationEntry[]): Promise<void> {
+  if (entries.length === 0) return;
+  let written = 0;
+  for (const entry of entries) {
+    try {
+      await logMealValidation(entry);
+      written++;
+      // Small breathing room between DB inserts — keeps Neon pooler happy
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } catch (err: any) {
+      console.error('[BatchLog] Entry failed, continuing:', err.message);
+    }
+  }
+  console.log(`[BatchLog] Wrote ${written}/${entries.length} validation log entries`);
+}
+
 export async function getValidationSummaryForPlan(mealPlanId: string) {
   const logs = await prisma.macroValidationLog.findMany({
     where:   { mealPlanId },

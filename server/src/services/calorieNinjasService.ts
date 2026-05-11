@@ -55,7 +55,7 @@ export async function getMealMacrosFromCalorieNinjas(
         'X-Api-Key':     apiKey,
         'Content-Type':  'application/json',
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!response.ok) {
@@ -200,8 +200,8 @@ export async function verifyDayMacros(meals: any[]): Promise<{
       });
     }
 
-    // Small delay between calls to be polite to the rate limit
-    await new Promise(resolve => setTimeout(resolve, 200));
+    // Small delay between calls to be polite to the rate limit (50ms is enough for Neon pooler)
+    await new Promise(resolve => setTimeout(resolve, 50));
   }
 
   return { verifiedMacros, detailedResults };

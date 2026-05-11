@@ -2003,3 +2003,27 @@ Guard only fires when `claudeCal > 50` to avoid false positives for genuinely lo
 - Accuracy delta: final CN-verified calories − Claude's original estimate
 
 **Row count**: 1 row per meal per iteration. A 7-day × 4-meal plan with 0 corrections = 28 rows; each correction adds another set of rows for the retry iteration.
+
+## 253. Generation Timeout Fixes — Logging Off Critical Path, CN Delays Reduced
+
+**Problem**: `await logMealValidation()` inside the CN loop added 28 sequential DB writes to the critical path. Combined with CN API calls and Claude corrections, total time risked exceeding Vercel's function timeout.
+
+**`await logMealValidation` calls changed**: 0 — logging was already pushed into `pendingLogEntries[]` (non-blocking). The fix was to replace the post-save fire-and-forget loop with a single `setImmediate(() => batchLogValidation(...))` so the response is flushed before any DB writes begin.
+
+**`vercel.json` status**: Existed before — `maxDuration: 300` was already set on `api/index.ts`. No change needed.
+
+**CN inter-call delay**: `200ms` → `50ms` (saves ~4.2s on a 7-day × 4-meal plan; Neon connection pooler handles the reduced gap without issue).
+
+**CN AbortSignal timeout**: `8000ms` → `5000ms` per CN call (reduces worst-case stall from 8s to 5s per failed request).
+
+**Approach used**: `setImmediate + batchLogValidation` — strictly better than fire-and-forget because it:
+1. Defers to the next event-loop tick (response is flushed first)
+2. Writes entries sequentially with 50ms pauses between each to stay gentle on Neon
+3. Logs a summary count on completion
+
+**SSE heartbeat added**: `setInterval` every 10s sending `event: heartbeat` events during the CN pipeline. Declared outside the outer `try/catch` so `clearHeartbeat()` is always in scope. Cleared in the CN pipeline's `finally` block and the outer `catch` block to prevent leaks.
+
+**Files modified**:
+- `server/src/services/calorieNinjasService.ts` — delay 200ms→50ms, AbortSignal 8000ms→5000ms
+- `server/src/services/macroValidationLogger.ts` — added `batchLogValidation()`
+- `server/src/routes/ai.ts` — SSE heartbeat, `setImmediate + batchLogValidation`, import updated
