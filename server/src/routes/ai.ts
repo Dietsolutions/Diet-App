@@ -761,16 +761,23 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       }
     });
 
-    // Batch log all validation entries completely off the critical path.
-    // setImmediate defers execution until after the current event-loop tick —
-    // the response is sent first, then these DB writes happen in the background.
+    // Write all validation log entries in parallel BEFORE sending the response.
+    // setImmediate-after-res.end was killed by Vercel within ~3s — not enough for 28 writes.
+    // Promise.allSettled runs all writes concurrently (~1-2s on Neon vs 1.5s sequential).
+    // Hard 8s ceiling via Promise.race so logging can never stall the response beyond that.
+    // logMealValidation() already swallows its own errors — allSettled adds belt+suspenders.
     if (pendingLogEntries.length > 0) {
       const entriesToLog = pendingLogEntries.map(e => ({ ...e, mealPlanId: mealPlan.id }));
-      setImmediate(() => {
-        batchLogValidation(entriesToLog).catch(err =>
-          console.error('[ValidationLog] Batch write failed:', err.message)
-        );
-      });
+      const logTimeout = new Promise<void>(resolve => setTimeout(resolve, 8000));
+      await Promise.race([
+        Promise.allSettled(entriesToLog.map(e => logMealValidation(e))).then(results => {
+          const ok = results.filter(r => r.status === 'fulfilled').length;
+          console.log(`[ValidationLog] Wrote ${ok}/${results.length} validation log entries`);
+        }),
+        logTimeout.then(() => {
+          console.warn('[ValidationLog] 8s ceiling hit — some entries may be missing');
+        }),
+      ]);
     }
 
     // Create all days in parallel

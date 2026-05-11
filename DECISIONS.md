@@ -2027,3 +2027,23 @@ Guard only fires when `claudeCal > 50` to avoid false positives for genuinely lo
 - `server/src/services/calorieNinjasService.ts` — delay 200ms→50ms, AbortSignal 8000ms→5000ms
 - `server/src/services/macroValidationLogger.ts` — added `batchLogValidation()`
 - `server/src/routes/ai.ts` — SSE heartbeat, `setImmediate + batchLogValidation`, import updated
+
+## 254. SSE Timeout & Missing Validation Logs — Root Cause + Fix
+
+**Root cause of timeout (Cause D):**  
+`cnChecks: 84` on the last plan = MAX_CORRECTIONS (3) fired on every day × 7 days × 4 meals. The CN pipeline ran for ~2.5–3 minutes. Client XHR timeout was **180,000ms (3 min)** — the function just barely exceeded it. `xhr.ontimeout` fired → user sees "Request timed out". The plan was saved milliseconds before the timeout, so refresh shows it.
+
+**Root cause of missing logs (Cause D):**  
+`setImmediate` callback runs after `res.end()`. Vercel freezes the function process within ~3s of flushing the response. Only 6/28 entries were written before the process froze (all Day 1). `pendingLogEntries` was correctly scoped outside the loop ✅. Prisma model worked ✅. SSE event `done` matched both sides ✅.
+
+**Fix 1 — XHR timeout**: `180,000ms → 300,000ms` in both `Onboarding.tsx` and `ProfileTab.tsx`, matching Vercel's `maxDuration: 300`.
+
+**Fix 2 — Batch logging before res.end()**: Replaced `setImmediate + batchLogValidation` (which ran after the process was effectively dead) with `Promise.allSettled(entries.map(logMealValidation))` awaited BEFORE `sendEvent('done')`. All 28 writes run in parallel on Neon (~1–2s concurrent vs ~1.5s sequential), and a hard 8-second `Promise.race` ceiling ensures logging can never stall the response beyond that limit. `logMealValidation` already has its own try/catch; `allSettled` adds belt+suspenders so one entry failure never blocks the others.
+
+**Prisma client regen needed**: No — model worked correctly (6 rows written).
+
+**`validationLogEntries` scope**: Correct before the fix — declared at line 367, outside the day loop.
+
+**SSE done event**: `sendEvent('done', ...)` → `event: done` on server; client checks `eventMatch[1] === 'done'` — match ✅. No change needed.
+
+**Expected row count after next generation**: 28 rows for a 7-day × 4-meal plan with 0 corrections; more with corrections (iteration rows).

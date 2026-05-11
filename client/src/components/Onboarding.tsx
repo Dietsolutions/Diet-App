@@ -207,7 +207,7 @@ export function Onboarding({ onComplete, userName }: Props) {
         xhr.open('POST', apiUrl('/api/ai/generate-meal-plan'));
         xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.withCredentials = true;
-        xhr.timeout = 180000;
+        xhr.timeout = 300000; // 5 min — matches Vercel maxDuration; 180s was too short for worst-case CN pipeline
         let processed = 0;
         let settled = false;
         const parseSSE = () => {
