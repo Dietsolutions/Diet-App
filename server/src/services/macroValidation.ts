@@ -4,6 +4,25 @@
 
 import { CNMacros } from './calorieNinjasService';
 
+// ── Weighted meal calorie distributions ──────────────────────────────────────
+// A snack should NOT be held to the same target as lunch.
+// These weights reflect typical meal energy proportions.
+export const MEAL_WEIGHT_DISTRIBUTIONS: Record<number, Record<string, number>> = {
+  3: { breakfast: 0.30, lunch: 0.40, dinner: 0.30 },
+  4: { breakfast: 0.25, lunch: 0.35, snack: 0.10, dinner: 0.30 },
+  5: { breakfast: 0.25, 'mid-morning snack': 0.10, lunch: 0.30, 'evening snack': 0.15, dinner: 0.20 },
+};
+
+/**
+ * Return the fraction of daily calories expected for `mealType` given `mealsPerDay`.
+ * Falls back to equal split for unrecognised meal types.
+ */
+export function getMealWeightPct(mealType: string, mealsPerDay: number): number {
+  const dist = MEAL_WEIGHT_DISTRIBUTIONS[mealsPerDay] ?? MEAL_WEIGHT_DISTRIBUTIONS[4];
+  const key  = (mealType ?? '').toLowerCase();
+  return dist[key] ?? (1 / mealsPerDay);
+}
+
 interface DailyTargets {
   calories: number;
   proteinG: number;
@@ -92,6 +111,85 @@ export function validateDayMacros(
 
   console.log(`[macroValidation] Result: isValid=${isValid}, gaps=[${gaps.map(g => g.macro).join(', ')}]`);
 
+  return { isValid, gaps, totalVerified: total as DailyTargets };
+}
+
+// ── Per-meal CN-vs-Claude accuracy check ─────────────────────────────────────
+/**
+ * Returns { accurate: true } if the CN-verified calorie count is within
+ * `threshold` fraction of Claude's own estimate for that meal.
+ *
+ * When accurate, it means Claude correctly sized the meal — keep Claude's
+ * numbers (which respect the weighted meal-calorie distribution).
+ * When inaccurate, Claude was significantly wrong — use CN's numbers instead.
+ */
+export function evaluateMealAccuracy(
+  cnCalories:     number,
+  claudeCalories: number,
+  threshold:      number = 0.25,
+): { accurate: boolean } {
+  if (claudeCalories <= 0) return { accurate: false };
+  const diff = Math.abs(cnCalories - claudeCalories);
+  return { accurate: (diff / claudeCalories) <= threshold };
+}
+
+// ── Day-budget validation on finalized (arbitrated) meal macros ───────────────
+/**
+ * Same tolerance bands as validateDayMacros, but accepts the post-arbitration
+ * meal objects (calories/protein/carbs/fat/fibre) instead of raw CNMacros[].
+ * Call this AFTER running evaluateMealAccuracy() on each meal.
+ */
+export function validateDayBudget(
+  finalMeals: Array<{ calories: number; protein: number; carbs: number; fat: number; fibre?: number }>,
+  targets:    DailyTargets,
+): ValidationResult {
+  const total = finalMeals.reduce(
+    (acc, m) => ({
+      calories: acc.calories + (m.calories ?? 0),
+      proteinG: acc.proteinG + (m.protein  ?? 0),
+      carbsG:   acc.carbsG   + (m.carbs    ?? 0),
+      fatG:     acc.fatG     + (m.fat      ?? 0),
+      fibreG:   acc.fibreG   + ((m as any).fibre ?? 0),
+    }),
+    { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fibreG: 0 },
+  );
+
+  console.log('[macroValidation] Day budget (arbitrated macros):', {
+    calories: `${Math.round(total.calories)} / ${targets.calories} (${targets.calories ? Math.round((total.calories / targets.calories) * 100) : '?'}%)`,
+    proteinG: `${Math.round(total.proteinG)} / ${targets.proteinG}`,
+    carbsG:   `${Math.round(total.carbsG)}   / ${targets.carbsG}`,
+    fatG:     `${Math.round(total.fatG)}     / ${targets.fatG}`,
+  });
+
+  const gaps:  DailyGap[] = [];
+  let  isValid              = true;
+
+  for (const [macro, tol] of Object.entries(TOLERANCE)) {
+    const actual = (total   as any)[macro] as number;
+    const target = (targets as any)[macro] as number;
+    if (!target || target <= 0) continue;
+
+    const pct    = actual / target;
+    const status = pct < tol.min ? '❌ LOW' : pct > tol.max ? '❌ HIGH' : '✅ OK';
+    console.log(
+      `[macroValidation]   ${macro.padEnd(10)} actual=${Math.round(actual).toString().padStart(5)}` +
+      `  target=${Math.round(target).toString().padStart(5)}  pct=${Math.round(pct * 100)}%` +
+      `  window=[${Math.round(tol.min * 100)}%–${Math.round(tol.max * 100)}%]  ${status}`
+    );
+
+    if (pct < tol.min || pct > tol.max) {
+      isValid = false;
+      gaps.push({
+        macro,
+        actual: Math.round(actual),
+        target: Math.round(target),
+        delta:  Math.round(actual - target),
+        pct:    Math.round(pct * 100),
+      });
+    }
+  }
+
+  console.log(`[macroValidation] Budget result: isValid=${isValid}, gaps=[${gaps.map(g => g.macro).join(', ')}]`);
   return { isValid, gaps, totalVerified: total as DailyTargets };
 }
 

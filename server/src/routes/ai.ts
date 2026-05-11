@@ -2,9 +2,9 @@ import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { calculateBMI } from '../utils/tdee';
+import { calculateBMI, calculateTDEE } from '../utils/tdee';
 import { verifyDayMacros } from '../services/calorieNinjasService';
-import { validateDayMacros, buildCorrectionPrompt } from '../services/macroValidation';
+import { validateDayBudget, buildCorrectionPrompt, evaluateMealAccuracy } from '../services/macroValidation';
 import { logMealValidation, batchLogValidation, MealValidationEntry } from '../services/macroValidationLogger';
 
 const router = Router();
@@ -352,12 +352,42 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     const MAX_CORRECTIONS   = 3;   // max correction iterations per day
     const DAYS_TO_VALIDATE  = planData.days.length; // 7 or 14
 
+    // ── Fresh TDEE computation ──────────────────────────────────────────────
+    // Recalculate at generation time using the improved formula (kg/week-based
+    // deficit, targetWeightKg for protein, age slowdown, health conditions).
+    // This ensures targets stay accurate even if the formula was updated since
+    // the user last saved their profile.
+    const freshTargets = calculateTDEE({
+      weightKg:          profile.weightKg,
+      heightCm:          profile.heightCm,
+      age:               profile.age,
+      gender:            profile.gender,
+      activityLevel:     profile.activityLevel,
+      dietIntensity:     (profile as any).dietIntensity   ?? null,
+      primaryGoal:       profile.primaryGoal,
+      targetWeightKg:    (profile as any).targetWeightKg  ?? null,
+      healthConditions:  JSON.parse((profile as any).healthConditions ?? '[]'),
+      eatingWindowHours: (profile as any).eatingWindowHours ?? null,
+    });
+
+    // Sync profile targets in background — never blocks generation
+    prisma.userProfile.update({
+      where: { userId },
+      data: {
+        targetCalories: freshTargets.targetCalories,
+        proteinTarget:  freshTargets.proteinTarget,
+        carbTarget:     freshTargets.carbTarget,
+        fatTarget:      freshTargets.fatTarget,
+        fibreTarget:    freshTargets.fibreTarget,
+      },
+    }).catch((err: any) => console.warn('[TDEE] Profile target sync failed:', err.message));
+
     const dailyTargets = {
-      calories: profile.targetCalories ?? 1700,
-      proteinG: (profile as any).proteinTarget ?? 150,
-      carbsG:   (profile as any).carbTarget    ?? 80,
-      fatG:     (profile as any).fatTarget     ?? 50,
-      fibreG:   (profile as any).fibreTarget   ?? 25,
+      calories: freshTargets.targetCalories,
+      proteinG: freshTargets.proteinTarget,
+      carbsG:   freshTargets.carbTarget,
+      fatG:     freshTargets.fatTarget,
+      fibreG:   freshTargets.fibreTarget,
     };
 
     let cnChecksTotal      = 0;
@@ -427,22 +457,43 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
           // Verify CN macros for all meals in this day
           const { verifiedMacros, detailedResults } = await verifyDayMacros(currentMeals);
           cnChecksTotal += currentMeals.length; // one CN call per meal
-          const validation = validateDayMacros(verifiedMacros, dailyTargets);
+
+          // ── Per-meal CN-vs-Claude arbitration ──────────────────────────────
+          // If CN is within 25% of Claude's own estimate → Claude was right.
+          //   Use Claude's numbers (which respect the weighted calorie distribution).
+          // If CN differs >25% → Claude significantly miscalculated.
+          //   Use CN's more accurate numbers instead.
+          // This prevents spurious corrections when Claude correctly plans a
+          // 280 kcal snack but CN returns 260 kcal (7% diff → keep Claude's 280).
+          const finalizedMeals = currentMeals.map((meal, i) => {
+            const cn = verifiedMacros[i];
+            if (!detailedResults[i].success) return meal; // CN failed → keep Claude's estimate
+            const { accurate } = evaluateMealAccuracy(cn.calories, meal.calories ?? 0);
+            if (accurate) {
+              // CN confirms Claude — keep Claude's macro estimates (correctly weighted)
+              return meal;
+            }
+            // Claude was significantly off — use CN's verified numbers
+            return {
+              ...meal,
+              calories: cn.calories,
+              protein:  cn.proteinG,
+              carbs:    cn.carbsG,
+              fat:      cn.fatG,
+              fibre:    cn.fibreG,
+            };
+          });
+
+          // Day-level budget check on arbitrated meal macros
+          const validation = validateDayBudget(finalizedMeals, dailyTargets);
           lastValidation   = validation;
 
           finalVerifiedMacros  = verifiedMacros;
           finalDetailedResults = detailedResults;
 
           if (validation.isValid) {
-            // Replace Claude estimates with CN-verified numbers
-            currentMeals = currentMeals.map((meal, i) => ({
-              ...meal,
-              calories: verifiedMacros[i].calories,
-              protein:  verifiedMacros[i].proteinG,
-              carbs:    verifiedMacros[i].carbsG,
-              fat:      verifiedMacros[i].fatG,
-              fibre:    verifiedMacros[i].fibreG,
-            }));
+            // Accept arbitrated meals (Claude's or CN's — whichever was more accurate)
+            currentMeals = finalizedMeals;
             validated = true;
             dayFinalOutcome = iteration === 0 ? 'passed_first_check' : 'passed_after_correction';
             console.log(`[Validation] Day ${dayIdx + 1} passed on iteration ${iteration}`);
@@ -457,6 +508,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
               const origMeal = iterationStartMeals[mealIdx];
               const dr       = detailedResults[mealIdx];
               const vm       = verifiedMacros[mealIdx];
+              const fm       = finalizedMeals[mealIdx]; // arbitrated (Claude or CN)
 
               pendingLogEntries.push({
                 userId,
@@ -466,6 +518,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 mealIndex:    mealIdx,
                 iteration,
                 mealsPerDay,
+                mealType:     origMeal.type ?? 'unknown',
 
                 claudeMeal: {
                   name:        origMeal.name,
@@ -507,12 +560,13 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 },
 
                 finalOutcome: dayFinalOutcome,
+                // finalMacros = arbitrated values (Claude's if CN confirmed, else CN's)
                 finalMacros: {
-                  calories: vm.calories,
-                  protein:  vm.proteinG,
-                  carbs:    vm.carbsG,
-                  fat:      vm.fatG,
-                  fibre:    vm.fibreG,
+                  calories: fm?.calories ?? vm.calories,
+                  protein:  fm?.protein  ?? vm.proteinG,
+                  carbs:    fm?.carbs    ?? vm.carbsG,
+                  fat:      fm?.fat      ?? vm.fatG,
+                  fibre:    fm?.fibre    ?? vm.fibreG,
                 },
               });
             }
@@ -527,9 +581,11 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
             if (iteration < MAX_CORRECTIONS) {
               sendEvent('progress', { step: `Adjusting Day ${dayIdx + 1} to hit your targets...` });
 
+              // Use arbitrated meals for the correction prompt so Claude sees
+              // accurate calorie numbers (not raw CN or stale Claude estimates)
               const correctionPrompt = buildCorrectionPrompt(
                 validation.gaps,
-                currentMeals,
+                finalizedMeals,
                 profile,
               );
 
@@ -537,15 +593,15 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
               const calGap = Math.abs(validation.gaps.find(g => g.macro === 'calories')?.delta ?? 0);
               const replaceIdx = (() => {
                 if (calGap > 250) {
-                  const li = currentMeals.findIndex(m => m.type === 'lunch');
+                  const li = finalizedMeals.findIndex((m: any) => m.type === 'lunch');
                   if (li !== -1) return li;
-                  const di = currentMeals.findIndex(m => m.type === 'dinner');
+                  const di = finalizedMeals.findIndex((m: any) => m.type === 'dinner');
                   if (di !== -1) return di;
                   return 1;
                 }
-                const si = currentMeals.findIndex(m => m.type === 'snack');
+                const si = finalizedMeals.findIndex((m: any) => m.type === 'snack');
                 if (si !== -1) return si;
-                const li = currentMeals.findIndex(m => m.type === 'lunch');
+                const li = finalizedMeals.findIndex((m: any) => m.type === 'lunch');
                 if (li !== -1) return li;
                 return 1;
               })();
@@ -580,7 +636,8 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                   },
                 };
 
-                currentMeals = currentMeals.map((m, i) =>
+                // Apply correction on top of arbitrated meals
+                currentMeals = finalizedMeals.map((m: any, i: number) =>
                   i === replaceIdx ? { ...corrMeal, mealIndex: m.mealIndex } : m
                 );
                 cnCorrectionsTotal += 1; // successful correction call
@@ -589,30 +646,16 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 console.warn(
                   `[Validation] Correction parse failed day ${dayIdx + 1}:`, parseErr
                 );
-                // Accept current verified macros and move on
-                currentMeals = currentMeals.map((meal, i) => ({
-                  ...meal,
-                  calories: verifiedMacros[i].calories,
-                  protein:  verifiedMacros[i].proteinG,
-                  carbs:    verifiedMacros[i].carbsG,
-                  fat:      verifiedMacros[i].fatG,
-                  fibre:    verifiedMacros[i].fibreG,
-                }));
-                validated = true;
+                // Accept arbitrated meals and move on
+                currentMeals    = finalizedMeals;
+                validated       = true;
                 dayFinalOutcome = 'max_iterations_reached';
               }
 
             } else {
-              // Max iterations reached — use best verified macros available
-              currentMeals = currentMeals.map((meal, i) => ({
-                ...meal,
-                calories: verifiedMacros[i].calories,
-                protein:  verifiedMacros[i].proteinG,
-                carbs:    verifiedMacros[i].carbsG,
-                fat:      verifiedMacros[i].fatG,
-                fibre:    verifiedMacros[i].fibreG,
-              }));
-              validated = true;
+              // Max iterations reached — accept arbitrated meals as-is
+              currentMeals    = finalizedMeals;
+              validated       = true;
               dayFinalOutcome = 'max_iterations_reached';
               console.log(`[Validation] Day ${dayIdx + 1} accepted after max iterations`);
             }
@@ -629,6 +672,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 const origMeal = iterationStartMeals[mealIdx];
                 const dr       = detailedResults[mealIdx];
                 const vm       = verifiedMacros[mealIdx];
+                const fm       = finalizedMeals[mealIdx]; // arbitrated for this iteration
 
                 // Correction detail only applies to the replaced meal
                 const isReplacedMeal = lastCorrectionDetail !== null
@@ -651,6 +695,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                   mealIndex:    mealIdx,
                   iteration:    iteration - 1, // iteration was incremented before this block
                   mealsPerDay,
+                  mealType:     origMeal.type ?? 'unknown',
 
                   claudeMeal: {
                     name:        origMeal.name,
@@ -694,12 +739,14 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                   correction: correctionEntry,
 
                   finalOutcome: dayFinalOutcome,
+                  // finalMacros = arbitrated values for this iteration
+                  // (corrected meal if replaced, else arbitrated Claude/CN value)
                   finalMacros: {
-                    calories: currentMeals[mealIdx]?.calories ?? vm.calories,
-                    protein:  currentMeals[mealIdx]?.protein  ?? vm.proteinG,
-                    carbs:    currentMeals[mealIdx]?.carbs    ?? vm.carbsG,
-                    fat:      currentMeals[mealIdx]?.fat      ?? vm.fatG,
-                    fibre:    currentMeals[mealIdx]?.fibre    ?? vm.fibreG,
+                    calories: currentMeals[mealIdx]?.calories ?? fm?.calories ?? vm.calories,
+                    protein:  currentMeals[mealIdx]?.protein  ?? fm?.protein  ?? vm.proteinG,
+                    carbs:    currentMeals[mealIdx]?.carbs    ?? fm?.carbs    ?? vm.carbsG,
+                    fat:      currentMeals[mealIdx]?.fat      ?? fm?.fat      ?? vm.fatG,
+                    fibre:    currentMeals[mealIdx]?.fibre    ?? fm?.fibre    ?? vm.fibreG,
                   },
                 });
               }

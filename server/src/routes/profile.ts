@@ -84,15 +84,18 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
       }
     }
 
-    // Calculate nutrition targets
+    // Calculate nutrition targets — pass all extended fields for accurate computation
     const targets = calculateTDEE({
-      weightKg: data.weightKg,
-      heightCm: data.heightCm,
-      age: data.age,
-      gender: data.gender,
-      activityLevel: data.activityLevel,
-      dietIntensity: data.dietIntensity,
-      primaryGoal: data.primaryGoal
+      weightKg:          data.weightKg,
+      heightCm:          data.heightCm,
+      age:               data.age,
+      gender:            data.gender,
+      activityLevel:     data.activityLevel,
+      dietIntensity:     data.dietIntensity,
+      primaryGoal:       data.primaryGoal,
+      targetWeightKg:    data.targetWeightKg  ?? null,
+      healthConditions:  data.healthConditions ?? [],
+      eatingWindowHours: data.eatingWindowHours ?? null,
     });
 
     const profileData = {

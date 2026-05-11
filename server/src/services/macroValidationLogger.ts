@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma';
+import { getMealWeightPct } from './macroValidation';
 
 export interface MealValidationEntry {
   userId:        string;
@@ -8,6 +9,7 @@ export interface MealValidationEntry {
   mealIndex:     number;
   iteration:     number;
   mealsPerDay:   number;
+  mealType:      string;   // 'breakfast' | 'lunch' | 'snack' | 'dinner' | etc.
 
   claudeMeal: {
     name:        string;
@@ -82,11 +84,14 @@ export interface MealValidationEntry {
 
 export async function logMealValidation(entry: MealValidationEntry): Promise<void> {
   try {
+    // Use weighted calorie target per meal type (snack ≠ lunch ≠ dinner).
+    // Protein/carbs/fat still use equal-split as a reasonable default.
+    const mealCalPct = getMealWeightPct(entry.mealType, entry.mealsPerDay);
     const mealTarget = {
-      calories: entry.targets.dailyCalories / entry.mealsPerDay,
-      protein:  entry.targets.dailyProtein  / entry.mealsPerDay,
-      carbs:    entry.targets.dailyCarbs    / entry.mealsPerDay,
-      fat:      entry.targets.dailyFat      / entry.mealsPerDay,
+      calories: Math.round(entry.targets.dailyCalories * mealCalPct),
+      protein:  entry.targets.dailyProtein / entry.mealsPerDay,
+      carbs:    entry.targets.dailyCarbs   / entry.mealsPerDay,
+      fat:      entry.targets.dailyFat     / entry.mealsPerDay,
     };
 
     const delta = entry.cn.success ? {
