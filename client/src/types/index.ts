@@ -113,6 +113,20 @@ export interface OnboardingData {
   eatingStartTime?: string;
   eatingEndTime?: string;
   avoidNone?: boolean; // local UI state for opt-out
+  // Group A — TDEE inputs
+  trainingType?: string;
+  trainingDaysPerWeek?: number;
+  trainingDurationMins?: number;
+  cardioSessionsPerWeek?: number;
+  dailySteps?: number;
+  occupationType?: string;
+  insulinSensitivity?: string;
+  // Group B — meal plan context (Claude prompt only, not TDEE)
+  sleepQuality?: string;
+  stressLevel?: string;
+  recoveryCapacity?: string;
+  hungerLevel?: string;
+  energyLevel?: string;
 }
 
 // Weight tracking types

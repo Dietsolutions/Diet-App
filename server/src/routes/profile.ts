@@ -86,16 +86,24 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
 
     // Calculate nutrition targets — pass all extended fields for accurate computation
     const targets = calculateTDEE({
-      weightKg:          data.weightKg,
-      heightCm:          data.heightCm,
-      age:               data.age,
-      gender:            data.gender,
-      activityLevel:     data.activityLevel,
-      dietIntensity:     data.dietIntensity,
-      primaryGoal:       data.primaryGoal,
-      targetWeightKg:    data.targetWeightKg  ?? null,
-      healthConditions:  data.healthConditions ?? [],
-      eatingWindowHours: data.eatingWindowHours ?? null,
+      weightKg:               data.weightKg,
+      heightCm:               data.heightCm,
+      age:                    data.age,
+      gender:                 data.gender,
+      activityLevel:          data.activityLevel,
+      dietIntensity:          data.dietIntensity,
+      primaryGoal:            data.primaryGoal,
+      targetWeightKg:         data.targetWeightKg    ?? null,
+      healthConditions:       data.healthConditions   ?? [],
+      eatingWindowHours:      data.eatingWindowHours  ?? null,
+      // Group A — TDEE inputs
+      trainingType:           data.trainingType          ?? 'none',
+      trainingDaysPerWeek:    data.trainingDaysPerWeek   ?? 3,
+      trainingDurationMins:   data.trainingDurationMins  ?? 45,
+      cardioSessionsPerWeek:  data.cardioSessionsPerWeek ?? 0,
+      dailySteps:             data.dailySteps            ?? 5000,
+      occupationType:         data.occupationType        ?? 'desk_job',
+      insulinSensitivity:     data.insulinSensitivity    ?? 'average',
     });
 
     const profileData = {
@@ -132,6 +140,20 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
       fastingWindowHours: data.fastingWindowHours ?? null,
       eatingStartTime: data.eatingStartTime || null,
       eatingEndTime: data.eatingEndTime || null,
+      // Group A — TDEE inputs
+      trainingType:          data.trainingType          ?? 'none',
+      trainingDaysPerWeek:   data.trainingDaysPerWeek   ?? 3,
+      trainingDurationMins:  data.trainingDurationMins  ?? 45,
+      cardioSessionsPerWeek: data.cardioSessionsPerWeek ?? 0,
+      dailySteps:            data.dailySteps            ?? 5000,
+      occupationType:        data.occupationType        ?? 'desk_job',
+      insulinSensitivity:    data.insulinSensitivity    ?? 'average',
+      // Group B — meal plan context (Claude prompt only)
+      sleepQuality:      data.sleepQuality      ?? 'average',
+      stressLevel:       data.stressLevel       ?? 'medium',
+      recoveryCapacity:  data.recoveryCapacity  ?? 'average',
+      hungerLevel:       data.hungerLevel       ?? 'medium',
+      energyLevel:       data.energyLevel       ?? 'moderate',
       ...targets
     };
 

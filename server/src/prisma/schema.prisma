@@ -97,6 +97,23 @@ model UserProfile {
   eatingStartTime      String?
   eatingEndTime        String?
   unitSystem           String   @default("metric")  // "metric" | "imperial"
+
+  // Group A — TDEE inputs (applied to calorie/macro calculation)
+  trainingType           String?  @default("none")       // strength | endurance | crossfit | mixed | none
+  trainingDaysPerWeek    Int?     @default(3)
+  trainingDurationMins   Int?     @default(45)
+  cardioSessionsPerWeek  Int?     @default(0)
+  dailySteps             Int?     @default(5000)
+  occupationType         String?  @default("desk_job")   // desk_job | active_job | manual_labour
+  insulinSensitivity     String?  @default("average")    // good | average | poor
+
+  // Group B — Meal plan context inputs (passed to Claude prompt, not TDEE)
+  sleepQuality           String?  @default("average")    // good | average | poor
+  stressLevel            String?  @default("medium")     // low | medium | high
+  recoveryCapacity       String?  @default("average")    // excellent | average | poor
+  hungerLevel            String?  @default("medium")     // low | medium | high
+  energyLevel            String?  @default("moderate")   // high | moderate | low
+
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 }

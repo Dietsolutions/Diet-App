@@ -25,6 +25,12 @@ const INITIAL: OnboardingData = {
   cookingStyle: 'home', kitchenEquipment: ['Stovetop'],
   weeklyBudget: null, budgetCurrency: 'INR', waterIntakeGoal: 8,
   planDuration: 7,
+  // Group A — TDEE inputs
+  trainingType: 'none', trainingDaysPerWeek: 3, trainingDurationMins: 45,
+  cardioSessionsPerWeek: 0, dailySteps: 5000, occupationType: 'desk_job', insulinSensitivity: 'average',
+  // Group B — meal plan context (Claude prompt only)
+  sleepQuality: 'average', stressLevel: 'medium', recoveryCapacity: 'average',
+  hungerLevel: 'medium', energyLevel: 'moderate',
 };
 
 // Generating checklist steps
@@ -137,7 +143,7 @@ export function Onboarding({ onComplete, userName }: Props) {
   const [reviewMealPlanId, setReviewMealPlanId] = useState<string>('active');
   const [onboardingCustomInstructions, setOnboardingCustomInstructions] = useState('');
 
-  const totalSteps = 7;
+  const totalSteps = 8;
   const genStartRef = useRef<number>(0);
 
   // Fire once on mount
@@ -166,6 +172,7 @@ export function Onboarding({ onComplete, userName }: Props) {
         const needsIntensity = ['lose_weight', 'gain_muscle'].includes(data.primaryGoal);
         return !!(data.primaryGoal && data.activityLevel && (!needsIntensity || data.dietIntensity));
       }
+      case 8: return true;
       default: return true;
     }
   };
@@ -511,6 +518,7 @@ export function Onboarding({ onComplete, userName }: Props) {
           {step === 5 && <StepPreferred data={data} toggleArr={toggleArr} />}
           {step === 6 && <StepAvoid data={data} toggleArr={toggleArr} update={update} />}
           {step === 7 && <StepGoals data={data} update={update} toggleArr={toggleArr} />}
+          {step === 8 && <StepLifestyle data={data} update={update} />}
         </div>
 
         {/* ── Fixed bottom CTA ── */}
@@ -525,7 +533,7 @@ export function Onboarding({ onComplete, userName }: Props) {
             onClick={() => {
               const STEP_NAMES: Record<number, string> = {
                 1: 'personal', 2: 'body', 3: 'diet', 4: 'allergies',
-                5: 'preferred_ingredients', 6: 'avoid_ingredients', 7: 'goals',
+                5: 'preferred_ingredients', 6: 'avoid_ingredients', 7: 'goals', 8: 'lifestyle',
               };
               track('onboarding_step_completed', { step, step_name: STEP_NAMES[step] ?? String(step) });
               if (step === totalSteps) setShowSummary(true); else setStep(s => s + 1);
@@ -1470,6 +1478,114 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
         </div>
       )}
 
+      {/* ── Training type ── */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>TRAINING TYPE</HairLabel>
+        {[
+          { val: 'none',      label: 'NO STRUCTURED TRAINING', desc: 'Walking, light activity only' },
+          { val: 'strength',  label: 'STRENGTH / GYM',         desc: 'Weight training, resistance work' },
+          { val: 'endurance', label: 'ENDURANCE',               desc: 'Running, cycling, swimming' },
+          { val: 'crossfit',  label: 'CROSSFIT / HIIT',         desc: 'High-intensity interval training' },
+          { val: 'mixed',     label: 'MIXED',                   desc: 'Combination of strength + cardio' },
+        ].map(t => {
+          const on = (data.trainingType ?? 'none') === t.val;
+          return (
+            <div key={t.val} onClick={() => update({ trainingType: t.val })} style={{
+              padding: '14px 16px', marginBottom: 6,
+              border: `1px solid ${on ? s2.accent : s2.line}`,
+              background: on ? s2.accentFill : 'transparent',
+              cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <div>
+                <div style={{ fontFamily: s2.mono, fontSize: 11, fontWeight: 600, letterSpacing: '0.15em', color: on ? s2.accent : s2.text }}>{t.label}</div>
+                <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.textDim, marginTop: 3 }}>{t.desc}</div>
+              </div>
+              {on && <div style={{ color: s2.accent, fontFamily: s2.mono, fontSize: 14, flexShrink: 0 }}>✓</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Training details — shown when structured training is selected */}
+      {(data.trainingType ?? 'none') !== 'none' && (
+        <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 16, marginBottom: 24 }}>
+          {/* Training days per week */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <HairLabel>TRAINING DAYS / WEEK</HairLabel>
+              <span style={{ fontFamily: s2.mono, fontSize: 13, color: s2.accent, fontWeight: 600 }}>
+                {data.trainingDaysPerWeek ?? 3} DAYS
+              </span>
+            </div>
+            <input type="range" min={1} max={7} value={data.trainingDaysPerWeek ?? 3}
+              onChange={e => update({ trainingDaysPerWeek: parseInt(e.target.value) })}
+              style={{ width: '100%', accentColor: s2.accent } as any} />
+          </div>
+
+          {/* Session duration pills */}
+          <div style={{ marginBottom: 18 }}>
+            <HairLabel style={{ marginBottom: 10 }}>SESSION DURATION</HairLabel>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6 }}>
+              {[30, 45, 60, 90].map(mins => {
+                const on = (data.trainingDurationMins ?? 45) === mins;
+                return (
+                  <button key={mins} onClick={() => update({ trainingDurationMins: mins })} style={{
+                    background: on ? s2.accentFill : 'transparent',
+                    border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
+                    color: on ? s2.accent : s2.text,
+                    fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.1em',
+                    padding: '10px 4px', cursor: 'pointer',
+                  }}>
+                    {mins}m
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Cardio sessions — only for strength/mixed */}
+          {['strength', 'mixed'].includes(data.trainingType ?? '') && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <HairLabel>CARDIO SESSIONS / WEEK</HairLabel>
+                <span style={{ fontFamily: s2.mono, fontSize: 13, color: s2.accent, fontWeight: 600 }}>
+                  {data.cardioSessionsPerWeek ?? 0}
+                </span>
+              </div>
+              <input type="range" min={0} max={7} value={data.cardioSessionsPerWeek ?? 0}
+                onChange={e => update({ cardioSessionsPerWeek: parseInt(e.target.value) })}
+                style={{ width: '100%', accentColor: s2.accent } as any} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Occupation type */}
+      <div style={{ marginBottom: 24 }}>
+        <HairLabel style={{ marginBottom: 10 }}>OCCUPATION TYPE</HairLabel>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
+          {[
+            { val: 'desk_job',     label: 'DESK JOB',     desc: 'Seated most of the day' },
+            { val: 'active_job',   label: 'ACTIVE JOB',   desc: 'On feet frequently' },
+            { val: 'manual_labour',label: 'MANUAL WORK',  desc: 'Physical labour' },
+          ].map(o => {
+            const on = (data.occupationType ?? 'desk_job') === o.val;
+            return (
+              <button key={o.val} onClick={() => update({ occupationType: o.val })} style={{
+                background: on ? s2.accentFill : 'transparent',
+                border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
+                color: on ? s2.accent : s2.text,
+                padding: '14px 6px', cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+              }}>
+                <span style={{ fontFamily: s2.mono, fontSize: 9, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>{o.label}</span>
+                <span style={{ fontFamily: s2.sans, fontSize: 10, color: on ? s2.accent : s2.textDim, textAlign: 'center', lineHeight: 1.3 }}>{o.desc}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Health conditions */}
       <div style={{ marginBottom: 24 }}>
         <HairLabel style={{ marginBottom: 10 }}>HEALTH CONDITIONS</HairLabel>
@@ -1591,6 +1707,160 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── ThreeWaySelector — reusable Low / Average / High toggle ───────────────────
+interface ThreeWayOption { val: string; label: string; sub?: string }
+function ThreeWaySelector({ label, value, options, onChange }: {
+  label: string;
+  value: string;
+  options: ThreeWayOption[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <HairLabel style={{ marginBottom: 10 }}>{label}</HairLabel>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${options.length},1fr)`, gap: 6 }}>
+        {options.map(o => {
+          const on = value === o.val;
+          return (
+            <button key={o.val} onClick={() => onChange(o.val)} style={{
+              background: on ? s2.accentFill : 'transparent',
+              border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
+              color: on ? s2.accent : s2.text,
+              padding: '12px 6px', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+            }}>
+              <span style={{ fontFamily: s2.mono, fontSize: 10, fontWeight: 600, letterSpacing: '0.13em', textTransform: 'uppercase' }}>{o.label}</span>
+              {o.sub && <span style={{ fontFamily: s2.sans, fontSize: 10, color: on ? s2.accent : s2.textDim }}>{o.sub}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Step 8 · Lifestyle & Wellbeing ────────────────────────────────────────────
+function StepLifestyle({ data, update }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void }) {
+  const steps = data.dailySteps ?? 5000;
+
+  function stepsLabel(s: number): string {
+    if (s < 3000)  return 'Very low — below sedentary';
+    if (s < 5000)  return 'Low — sedentary range';
+    if (s < 8000)  return 'Moderate — lightly active';
+    if (s < 12000) return 'Active — meets daily target';
+    return 'Very active — highly mobile';
+  }
+
+  return (
+    <div style={{ paddingTop: 30 }}>
+      <HairLabel>LIFESTYLE</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em', marginTop: 10, lineHeight: 1.1, marginBottom: 8 }}>
+        Daily habits<br />&amp; wellbeing.
+      </div>
+      <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, marginBottom: 28, lineHeight: 1.5 }}>
+        These fine-tune your calorie target and guide meal composition.
+      </div>
+
+      {/* Daily steps slider */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+          <HairLabel>DAILY STEPS</HairLabel>
+          <span style={{ fontFamily: s2.mono, fontSize: 13, color: s2.accent, fontWeight: 600 }}>
+            {steps >= 1000 ? `${(steps / 1000).toFixed(1).replace('.0', '')}k` : steps}
+          </span>
+        </div>
+        <input
+          type="range" min={1000} max={20000} step={500}
+          value={steps}
+          onChange={e => update({ dailySteps: parseInt(e.target.value) })}
+          style={{ width: '100%', accentColor: s2.accent } as any}
+        />
+        <div style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDim, marginTop: 6 }}>
+          {stepsLabel(steps)}
+        </div>
+      </div>
+
+      {/* ── Group B — wellbeing selectors (Claude prompt context) ── */}
+      <div style={{
+        border: `1px solid ${s2.line}`, background: s2.surface,
+        padding: '16px 14px', marginBottom: 28,
+      }}>
+        <HairLabel style={{ marginBottom: 16 }}>WELLBEING — informs meal suggestions, not calorie targets</HairLabel>
+
+        <ThreeWaySelector
+          label="SLEEP QUALITY"
+          value={data.sleepQuality ?? 'average'}
+          options={[
+            { val: 'poor',    label: 'POOR',    sub: '< 6 hrs' },
+            { val: 'average', label: 'AVERAGE', sub: '6–8 hrs' },
+            { val: 'good',    label: 'GOOD',    sub: '8+ hrs' },
+          ]}
+          onChange={v => update({ sleepQuality: v })}
+        />
+
+        <ThreeWaySelector
+          label="STRESS LEVEL"
+          value={data.stressLevel ?? 'medium'}
+          options={[
+            { val: 'low',    label: 'LOW' },
+            { val: 'medium', label: 'MEDIUM' },
+            { val: 'high',   label: 'HIGH' },
+          ]}
+          onChange={v => update({ stressLevel: v })}
+        />
+
+        <ThreeWaySelector
+          label="RECOVERY CAPACITY"
+          value={data.recoveryCapacity ?? 'average'}
+          options={[
+            { val: 'poor',      label: 'POOR',      sub: 'Often sore' },
+            { val: 'average',   label: 'AVERAGE',   sub: 'Normal' },
+            { val: 'excellent', label: 'EXCELLENT',  sub: 'Recovers fast' },
+          ]}
+          onChange={v => update({ recoveryCapacity: v })}
+        />
+
+        <ThreeWaySelector
+          label="HUNGER LEVEL"
+          value={data.hungerLevel ?? 'medium'}
+          options={[
+            { val: 'low',    label: 'LOW',    sub: 'Rarely hungry' },
+            { val: 'medium', label: 'MEDIUM', sub: 'Normal' },
+            { val: 'high',   label: 'HIGH',   sub: 'Often hungry' },
+          ]}
+          onChange={v => update({ hungerLevel: v })}
+        />
+
+        <ThreeWaySelector
+          label="ENERGY LEVEL"
+          value={data.energyLevel ?? 'moderate'}
+          options={[
+            { val: 'low',      label: 'LOW',      sub: 'Fatigued' },
+            { val: 'moderate', label: 'MODERATE', sub: 'Normal' },
+            { val: 'high',     label: 'HIGH',     sub: 'Energised' },
+          ]}
+          onChange={v => update({ energyLevel: v })}
+        />
+      </div>
+
+      {/* Insulin sensitivity — TDEE macro redistribution (Group A) */}
+      <ThreeWaySelector
+        label="INSULIN SENSITIVITY"
+        value={data.insulinSensitivity ?? 'average'}
+        options={[
+          { val: 'poor',    label: 'POOR',    sub: 'Insulin resistant' },
+          { val: 'average', label: 'AVERAGE', sub: 'Typical' },
+          { val: 'good',    label: 'GOOD',    sub: 'Sensitive' },
+        ]}
+        onChange={v => update({ insulinSensitivity: v })}
+      />
+      <div style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDim, marginTop: -12, marginBottom: 8, lineHeight: 1.5 }}>
+        Adjusts carb ↔ fat ratio in your macro targets. When unsure, leave at Average.
       </div>
     </div>
   );

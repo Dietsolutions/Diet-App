@@ -134,6 +134,74 @@ function goalLabel(goal: string): string {
   return GOAL_LABELS[goal] ?? goal;
 }
 
+// ── Lifestyle context block — Group B inputs (not TDEE; passed as Claude guidance) ──
+// These inform meal *composition* and *timing* suggestions, not calorie targets.
+function buildLifestyleContext(profile: any): string {
+  const lines: string[] = [];
+
+  const sleepQuality     = profile.sleepQuality     ?? 'average';
+  const stressLevel      = profile.stressLevel      ?? 'medium';
+  const recoveryCapacity = profile.recoveryCapacity ?? 'average';
+  const hungerLevel      = profile.hungerLevel      ?? 'medium';
+  const energyLevel      = profile.energyLevel      ?? 'moderate';
+  const trainingType     = profile.trainingType     ?? 'none';
+  const steps            = profile.dailySteps       ?? 5000;
+
+  // Only emit the block when there are non-default values worth mentioning
+  const hasNonDefault =
+    sleepQuality !== 'average' || stressLevel !== 'medium' ||
+    recoveryCapacity !== 'average' || hungerLevel !== 'medium' ||
+    energyLevel !== 'moderate' || trainingType !== 'none' || steps !== 5000;
+
+  if (!hasNonDefault) return '';
+
+  lines.push('\nLIFESTYLE CONTEXT (use to improve meal composition and timing, not to change calorie targets):');
+
+  if (sleepQuality === 'poor') {
+    lines.push('- Sleep: poor — include magnesium-rich foods (nuts, leafy greens, legumes) and minimise high-sugar evening snacks that disrupt sleep.');
+  } else if (sleepQuality === 'good') {
+    lines.push('- Sleep: good — recovery is well-supported; no sleep-specific adjustments needed.');
+  }
+
+  if (stressLevel === 'high') {
+    lines.push('- Stress: high — include adaptogens if relevant (ashwagandha in warm milk), B-vitamin-rich foods (whole grains, eggs), and avoid excess caffeine.');
+  } else if (stressLevel === 'low') {
+    lines.push('- Stress: low — standard meal variety is fine.');
+  }
+
+  if (recoveryCapacity === 'poor') {
+    lines.push('- Recovery: poor — emphasise anti-inflammatory foods (turmeric, fatty fish, berries, leafy greens) and ensure post-workout protein within 2h.');
+  } else if (recoveryCapacity === 'excellent') {
+    lines.push('- Recovery: excellent — standard nutrient timing is sufficient.');
+  }
+
+  if (hungerLevel === 'high') {
+    lines.push('- Hunger: high — include high-volume, high-fibre meals (lentils, vegetables, whole grains) and a protein-rich breakfast to sustain satiety.');
+  } else if (hungerLevel === 'low') {
+    lines.push('- Hunger: low — keep portions moderate and flavourful; do not force large meals.');
+  }
+
+  if (energyLevel === 'low') {
+    lines.push('- Energy: low — prioritise slow-digesting complex carbs (oats, brown rice, sweet potato) pre-workout and iron-rich foods (spinach, lentils, tofu) if vegetarian/vegan.');
+  } else if (energyLevel === 'high') {
+    lines.push('- Energy: high — performance-focused fuelling is appropriate; emphasise pre- and post-workout nutrition.');
+  }
+
+  if (trainingType === 'endurance') {
+    lines.push(`- Training: endurance, ~${steps.toLocaleString()} steps/day — schedule higher-carb meals on training days; ensure electrolyte-containing foods (banana, coconut water, yogurt).`);
+  } else if (trainingType === 'strength') {
+    lines.push(`- Training: strength, ~${steps.toLocaleString()} steps/day — post-workout meal must be protein-forward (≥30g) within 90 min; include creatine-friendly foods (red meat or vegetarian alternatives).`);
+  } else if (trainingType === 'crossfit') {
+    lines.push(`- Training: CrossFit/HIIT, ~${steps.toLocaleString()} steps/day — mix of fast and slow carbs around sessions; adequate protein for muscle repair.`);
+  } else if (trainingType !== 'none') {
+    lines.push(`- Training: ${trainingType}, ~${steps.toLocaleString()} steps/day — standard nutrient timing applies.`);
+  } else if (steps > 8000) {
+    lines.push(`- Activity: ~${steps.toLocaleString()} steps/day — schedule energising lunch with complex carbs to sustain afternoon activity.`);
+  }
+
+  return lines.join('\n');
+}
+
 function buildUserPrompt(profile: any): string {
   const bmi = calculateBMI(profile.weightKg, profile.heightCm);
   const cuisines = JSON.parse(profile.cuisinePreferences);
@@ -179,6 +247,8 @@ and keep the restriction. Otherwise, honour these instructions precisely.` : '';
     ? 'Generate exactly 14 days (Day 1 through Day 14). Week 2 must use completely different meals from Week 1.'
     : 'Generate exactly 7 days (Monday through Sunday).';
 
+  const lifestyleContext = buildLifestyleContext(profile);
+
   return `${dayRange}
 
 Profile: ${profile.name}, ${profile.age}y ${profile.gender}, ${profile.city} ${profile.country}
@@ -196,7 +266,7 @@ Avoid: ${avoid.length > 0 ? avoid.join(', ') : 'None'}
 Health: ${health.length > 0 ? health.join(', ') : 'None'}
 Cooking: ${profile.cookingStyle || 'home'}, Equipment: ${equipment.length > 0 ? equipment.join(', ') : 'Stovetop'}
 ${profile.weeklyBudget ? `Budget: ${profile.budgetCurrency} ${profile.weeklyBudget}/week` : ''}
-TARGETS: ${profile.targetCalories} kcal, ${profile.proteinTarget}g protein, ${profile.carbTarget}g carbs, ${profile.fatTarget}g fat, ${profile.fibreTarget}g fibre${customBlock}`;
+TARGETS: ${profile.targetCalories} kcal, ${profile.proteinTarget}g protein, ${profile.carbTarget}g carbs, ${profile.fatTarget}g fat, ${profile.fibreTarget}g fibre${lifestyleContext}${customBlock}`;
 }
 
 // POST /api/ai/generate-meal-plan (SSE streaming)
@@ -358,16 +428,24 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     // This ensures targets stay accurate even if the formula was updated since
     // the user last saved their profile.
     const freshTargets = calculateTDEE({
-      weightKg:          profile.weightKg,
-      heightCm:          profile.heightCm,
-      age:               profile.age,
-      gender:            profile.gender,
-      activityLevel:     profile.activityLevel,
-      dietIntensity:     (profile as any).dietIntensity   ?? null,
-      primaryGoal:       profile.primaryGoal,
-      targetWeightKg:    (profile as any).targetWeightKg  ?? null,
-      healthConditions:  JSON.parse((profile as any).healthConditions ?? '[]'),
-      eatingWindowHours: (profile as any).eatingWindowHours ?? null,
+      weightKg:               profile.weightKg,
+      heightCm:               profile.heightCm,
+      age:                    profile.age,
+      gender:                 profile.gender,
+      activityLevel:          profile.activityLevel,
+      dietIntensity:          (profile as any).dietIntensity        ?? null,
+      primaryGoal:            profile.primaryGoal,
+      targetWeightKg:         (profile as any).targetWeightKg       ?? null,
+      healthConditions:       JSON.parse((profile as any).healthConditions ?? '[]'),
+      eatingWindowHours:      (profile as any).eatingWindowHours    ?? null,
+      // Group A — TDEE inputs
+      trainingType:           (profile as any).trainingType          ?? 'none',
+      trainingDaysPerWeek:    (profile as any).trainingDaysPerWeek   ?? 3,
+      trainingDurationMins:   (profile as any).trainingDurationMins  ?? 45,
+      cardioSessionsPerWeek:  (profile as any).cardioSessionsPerWeek ?? 0,
+      dailySteps:             (profile as any).dailySteps            ?? 5000,
+      occupationType:         (profile as any).occupationType        ?? 'desk_job',
+      insulinSensitivity:     (profile as any).insulinSensitivity    ?? 'average',
     });
 
     // Sync profile targets in background — never blocks generation
