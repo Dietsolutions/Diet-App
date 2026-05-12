@@ -19,6 +19,7 @@ import {
   MAX_CLAUDE_ATTEMPTS_PER_DAY,
   POST_SCALE_ACCEPT_PCT,
 } from '../services/macroValidation';
+import { logMealValidation, MealValidationEntry } from '../services/macroValidationLogger';
 
 const router = Router();
 
@@ -149,6 +150,44 @@ Do NOT use "Breakfast", "Morning Snack", "Snack 1", or any other variant.
 
 Keep descriptions under 20 words. Be concise.`;
 
+// ── Log data collected by each top-level validateAndFinaliseMeal call ─────────
+interface MealLogData {
+  // CN initial call
+  cnQueryString:    string;
+  cnSuccess:        boolean;
+  cnStatusCode?:    number;
+  cnCalories?:      number;
+  cnProtein?:       number;
+  cnCarbs?:         number;
+  cnFat?:           number;
+  cnFibre?:         number;
+  cnItemsMatched:   number;
+  // Deviation routing
+  deviationPct:     number;
+  deviationAction:  string;
+  partialMatchGuard: boolean;
+  // Scaling
+  scalingApplied:   boolean;
+  scaleFactor?:     number;
+  postScaleCnCalories?: number;
+  postScaleDeviation?:  number;
+  scalingResolved?:     boolean;
+  // Meal target check
+  mealTargetCalories:      number;
+  mealTargetCheckPassed:   boolean;
+  mealTargetDeviationPct:  number;
+  // Attempt counter at end of this call
+  attemptsUsedAtThisMeal: number;
+  // Final state
+  finalCalories: number;
+  finalProtein:  number;
+  finalCarbs:    number;
+  finalFat:      number;
+  finalFibre:    number;
+  finalOutcome:  string;
+  withinTolerance: boolean;
+}
+
 // ── Per-meal CN validation — full deviation/scaling/attempt-budget flow ────────
 async function validateAndFinaliseMeal(params: {
   meal:          any;
@@ -161,10 +200,12 @@ async function validateAndFinaliseMeal(params: {
   mealPlanId:    string;
   userId:        string;
   attemptsUsed:  { count: number };  // shared mutable counter for this day
-}): Promise<{ meal: any; outcome: string }> {
+  _isRecursive?: boolean;            // internal: suppress logging in recursive calls
+}): Promise<{ meal: any; outcome: string; logData?: MealLogData }> {
   const {
     meal, mealIndex, mealsPerDay, dailyTargets,
     userProfile, anthropic, dayIdx, attemptsUsed,
+    _isRecursive = false,
   } = params;
 
   const mealTarget = getMealMacroTargets(
@@ -199,6 +240,13 @@ async function validateAndFinaliseMeal(params: {
     ` | claude=${currentMeal.calories} CN=${cnInitial.macros.calories}`,
   );
 
+  // ── Scaling tracking variables ────────────────────────────────────────────
+  let scalingWasApplied              = false;
+  let appliedScaleFactor: number | undefined;
+  let postScaleCnCalories: number | undefined;
+  let postScaleDeviationPct: number | undefined;
+  let scalingResolvedFlag: boolean | undefined;
+
   // ── STEP 2: Route by deviation action ────────────────────────────────────
   if (deviation.action === 'cn_failure' || deviation.action === 'partial_match_failure') {
     finalOutcome = deviation.action;
@@ -227,6 +275,9 @@ async function validateAndFinaliseMeal(params: {
       scaleFactor,
     );
 
+    scalingWasApplied    = true;
+    appliedScaleFactor   = scaleFactor;
+
     console.log(
       `[CN] Scaling Day ${dayIdx + 1} Meal ${mealIndex + 1} by ${Math.round(scaleFactor * 100)}%`,
     );
@@ -245,14 +296,19 @@ async function validateAndFinaliseMeal(params: {
       cnRecheck.itemsMatched ?? 0,
     );
 
+    postScaleCnCalories   = cnRecheck.success ? cnRecheck.macros.calories : undefined;
+    postScaleDeviationPct = recheckDev.deviationPct;
+
     if (!cnRecheck.success || recheckDev.deviationPct > POST_SCALE_ACCEPT_PCT) {
       // Scaling did not resolve — escalate to regeneration
+      scalingResolvedFlag = false;
       console.log(
         `[CN] Post-scale dev=${Math.round(recheckDev.deviationPct)}% — escalating to regeneration`,
       );
       deviation.action = 'regenerate';
     } else {
       // Scaling resolved — use scaled values
+      scalingResolvedFlag = true;
       currentMeal = {
         ...currentMeal,
         ingredients: scaledIngredients,
@@ -302,11 +358,12 @@ async function validateAndFinaliseMeal(params: {
         // Normalise type on the corrected meal
         corrMeal.type = normaliseMealType(corrMeal.type, mealIndex, mealsPerDay);
 
-        // Re-run full CN validation on the corrected meal (recursive)
+        // Re-run full CN validation on the corrected meal (recursive — suppress inner logging)
         const recheckResult = await validateAndFinaliseMeal({
           ...params,
-          meal:         corrMeal,
-          attemptsUsed, // shared counter carries over
+          meal:          corrMeal,
+          attemptsUsed,
+          _isRecursive:  true,
         });
 
         currentMeal  = recheckResult.meal;
@@ -354,8 +411,9 @@ async function validateAndFinaliseMeal(params: {
 
       const finalResult = await validateAndFinaliseMeal({
         ...params,
-        meal:         targetMeal,
+        meal:          targetMeal,
         attemptsUsed,
+        _isRecursive:  true,
       });
 
       currentMeal  = finalResult.meal;
@@ -366,7 +424,45 @@ async function validateAndFinaliseMeal(params: {
     }
   }
 
-  return { meal: currentMeal, outcome: finalOutcome };
+  // ── Build log data (top-level calls only) ────────────────────────────────
+  let logData: MealLogData | undefined;
+  if (!_isRecursive) {
+    const finalTargetCheck = checkMealAgainstTarget(currentMeal.calories, mealTarget);
+    logData = {
+      cnQueryString:    cnInitial.queryString,
+      cnSuccess:        cnInitial.success,
+      cnStatusCode:     cnInitial.statusCode,
+      cnCalories:       cnInitial.success ? cnInitial.macros.calories  : undefined,
+      cnProtein:        cnInitial.success ? cnInitial.macros.proteinG  : undefined,
+      cnCarbs:          cnInitial.success ? cnInitial.macros.carbsG    : undefined,
+      cnFat:            cnInitial.success ? cnInitial.macros.fatG      : undefined,
+      cnFibre:          cnInitial.success ? cnInitial.macros.fibreG    : undefined,
+      cnItemsMatched:   cnInitial.itemsMatched ?? 0,
+      deviationPct:     deviation.deviationPct,
+      deviationAction:  deviation.action,
+      partialMatchGuard: deviation.action === 'partial_match_failure',
+      scalingApplied:   scalingWasApplied,
+      scaleFactor:      appliedScaleFactor,
+      postScaleCnCalories,
+      postScaleDeviation: postScaleDeviationPct,
+      scalingResolved:  scalingResolvedFlag,
+      mealTargetCalories:    mealTarget.calories,
+      mealTargetCheckPassed: finalTargetCheck.withinTarget,
+      mealTargetDeviationPct: finalTargetCheck.deviationFromTarget,
+      attemptsUsedAtThisMeal: attemptsUsed.count,
+      finalCalories: currentMeal.calories,
+      finalProtein:  currentMeal.protein  ?? 0,
+      finalCarbs:    currentMeal.carbs    ?? 0,
+      finalFat:      currentMeal.fat      ?? 0,
+      finalFibre:    currentMeal.fibre    ?? 0,
+      finalOutcome,
+      withinTolerance:
+        finalOutcome === 'accepted_cn' ||
+        finalOutcome === 'accepted_after_scaling',
+    };
+  }
+
+  return { meal: currentMeal, outcome: finalOutcome, logData };
 }
 
 const GOAL_LABELS: Record<string, string> = {
@@ -785,6 +881,20 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     let cnChecksTotal      = 0;
     let cnCorrectionsTotal = 0;
 
+    // Pending validation log entries — populated inside the CN block, written after mealPlan.id is available.
+    // Hoisted here so TypeScript can see the type at the write site below.
+    let pendingLogEntries: Array<{
+      dayIdx:   number;
+      mealIdx:  number;
+      origMeal: any;
+      logData:  MealLogData;
+      dayLevelExtra?: {
+        wasDayLevelReplacement:    boolean;
+        dayTotalBeforeReplacement: number;
+        dayTotalAfterReplacement:  number;
+      };
+    }> | undefined;
+
     // Start heartbeat now that we're entering the slow CN verification phase
     heartbeat = setInterval(() => {
       if (!res.writableEnded) {
@@ -804,6 +914,9 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         ` mealsPerDay=${mealsPerDay}, targetCalories=${dailyTargets.calories}`,
       );
 
+      // Initialise the pending log buffer for this plan
+      pendingLogEntries = [];
+
       for (let dayIdx = 0; dayIdx < daysToValidate; dayIdx++) {
         const day          = planData.days[dayIdx];
         const attemptsUsed = { count: 0 }; // shared mutable counter for this day
@@ -818,21 +931,26 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         const finalisedMeals: any[] = [];
 
         for (let mealIdx = 0; mealIdx < (day.meals as any[]).length; mealIdx++) {
+          const origMeal = day.meals[mealIdx];
           const result = await validateAndFinaliseMeal({
-            meal:         day.meals[mealIdx],
+            meal:         origMeal,
             mealIndex:    mealIdx,
             mealsPerDay,
             dailyTargets,
             userProfile:  profile,
             anthropic:    client,
             dayIdx,
-            mealPlanId:   '',   // not yet saved
+            mealPlanId:   '__pending__',
             userId,
             attemptsUsed,
           });
 
           finalisedMeals.push(result.meal);
           cnChecksTotal++;
+
+          if (result.logData) {
+            pendingLogEntries.push({ dayIdx, mealIdx, origMeal, logData: result.logData });
+          }
 
           console.log(
             `[MealTarget] Day ${dayIdx + 1} Meal ${mealIdx + 1}` +
@@ -899,7 +1017,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 userProfile:  profile,
                 anthropic:    client,
                 dayIdx,
-                mealPlanId:   '',
+                mealPlanId:   '__pending__',
                 userId,
                 attemptsUsed,
               });
@@ -917,6 +1035,21 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 console.log(
                   `[DayBudget] Day ${dayIdx + 1} still unresolved — accepting best result`,
                 );
+              }
+
+              // Tag the replaced meal's log entry with day-level correction metadata
+              if (dayResult.logData) {
+                pendingLogEntries.push({
+                  dayIdx,
+                  mealIdx: dayBudget.largestMealIndex,
+                  origMeal: largestMeal,
+                  logData:  dayResult.logData,
+                  dayLevelExtra: {
+                    wasDayLevelReplacement:    true,
+                    dayTotalBeforeReplacement: dayBudget.dayTotalCalories,
+                    dayTotalAfterReplacement:  finalBudget.dayTotalCalories,
+                  },
+                });
               }
 
             } catch (err: any) {
@@ -982,6 +1115,90 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         mealPrepGuide: planData.mealPrepGuide ?? null
       }
     });
+
+    // ── Write validation log entries now that mealPlan.id is available ───────
+    if (pendingLogEntries && pendingLogEntries.length > 0) {
+      const logTimeout = new Promise<void>(resolve => setTimeout(resolve, 8000));
+      await Promise.race([
+        Promise.allSettled(
+          pendingLogEntries.map(({ dayIdx, mealIdx, origMeal, logData, dayLevelExtra }) => {
+            const entry: MealValidationEntry = {
+              userId,
+              mealPlanId:   mealPlan.id,
+              planDuration,
+              dayIndex:     dayIdx,
+              mealIndex:    mealIdx,
+              iteration:    0,
+              mealsPerDay:  planData.days[0]?.meals?.length ?? 4,
+              mealType:     origMeal.type ?? 'unknown',
+
+              claudeMeal: {
+                name:        origMeal.name        ?? '',
+                calories:    origMeal.calories     ?? 0,
+                protein:     origMeal.protein      ?? 0,
+                carbs:       origMeal.carbs        ?? 0,
+                fat:         origMeal.fat          ?? 0,
+                fibre:       origMeal.fibre        ?? 0,
+                ingredients: Array.isArray(origMeal.ingredients) ? origMeal.ingredients : [],
+              },
+
+              cn: {
+                queryString:  logData.cnQueryString,
+                success:      logData.cnSuccess,
+                statusCode:   logData.cnStatusCode,
+                calories:     logData.cnCalories,
+                protein:      logData.cnProtein,
+                carbs:        logData.cnCarbs,
+                fat:          logData.cnFat,
+                fibre:        logData.cnFibre,
+                itemsMatched: logData.cnItemsMatched,
+              },
+
+              targets: {
+                dailyCalories: dailyTargets.calories,
+                dailyProtein:  dailyTargets.proteinG,
+                dailyCarbs:    dailyTargets.carbsG,
+                dailyFat:      dailyTargets.fatG,
+              },
+
+              withinTolerance: logData.withinTolerance,
+
+              finalOutcome: logData.finalOutcome,
+              finalMacros:  {
+                calories: logData.finalCalories,
+                protein:  logData.finalProtein,
+                carbs:    logData.finalCarbs,
+                fat:      logData.finalFat,
+                fibre:    logData.finalFibre,
+              },
+
+              // New pipeline fields
+              deviationPct:             logData.deviationPct,
+              deviationAction:          logData.deviationAction,
+              partialMatchGuard:        logData.partialMatchGuard,
+              scalingApplied:           logData.scalingApplied,
+              scaleFactor:              logData.scaleFactor,
+              postScaleCnCalories:      logData.postScaleCnCalories,
+              postScaleDeviation:       logData.postScaleDeviation,
+              scalingResolved:          logData.scalingResolved,
+              mealTargetCheckPassed:    logData.mealTargetCheckPassed,
+              mealTargetDeviationPct:   logData.mealTargetDeviationPct,
+              attemptsUsedAtThisMeal:   logData.attemptsUsedAtThisMeal,
+              wasDayLevelReplacement:   dayLevelExtra?.wasDayLevelReplacement   ?? false,
+              dayTotalBeforeReplacement: dayLevelExtra?.dayTotalBeforeReplacement,
+              dayTotalAfterReplacement:  dayLevelExtra?.dayTotalAfterReplacement,
+            };
+            return logMealValidation(entry);
+          })
+        ).then((results: PromiseSettledResult<void>[]) => {
+          const ok = results.filter(r => r.status === 'fulfilled').length;
+          console.log(`[ValidationLog] Wrote ${ok}/${results.length} entries`);
+        }),
+        logTimeout.then(() => {
+          console.warn('[ValidationLog] 8s ceiling hit — some entries may be missing');
+        }),
+      ]);
+    }
 
     // Create all days in parallel
     await Promise.all(planData.days.map((dayData: any) =>

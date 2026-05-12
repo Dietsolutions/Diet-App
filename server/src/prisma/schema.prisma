@@ -483,6 +483,30 @@ model MacroValidationLog {
   accuracyDeltaKcal     Float?
   accuracyDeltaPct      Float?
 
+  // ── New: deviation routing ─────────────────────────────────────────────
+  deviationPct          Float?    // |CN - Claude| / Claude × 100
+  deviationAction       String?   // accept_cn | scale | regenerate | cn_failure | partial_match_failure
+  partialMatchGuard     Boolean   @default(false)  // true if partial match guard triggered
+
+  // ── New: scaling details ───────────────────────────────────────────────
+  scalingApplied        Boolean   @default(false)
+  scaleFactor           Float?    // e.g. 0.78 means scaled to 78% of original
+  postScaleCnCalories   Float?    // CN result after scaling
+  postScaleDeviation    Float?    // deviation % after scaling
+  scalingResolved       Boolean?  // true = scaling brought it within threshold
+
+  // ── New: secondary meal target check ──────────────────────────────────
+  mealTargetCheckPassed    Boolean?  // final meal within ±15% of weighted meal budget
+  mealTargetDeviationPct   Float?    // how far final result is from meal budget target (%)
+
+  // ── New: attempt tracking ──────────────────────────────────────────────
+  attemptsUsedAtThisMeal   Int?      // value of attempt counter when this meal was processed
+
+  // ── New: day-level correction ──────────────────────────────────────────
+  wasDayLevelReplacement     Boolean   @default(false)
+  dayTotalBeforeReplacement  Float?    // day calorie total before this replacement
+  dayTotalAfterReplacement   Float?    // day calorie total after replacement
+
   user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, mealPlanId])

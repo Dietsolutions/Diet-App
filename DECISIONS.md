@@ -309,3 +309,68 @@ The structured `MealValidationEntry` / `pendingLogEntries` buffer was tightly co
 | `server/src/services/calorieNinjasService.ts` | Added `itemsMatched: 0` to the catch-block return path (was missing, causing `undefined` in CN failure logs). |
 | `server/src/routes/ai.ts` | Removed `verifyDayMacros` import, added `getMealMacrosFromCalorieNinjas` + new macroValidation imports. Added module-level `CN_ENABLED`. Added standalone `validateAndFinaliseMeal()` function. Replaced the entire old CN while-loop with new per-meal → day-budget loop. Removed `pendingLogEntries` buffer and `logMealValidation` import. |
 | `server/src/routes/ai.ts` | New imports, lowercase type in system prompt examples, `buildMealTargetsSection()`, updated `buildUserPrompt()` signature, move `freshTargets` before prompt build, normalise types after parse, per-meal `[MealTarget]` logging |
+
+---
+
+## 11. Task 3 — Extend validation logging (deviation action, scaling, meal target, day-level correction)
+
+### What was added
+
+The `pendingLogEntries` buffer was reinstated in `ai.ts` and the full new pipeline fields are now captured to the DB. Structured DB logging is now active alongside the console logs.
+
+**New fields captured per-meal:**
+
+| Field | Type | Description |
+|---|---|---|
+| `deviationPct` | Float? | \|CN − Claude\| / Claude × 100 |
+| `deviationAction` | String? | `accept_cn`, `scale`, `regenerate`, `cn_failure`, `partial_match_failure` |
+| `partialMatchGuard` | Boolean | True if CN < 50% of Claude AND items < 3 |
+| `scalingApplied` | Boolean | True if proportional scale was attempted |
+| `scaleFactor` | Float? | e.g. 0.78 = scaled to 78% of original |
+| `postScaleCnCalories` | Float? | CN result after re-querying scaled ingredients |
+| `postScaleDeviation` | Float? | Deviation % after scaling |
+| `scalingResolved` | Boolean? | True = scaling brought within ±35% |
+| `mealTargetCheckPassed` | Boolean? | Final meal within ±15% of weighted meal budget |
+| `mealTargetDeviationPct` | Float? | Distance from meal budget target (%) |
+| `attemptsUsedAtThisMeal` | Int? | Value of shared attempt counter when this meal was processed |
+| `wasDayLevelReplacement` | Boolean | True if this meal was replaced by the day-budget correction pass |
+| `dayTotalBeforeReplacement` | Float? | Day calorie total before day-level correction |
+| `dayTotalAfterReplacement` | Float? | Day calorie total after day-level correction |
+
+### Migration strategy
+
+Schema updated in `schema.prisma` and a manual `migration.sql` created at
+`server/src/prisma/migrations/20260512100000_extend_validation_log_fields/migration.sql`.
+`prisma db push` used to sync to Neon (shadow DB unavailable for `prisma migrate dev`).
+
+### Existing `finalOutcome` DB values vs. new outcome strings
+
+Old code never wrote structured `finalOutcome` values via `logMealValidation` (logging was removed in the Task 2 rebuild). Therefore the `macro_validation_logs` table was empty before this task — no conflict with existing values.
+
+New outcome strings written by the pipeline:
+- `accepted_cn` — CN result within ±15% deviation, used directly
+- `accepted_after_scaling` — proportional scaling brought deviation within POST_SCALE_ACCEPT_PCT
+- `cn_failure` — CN API call failed
+- `partial_match_failure` — CN partial match guard triggered (< 50% of Claude, < 3 items)
+- `attempts_exhausted` — 5 Claude regeneration attempts consumed; best available result kept
+- `correction_parse_failed` — Claude regeneration response couldn't be parsed
+
+### TypeScript check
+
+`cd server && npx tsc --noEmit` — clean, no output. Fixed issue: `pendingLogEntries` was
+declared inside `if (CN_ENABLED)` block (via `const`) and referenced outside it. Fix: hoisted
+declaration (`let ... | undefined`) to outer scope, removed inner `const` declaration, changed
+write-site guard from `typeof x !== 'undefined'` to `if (pendingLogEntries && ...)`.
+
+---
+
+## 12. Files modified — validation logging extension
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidationLogger.ts` | Extended `MealValidationEntry` interface with 15 new optional fields. Changed `finalOutcome` from strict union to `string`. Updated `logMealValidation` DB write to include all new fields. Updated `getValidationSummaryForPlan` summary to report new pipeline metrics. Updated console log to include `action` and `dev%`. |
+| `server/src/prisma/schema.prisma` | Added 14 new nullable columns to `MacroValidationLog` model. |
+| `server/src/prisma/migrations/20260512100000_extend_validation_log_fields/migration.sql` | Manual migration SQL using `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for all 14 new columns. |
+| `server/src/routes/ai.ts` | Re-added `logMealValidation` + `MealValidationEntry` imports. Added `MealLogData` interface. Added `_isRecursive?` param to `validateAndFinaliseMeal`. Added tracking variables for scaling branch. Added `logData` build at end of pipeline (skipped on recursive calls). Updated recursive calls with `_isRecursive: true`. Hoisted `pendingLogEntries` declaration to outer scope. Added day-level `dayLevelExtra` metadata to log entries. Added post-plan-save log write block with 8s timeout ceiling. |
+| `server/src/scripts/queryValidationData.ts` | New diagnostic script — 6 queries: outcome distribution, scaling effectiveness, partial match failures, day-level corrections, meal target check failures, attempt budget usage. Run with `npm run query:validation [mealPlanId]`. |
+| `server/package.json` | Added `"query:validation": "tsx src/scripts/queryValidationData.ts"` script. |

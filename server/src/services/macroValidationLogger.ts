@@ -9,7 +9,7 @@ export interface MealValidationEntry {
   mealIndex:     number;
   iteration:     number;
   mealsPerDay:   number;
-  mealType:      string;   // 'breakfast' | 'lunch' | 'snack' | 'dinner' | etc.
+  mealType:      string;   // canonical underscore-separated type name
 
   claudeMeal: {
     name:        string;
@@ -72,7 +72,9 @@ export interface MealValidationEntry {
     };
   };
 
-  finalOutcome: 'passed_first_check' | 'passed_after_correction' | 'max_iterations_reached' | 'cn_unavailable';
+  // Widened from strict union to include new pipeline outcomes
+  finalOutcome: string;
+
   finalMacros: {
     calories: number;
     protein:  number;
@@ -80,12 +82,35 @@ export interface MealValidationEntry {
     fat:      number;
     fibre:    number;
   };
+
+  // ── New: deviation routing ─────────────────────────────────────────────
+  deviationPct?:          number;   // |CN - Claude| / Claude × 100
+  deviationAction?:       string;   // accept_cn | scale | regenerate | cn_failure | partial_match_failure
+  partialMatchGuard?:     boolean;  // true if partial match guard triggered
+
+  // ── New: scaling details ───────────────────────────────────────────────
+  scalingApplied?:        boolean;
+  scaleFactor?:           number;   // e.g. 0.78 = scaled to 78% of original
+  postScaleCnCalories?:   number;   // CN result after scaling
+  postScaleDeviation?:    number;   // deviation % after scaling
+  scalingResolved?:       boolean;  // true = scaling brought it within threshold
+
+  // ── New: secondary meal target check ──────────────────────────────────
+  mealTargetCheckPassed?:   boolean;  // final meal within ±15% of weighted meal budget
+  mealTargetDeviationPct?:  number;   // how far final result is from meal budget target (%)
+
+  // ── New: attempt tracking ──────────────────────────────────────────────
+  attemptsUsedAtThisMeal?:  number;   // value of attempt counter when this meal was processed
+
+  // ── New: day-level correction ──────────────────────────────────────────
+  wasDayLevelReplacement?:     boolean;
+  dayTotalBeforeReplacement?:  number;  // day calorie total before this replacement
+  dayTotalAfterReplacement?:   number;  // day calorie total after replacement
 }
 
 export async function logMealValidation(entry: MealValidationEntry): Promise<void> {
   try {
     // Use weighted calorie target per meal type (snack ≠ lunch ≠ dinner).
-    // Protein/carbs/fat still use equal-split as a reasonable default.
     const mealCalPct = getMealWeightPct(entry.mealType, entry.mealsPerDay, entry.mealIndex);
     const mealTarget = {
       calories: Math.round(entry.targets.dailyCalories * mealCalPct),
@@ -200,14 +225,31 @@ export async function logMealValidation(entry: MealValidationEntry): Promise<voi
 
         accuracyDeltaKcal,
         accuracyDeltaPct,
+
+        // ── New fields ─────────────────────────────────────────────────
+        deviationPct:             entry.deviationPct             ?? null,
+        deviationAction:          entry.deviationAction          ?? null,
+        partialMatchGuard:        entry.partialMatchGuard        ?? false,
+        scalingApplied:           entry.scalingApplied           ?? false,
+        scaleFactor:              entry.scaleFactor              ?? null,
+        postScaleCnCalories:      entry.postScaleCnCalories      ?? null,
+        postScaleDeviation:       entry.postScaleDeviation       ?? null,
+        scalingResolved:          entry.scalingResolved          ?? null,
+        mealTargetCheckPassed:    entry.mealTargetCheckPassed    ?? null,
+        mealTargetDeviationPct:   entry.mealTargetDeviationPct   ?? null,
+        attemptsUsedAtThisMeal:   entry.attemptsUsedAtThisMeal   ?? null,
+        wasDayLevelReplacement:   entry.wasDayLevelReplacement   ?? false,
+        dayTotalBeforeReplacement: entry.dayTotalBeforeReplacement ?? null,
+        dayTotalAfterReplacement:  entry.dayTotalAfterReplacement  ?? null,
       }
     });
 
     console.log(
       `[ValidationLog] Day ${entry.dayIndex + 1} Meal ${entry.mealIndex + 1}` +
-      ` iter=${entry.iteration} outcome=${entry.finalOutcome}` +
-      ` cnCal=${entry.cn.calories ?? 'N/A'} target=${Math.round(mealTarget.calories)}` +
-      ` delta=${delta ? Math.round(delta.calories) : 'N/A'}kcal`
+      ` outcome=${entry.finalOutcome}` +
+      ` action=${entry.deviationAction ?? 'n/a'}` +
+      ` dev=${entry.deviationPct !== undefined ? Math.round(entry.deviationPct) + '%' : 'n/a'}` +
+      ` final=${entry.finalMacros.calories}kcal`,
     );
   } catch (err: any) {
     // Logging must NEVER crash plan generation
@@ -215,10 +257,7 @@ export async function logMealValidation(entry: MealValidationEntry): Promise<voi
   }
 }
 
-// ── Batch write — call via setImmediate so it never blocks the response ───────
-// Writes all buffered entries sequentially with a 50ms pause between each to
-// stay gentle on the Neon connection pool. Any per-entry failure is swallowed
-// and logged; the loop always continues to the next entry.
+// ── Batch write — sequentially with 50ms pause to stay gentle on Neon pool ──
 export async function batchLogValidation(entries: MealValidationEntry[]): Promise<void> {
   if (entries.length === 0) return;
   let written = 0;
@@ -226,7 +265,6 @@ export async function batchLogValidation(entries: MealValidationEntry[]): Promis
     try {
       await logMealValidation(entry);
       written++;
-      // Small breathing room between DB inserts — keeps Neon pooler happy
       await new Promise(resolve => setTimeout(resolve, 50));
     } catch (err: any) {
       console.error('[BatchLog] Entry failed, continuing:', err.message);
@@ -241,29 +279,44 @@ export async function getValidationSummaryForPlan(mealPlanId: string) {
     orderBy: [{ dayIndex: 'asc' }, { mealIndex: 'asc' }, { iteration: 'asc' }],
   });
 
-  const iter0 = logs.filter(l => l.iteration === 0);
-  const totalMeals         = iter0.length;
-  const cnSuccess          = logs.filter(l => l.cnApiSuccess).length;
-  const passedFirstCheck   = iter0.filter(l => l.finalOutcome === 'passed_first_check').length;
-  const passedAfterCorrect = iter0.filter(l => l.finalOutcome === 'passed_after_correction').length;
-  const maxIterationsHit   = iter0.filter(l => l.finalOutcome === 'max_iterations_reached').length;
-  const cnUnavailable      = iter0.filter(l => l.finalOutcome === 'cn_unavailable').length;
+  const totalMeals          = logs.length;
+  const cnSuccess           = logs.filter(l => l.cnApiSuccess).length;
+  const acceptedCn          = logs.filter(l => l.finalOutcome === 'accepted_cn').length;
+  const acceptedAfterScale  = logs.filter(l => l.finalOutcome === 'accepted_after_scaling').length;
+  const scalingApplied      = logs.filter(l => l.scalingApplied).length;
+  const regenerated         = logs.filter(l => l.deviationAction === 'regenerate').length;
+  const partialMatch        = logs.filter(l => l.partialMatchGuard).length;
+  const attemptsExhausted   = logs.filter(l => l.finalOutcome === 'attempts_exhausted').length;
+  const dayLevelReplaced    = logs.filter(l => l.wasDayLevelReplacement).length;
+  const targetCheckFailed   = logs.filter(l => l.mealTargetCheckPassed === false).length;
 
-  const deltaPcts = iter0.filter(l => l.deltaPctCalories !== null).map(l => l.deltaPctCalories!);
-  const avgDeltaPct = deltaPcts.length ? deltaPcts.reduce((s, v) => s + v, 0) / deltaPcts.length : 0;
+  const devPcts = logs
+    .filter(l => l.deviationPct !== null)
+    .map(l => l.deviationPct!);
+  const avgDeviationPct = devPcts.length
+    ? devPcts.reduce((s, v) => s + v, 0) / devPcts.length
+    : 0;
 
-  const accuracyDeltas = logs.filter(l => l.accuracyDeltaKcal !== null).map(l => l.accuracyDeltaKcal!);
-  const avgAccuracy = accuracyDeltas.length ? accuracyDeltas.reduce((s, v) => s + v, 0) / accuracyDeltas.length : 0;
+  const accuracyDeltas = logs
+    .filter(l => l.accuracyDeltaKcal !== null)
+    .map(l => l.accuracyDeltaKcal!);
+  const avgAccuracy = accuracyDeltas.length
+    ? accuracyDeltas.reduce((s, v) => s + v, 0) / accuracyDeltas.length
+    : 0;
 
   return {
     mealPlanId,
     totalMeals,
-    cnApiSuccessRate:           `${cnSuccess}/${logs.length}`,
-    passedFirstCheck:           `${passedFirstCheck}/${totalMeals}`,
-    passedAfterCorrection:      passedAfterCorrect,
-    maxIterationsHit,
-    cnUnavailable,
-    avgCalorieDeltaPct:         Math.round(avgDeltaPct * 10) / 10,
+    cnApiSuccessRate:       `${cnSuccess}/${totalMeals}`,
+    acceptedCn,
+    acceptedAfterScaling:  acceptedAfterScale,
+    scalingApplied,
+    regenerated,
+    partialMatchFailures:  partialMatch,
+    attemptsExhausted,
+    dayLevelReplacements:  dayLevelReplaced,
+    targetCheckFailures:   targetCheckFailed,
+    avgDeviationPct:       Math.round(avgDeviationPct * 10) / 10,
     avgAccuracyImprovementKcal: Math.round(avgAccuracy),
   };
 }
