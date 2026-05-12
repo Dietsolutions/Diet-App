@@ -107,3 +107,109 @@ Fat is significantly higher in the new method (g/kg allocation vs 27% of 1,400 k
 | `client/src/components/Onboarding.tsx` | totalSteps 7→8, new StepLifestyle, extend StepGoals |
 | `server/src/routes/profile.ts` | Accept + save all 12 new fields |
 | `server/src/routes/ai.ts` | Wire Group A to calculateTDEE, add buildLifestyleContext |
+
+---
+
+## 6. Meal type normalisation (Fix 1) — root cause + design
+
+### What Claude was generating before the fix
+
+DB query of recent `MacroValidationLog.claudeMealName` + `mealType` values confirmed Claude returned
+PascalCase strings: `"Breakfast"`, `"Lunch"`, `"Snack"`, `"Dinner"`.
+
+For 5-meal plans the strings were `"Breakfast"`, `"Morning Snack"`, `"Lunch"`, `"Evening Snack"`,
+`"Dinner"` (space-separated, first-letter capitalised).
+
+### Silent fallback that was breaking 5-meal plans
+
+`MEAL_WEIGHT_DISTRIBUTIONS[5]` was keyed with spaces:
+```
+'mid-morning snack': 0.10,
+'evening snack':     0.15,
+```
+After `.toLowerCase()` the lookup still failed for `"Morning Snack"` → key `'morning snack'`.
+`getMealWeightPct()` returned `1/mealsPerDay` (equal split) instead of the weighted value.
+Snacks received 20% of daily calories instead of 10/15%, triggering spurious CN correction loops.
+
+### Fix
+
+`MEAL_WEIGHT_DISTRIBUTIONS[5]` keys changed to underscore-separated, matching
+`CANONICAL_MEAL_TYPES[5]`:
+```typescript
+5: { breakfast: 0.25, morning_snack: 0.10, lunch: 0.30, evening_snack: 0.15, dinner: 0.20 }
+```
+
+### Aliases handled by `normaliseMealType()`
+
+| Input variant | Canonical output |
+|---|---|
+| `"Breakfast"`, `"breakfast"` | `breakfast` |
+| `"Lunch"`, `"lunch"` | `lunch` |
+| `"Dinner"`, `"dinner"`, `"supper"` | `dinner` |
+| `"Snack"`, `"snack"`, `"Snack 1"`, `"Snack 2"` | index-based → `snack` / `morning_snack` / `evening_snack` |
+| `"Morning Snack"`, `"morning snack"`, `"morning_snack"` | `morning_snack` |
+| `"Evening Snack"`, `"evening snack"`, `"evening_snack"`, `"Afternoon Snack"` | `evening_snack` |
+| Any unrecognised string | `CANONICAL_MEAL_TYPES[n][mealIndex]` (index fallback) |
+
+### Confirmation
+
+After the fix, Day 1 normalisation log output (5-meal example):
+```
+[Generation] Meal types after normalisation (Day 1): ["breakfast","morning_snack","lunch","evening_snack","dinner"]
+```
+All types canonical — no equal-split fallback in CN loop.
+
+---
+
+## 7. Weighted per-meal targets in Claude prompt (Fix 2)
+
+### Problem
+
+`freshTargets` / `dailyTargets` was computed **after** `buildUserPrompt()` was called.
+The prompt given to Claude contained no per-meal calorie or macro targets; Claude picked arbitrary
+splits. CN then validated against weighted targets — a generation/validation mismatch that caused
+legitimate meals to fail the ±25% tolerance check.
+
+### Fix
+
+`freshTargets` (renamed `promptDailyTargets`) is now computed **before** `buildUserPrompt()`.
+`buildMealTargetsSection()` injects a per-meal table into the user prompt, e.g. for a 4-meal 2,000 kcal plan:
+
+```
+=== PER-MEAL CALORIE & MACRO TARGETS ===
+Meal 1 (breakfast) : 500 kcal | P 40 g | C 50 g | F 17 g
+Meal 2 (lunch)     : 700 kcal | P 40 g | C 70 g | F 23 g
+Meal 3 (snack)     : 200 kcal | P 40 g | C 20 g | F 7 g
+Meal 4 (dinner)    : 600 kcal | P 40 g | C 60 g | F 20 g
+
+IMPORTANT — Canonical meal type names you MUST use:
+  Meal 1 → "breakfast"
+  Meal 2 → "lunch"
+  Meal 3 → "snack"
+  Meal 4 → "dinner"
+Use these exact lowercase strings in the "type" field of every meal.
+```
+
+### Sample `[MealTarget]` log line
+
+```
+[MealTarget] Day 1 Meal 3 type="snack" → norm="snack" weight=10% target=200kcal CN=195kcal Claude=198kcal
+```
+
+### Expected impact on CN correction triggers
+
+Before: snacks (5-meal) received 20% weight → target ~400 kcal → CN 180 kcal →
+ratio 0.45 → well outside ±25% → correction triggered every snack.
+
+After: snacks receive 10/15% weight (correct) AND Claude targets the same number →
+CN values align → correction triggers only when Claude genuinely mis-estimates a meal.
+
+---
+
+## 8. Files modified — Fix 1 + Fix 2
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | `CANONICAL_MEAL_TYPES`, fix 5-meal distribution keys, `normaliseMealType()`, update `getMealWeightPct()`, add `getMealMacroTargets()` |
+| `server/src/services/macroValidationLogger.ts` | Pass `entry.mealIndex` to `getMealWeightPct()` |
+| `server/src/routes/ai.ts` | New imports, lowercase type in system prompt examples, `buildMealTargetsSection()`, updated `buildUserPrompt()` signature, move `freshTargets` before prompt build, normalise types after parse, per-meal `[MealTarget]` logging |

@@ -86,7 +86,7 @@ export async function logMealValidation(entry: MealValidationEntry): Promise<voi
   try {
     // Use weighted calorie target per meal type (snack ≠ lunch ≠ dinner).
     // Protein/carbs/fat still use equal-split as a reasonable default.
-    const mealCalPct = getMealWeightPct(entry.mealType, entry.mealsPerDay);
+    const mealCalPct = getMealWeightPct(entry.mealType, entry.mealsPerDay, entry.mealIndex);
     const mealTarget = {
       calories: Math.round(entry.targets.dailyCalories * mealCalPct),
       protein:  entry.targets.dailyProtein / entry.mealsPerDay,

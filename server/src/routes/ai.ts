@@ -4,7 +4,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { calculateBMI, calculateTDEE } from '../utils/tdee';
 import { verifyDayMacros } from '../services/calorieNinjasService';
-import { validateDayBudget, buildCorrectionPrompt, evaluateMealAccuracy } from '../services/macroValidation';
+import {
+  validateDayBudget, buildCorrectionPrompt, evaluateMealAccuracy,
+  normaliseMealType, getMealMacroTargets,
+  CANONICAL_MEAL_TYPES, MEAL_WEIGHT_DISTRIBUTIONS,
+} from '../services/macroValidation';
 import { logMealValidation, batchLogValidation, MealValidationEntry } from '../services/macroValidationLogger';
 
 const router = Router();
@@ -89,7 +93,13 @@ INGREDIENT QUANTITIES — MANDATORY:
 - Discrete items are fine as count with weight: "2 eggs (100g)" · "1 whole wheat roti (40g)"
 
 JSON STRUCTURE (use exactly this shape):
-{"weekSummary":{"avgCalories":0,"avgProtein":0,"avgCarbs":0,"avgFat":0,"avgFibre":0},"days":[{"dayIndex":0,"dayName":"Monday","totalCalories":0,"totalProtein":0,"totalCarbs":0,"totalFat":0,"totalFibre":0,"meals":[{"mealIndex":0,"type":"Breakfast","time":"8:00 AM","name":"meal name","description":"brief instructions with gram quantities","ingredients":["150g chicken breast","80g onion","1g turmeric","2g red chili powder","3g coriander powder","5g ghee"],"calories":0,"protein":0,"carbs":0,"fat":0,"fibre":0}]}],"shoppingList":[{"category":"Proteins","items":[{"name":"Chicken breast","quantity":"1","unit":"kg"}]}],"mealPrepGuide":{"estimatedMinutes":45,"intro":"Do these tasks on Sunday to set yourself up for the week.","sections":[{"category":"Proteins","emoji":"🥩","tasks":[{"instruction":"Marinate 600g chicken in curd and spices. Use Mon–Wed.","usedOn":"Mon, Tue, Wed"}]}]}}
+{"weekSummary":{"avgCalories":0,"avgProtein":0,"avgCarbs":0,"avgFat":0,"avgFibre":0},"days":[{"dayIndex":0,"dayName":"Monday","totalCalories":0,"totalProtein":0,"totalCarbs":0,"totalFat":0,"totalFibre":0,"meals":[{"mealIndex":0,"type":"breakfast","time":"8:00 AM","name":"meal name","description":"brief instructions with gram quantities","ingredients":["150g chicken breast","80g onion","1g turmeric","2g red chili powder","3g coriander powder","5g ghee"],"calories":0,"protein":0,"carbs":0,"fat":0,"fibre":0}]}],"shoppingList":[{"category":"Proteins","items":[{"name":"Chicken breast","quantity":"1","unit":"kg"}]}],"mealPrepGuide":{"estimatedMinutes":45,"intro":"Do these tasks on Sunday to set yourself up for the week.","sections":[{"category":"Proteins","emoji":"🥩","tasks":[{"instruction":"Marinate 600g chicken in curd and spices. Use Mon–Wed.","usedOn":"Mon, Tue, Wed"}]}]}}
+
+MEAL TYPE VALUES — use ONLY these exact lowercase strings in the "type" field:
+- 3 meals/day: "breakfast", "lunch", "dinner"
+- 4 meals/day: "breakfast", "lunch", "snack", "dinner"
+- 5 meals/day: "breakfast", "morning_snack", "lunch", "evening_snack", "dinner"
+Do NOT use "Breakfast", "Morning Snack", "Snack 1", or any other variant.
 
 Keep descriptions under 20 words. Include mealPrepGuide with practical weekly prep tasks. Be concise.`;
 
@@ -117,7 +127,13 @@ INGREDIENT QUANTITIES — MANDATORY:
 - Discrete items are fine as count with weight: "2 eggs (100g)" · "1 whole wheat roti (40g)"
 
 JSON STRUCTURE (same as 7-day but with 14 days in the days array):
-{"weekSummary":{"avgCalories":0,"avgProtein":0,"avgCarbs":0,"avgFat":0,"avgFibre":0},"days":[{"dayIndex":0,"dayName":"Day 1","totalCalories":0,"totalProtein":0,"totalCarbs":0,"totalFat":0,"totalFibre":0,"meals":[{"mealIndex":0,"type":"Breakfast","time":"8:00 AM","name":"meal name","description":"brief instructions","ingredients":["150g chicken breast","80g onion","1g turmeric","2g red chili powder","5g oil"],"calories":0,"protein":0,"carbs":0,"fat":0,"fibre":0}]}],"shoppingList":[{"category":"Proteins","items":[{"name":"Chicken breast","quantity":"1.5","unit":"kg"}]}],"mealPrepGuide":{"estimatedMinutes":60,"intro":"Do these tasks on Sunday to set yourself up for two full weeks.","sections":[{"category":"Proteins","emoji":"🥩","tasks":[{"instruction":"Prep instruction with quantities.","usedOn":"Days 1–5"}]}]}}
+{"weekSummary":{"avgCalories":0,"avgProtein":0,"avgCarbs":0,"avgFat":0,"avgFibre":0},"days":[{"dayIndex":0,"dayName":"Day 1","totalCalories":0,"totalProtein":0,"totalCarbs":0,"totalFat":0,"totalFibre":0,"meals":[{"mealIndex":0,"type":"breakfast","time":"8:00 AM","name":"meal name","description":"brief instructions","ingredients":["150g chicken breast","80g onion","1g turmeric","2g red chili powder","5g oil"],"calories":0,"protein":0,"carbs":0,"fat":0,"fibre":0}]}],"shoppingList":[{"category":"Proteins","items":[{"name":"Chicken breast","quantity":"1.5","unit":"kg"}]}],"mealPrepGuide":{"estimatedMinutes":60,"intro":"Do these tasks on Sunday to set yourself up for two full weeks.","sections":[{"category":"Proteins","emoji":"🥩","tasks":[{"instruction":"Prep instruction with quantities.","usedOn":"Days 1–5"}]}]}}
+
+MEAL TYPE VALUES — use ONLY these exact lowercase strings in the "type" field:
+- 3 meals/day: "breakfast", "lunch", "dinner"
+- 4 meals/day: "breakfast", "lunch", "snack", "dinner"
+- 5 meals/day: "breakfast", "morning_snack", "lunch", "evening_snack", "dinner"
+Do NOT use "Breakfast", "Morning Snack", "Snack 1", or any other variant.
 
 Keep descriptions under 20 words. Be concise.`;
 
@@ -132,6 +148,43 @@ const GOAL_LABELS: Record<string, string> = {
 
 function goalLabel(goal: string): string {
   return GOAL_LABELS[goal] ?? goal;
+}
+
+// ── Per-meal target section for the Claude prompt ────────────────────────────
+// Computes the weighted calorie/macro target for each meal slot and formats it
+// as a prompt section so Claude sizes meals correctly rather than using equal splits.
+function buildMealTargetsSection(
+  dailyTargets: { calories: number; proteinG: number; carbsG: number; fatG: number },
+  mealsPerDay:  number,
+): string {
+  const dist      = MEAL_WEIGHT_DISTRIBUTIONS[mealsPerDay as 3 | 4 | 5];
+  const canonical = CANONICAL_MEAL_TYPES[mealsPerDay as 3 | 4 | 5] ?? [];
+
+  if (!dist || canonical.length === 0) {
+    const perMeal = Math.round(dailyTargets.calories / mealsPerDay);
+    return `Each of the ${mealsPerDay} meals should contain approximately ${perMeal} kcal.`;
+  }
+
+  const mealLabels: Record<string, string> = {
+    breakfast:     'Breakfast',
+    lunch:         'Lunch',
+    snack:         'Snack',
+    morning_snack: 'Morning snack',
+    evening_snack: 'Evening snack',
+    dinner:        'Dinner',
+  };
+
+  const lines = canonical.map(typeKey => {
+    const weight = dist[typeKey] ?? (1 / mealsPerDay);
+    const cal    = Math.round(dailyTargets.calories * weight);
+    const prot   = Math.round(dailyTargets.proteinG * weight * 10) / 10;
+    const carbs  = Math.round(dailyTargets.carbsG   * weight * 10) / 10;
+    const fat    = Math.round(dailyTargets.fatG      * weight * 10) / 10;
+    return `  - ${mealLabels[typeKey] ?? typeKey}: ~${cal} kcal · P ${prot}g · C ${carbs}g · F ${fat}g`;
+  });
+
+  return `PER-MEAL CALORIE TARGETS (follow these — not equal splits):
+${lines.join('\n')}`;
 }
 
 // ── Lifestyle context block — Group B inputs (not TDEE; passed as Claude guidance) ──
@@ -202,7 +255,10 @@ function buildLifestyleContext(profile: any): string {
   return lines.join('\n');
 }
 
-function buildUserPrompt(profile: any): string {
+function buildUserPrompt(
+  profile:      any,
+  dailyTargets: { calories: number; proteinG: number; carbsG: number; fatG: number; fibreG: number },
+): string {
   const bmi = calculateBMI(profile.weightKg, profile.heightCm);
   const cuisines = JSON.parse(profile.cuisinePreferences);
   const allergies = JSON.parse(profile.allergies);
@@ -247,7 +303,10 @@ and keep the restriction. Otherwise, honour these instructions precisely.` : '';
     ? 'Generate exactly 14 days (Day 1 through Day 14). Week 2 must use completely different meals from Week 1.'
     : 'Generate exactly 7 days (Monday through Sunday).';
 
-  const lifestyleContext = buildLifestyleContext(profile);
+  const lifestyleContext   = buildLifestyleContext(profile);
+  const mealTargetsSection = buildMealTargetsSection(dailyTargets, profile.mealsPerDay ?? 4);
+  const canonicalTypes     = CANONICAL_MEAL_TYPES[profile.mealsPerDay as 3 | 4 | 5]
+    ?? CANONICAL_MEAL_TYPES[4];
 
   return `${dayRange}
 
@@ -266,7 +325,17 @@ Avoid: ${avoid.length > 0 ? avoid.join(', ') : 'None'}
 Health: ${health.length > 0 ? health.join(', ') : 'None'}
 Cooking: ${profile.cookingStyle || 'home'}, Equipment: ${equipment.length > 0 ? equipment.join(', ') : 'Stovetop'}
 ${profile.weeklyBudget ? `Budget: ${profile.budgetCurrency} ${profile.weeklyBudget}/week` : ''}
-TARGETS: ${profile.targetCalories} kcal, ${profile.proteinTarget}g protein, ${profile.carbTarget}g carbs, ${profile.fatTarget}g fat, ${profile.fibreTarget}g fibre${lifestyleContext}${customBlock}`;
+
+DAILY NUTRITION TARGETS:
+${mealTargetsSection}
+Daily total: ${dailyTargets.calories} kcal · P ${dailyTargets.proteinG}g · C ${dailyTargets.carbsG}g · F ${dailyTargets.fatG}g · Fibre ${dailyTargets.fibreG}g
+
+CRITICAL RULES FOR MACRO DISTRIBUTION:
+1. Size each meal according to its per-meal target above — NOT as equal splits
+2. Snacks must be genuinely light (fruit, nuts, yoghurt, or a small dish ≤ ~${Math.round(dailyTargets.calories * 0.12)} kcal)
+3. Lunch and dinner carry the bulk of daily calories and protein
+4. The "type" field in your JSON must be EXACTLY one of: ${JSON.stringify(canonicalTypes)}
+5. Do not use "Breakfast", "Morning Snack", "Snack 1", or any other variant${lifestyleContext}${customBlock}`;
 }
 
 // POST /api/ai/generate-meal-plan (SSE streaming)
@@ -331,7 +400,51 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
 
   try {
     const client = new Anthropic({ apiKey });
-    const userPrompt = buildUserPrompt(profile);
+
+    // ── Compute fresh targets BEFORE building the prompt ──────────────────────
+    // This ensures the per-meal targets injected into the Claude prompt are the
+    // same numbers used later in the CN validation pipeline.
+    const freshTargets = calculateTDEE({
+      weightKg:               profile.weightKg,
+      heightCm:               profile.heightCm,
+      age:                    profile.age,
+      gender:                 profile.gender,
+      activityLevel:          profile.activityLevel,
+      dietIntensity:          (profile as any).dietIntensity        ?? null,
+      primaryGoal:            profile.primaryGoal,
+      targetWeightKg:         (profile as any).targetWeightKg       ?? null,
+      healthConditions:       JSON.parse((profile as any).healthConditions ?? '[]'),
+      eatingWindowHours:      (profile as any).eatingWindowHours    ?? null,
+      trainingType:           (profile as any).trainingType          ?? 'none',
+      trainingDaysPerWeek:    (profile as any).trainingDaysPerWeek   ?? 3,
+      trainingDurationMins:   (profile as any).trainingDurationMins  ?? 45,
+      cardioSessionsPerWeek:  (profile as any).cardioSessionsPerWeek ?? 0,
+      dailySteps:             (profile as any).dailySteps            ?? 5000,
+      occupationType:         (profile as any).occupationType        ?? 'desk_job',
+      insulinSensitivity:     (profile as any).insulinSensitivity    ?? 'average',
+    });
+
+    const promptDailyTargets = {
+      calories: freshTargets.targetCalories,
+      proteinG: freshTargets.proteinTarget,
+      carbsG:   freshTargets.carbTarget,
+      fatG:     freshTargets.fatTarget,
+      fibreG:   freshTargets.fibreTarget,
+    };
+
+    // Sync profile targets in background — never blocks generation
+    prisma.userProfile.update({
+      where: { userId },
+      data: {
+        targetCalories: freshTargets.targetCalories,
+        proteinTarget:  freshTargets.proteinTarget,
+        carbTarget:     freshTargets.carbTarget,
+        fatTarget:      freshTargets.fatTarget,
+        fibreTarget:    freshTargets.fibreTarget,
+      },
+    }).catch((err: any) => console.warn('[TDEE] Profile target sync failed:', err.message));
+
+    const userPrompt = buildUserPrompt(profile, promptDailyTargets);
 
     const hasCustomInstructions = !!(profile.mealPlanCustomInstructions || '').trim();
     if (hasCustomInstructions) {
@@ -398,6 +511,22 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       return;
     }
 
+    // ── Normalise meal type strings immediately after parse ───────────────────
+    // Claude may generate "Breakfast", "Lunch", "Morning Snack" etc.
+    // Normalise to canonical underscore-separated lowercase before any validation.
+    {
+      const mealsPerDayInPlan = planData.days?.[0]?.meals?.length ?? profile.mealsPerDay ?? 4;
+      planData.days = (planData.days ?? []).map((day: any) => ({
+        ...day,
+        meals: (day.meals ?? []).map((meal: any, mealIndex: number) => ({
+          ...meal,
+          type: normaliseMealType(meal.type, mealIndex, mealsPerDayInPlan),
+        })),
+      }));
+      const sample = planData.days[0]?.meals?.map((m: any) => m.type);
+      console.log('[Generation] Meal types after normalisation (Day 1):', sample);
+    }
+
     const expectedDays = planDuration;
     if (!planData.days || !Array.isArray(planData.days) || planData.days.length !== expectedDays) {
       console.error(`AI returned ${planData.days?.length} days, expected ${expectedDays}`);
@@ -422,51 +551,9 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     const MAX_CORRECTIONS   = 3;   // max correction iterations per day
     const DAYS_TO_VALIDATE  = planData.days.length; // 7 or 14
 
-    // ── Fresh TDEE computation ──────────────────────────────────────────────
-    // Recalculate at generation time using the improved formula (kg/week-based
-    // deficit, targetWeightKg for protein, age slowdown, health conditions).
-    // This ensures targets stay accurate even if the formula was updated since
-    // the user last saved their profile.
-    const freshTargets = calculateTDEE({
-      weightKg:               profile.weightKg,
-      heightCm:               profile.heightCm,
-      age:                    profile.age,
-      gender:                 profile.gender,
-      activityLevel:          profile.activityLevel,
-      dietIntensity:          (profile as any).dietIntensity        ?? null,
-      primaryGoal:            profile.primaryGoal,
-      targetWeightKg:         (profile as any).targetWeightKg       ?? null,
-      healthConditions:       JSON.parse((profile as any).healthConditions ?? '[]'),
-      eatingWindowHours:      (profile as any).eatingWindowHours    ?? null,
-      // Group A — TDEE inputs
-      trainingType:           (profile as any).trainingType          ?? 'none',
-      trainingDaysPerWeek:    (profile as any).trainingDaysPerWeek   ?? 3,
-      trainingDurationMins:   (profile as any).trainingDurationMins  ?? 45,
-      cardioSessionsPerWeek:  (profile as any).cardioSessionsPerWeek ?? 0,
-      dailySteps:             (profile as any).dailySteps            ?? 5000,
-      occupationType:         (profile as any).occupationType        ?? 'desk_job',
-      insulinSensitivity:     (profile as any).insulinSensitivity    ?? 'average',
-    });
-
-    // Sync profile targets in background — never blocks generation
-    prisma.userProfile.update({
-      where: { userId },
-      data: {
-        targetCalories: freshTargets.targetCalories,
-        proteinTarget:  freshTargets.proteinTarget,
-        carbTarget:     freshTargets.carbTarget,
-        fatTarget:      freshTargets.fatTarget,
-        fibreTarget:    freshTargets.fibreTarget,
-      },
-    }).catch((err: any) => console.warn('[TDEE] Profile target sync failed:', err.message));
-
-    const dailyTargets = {
-      calories: freshTargets.targetCalories,
-      proteinG: freshTargets.proteinTarget,
-      carbsG:   freshTargets.carbTarget,
-      fatG:     freshTargets.fatTarget,
-      fibreG:   freshTargets.fibreTarget,
-    };
+    // dailyTargets = same fresh values computed before the prompt was built.
+    // Using promptDailyTargets here ensures validation and generation use identical numbers.
+    const dailyTargets = promptDailyTargets;
 
     let cnChecksTotal      = 0;
     let cnCorrectionsTotal = 0;
@@ -535,6 +622,22 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
           // Verify CN macros for all meals in this day
           const { verifiedMacros, detailedResults } = await verifyDayMacros(currentMeals);
           cnChecksTotal += currentMeals.length; // one CN call per meal
+
+          // ── Per-meal target logging ─────────────────────────────────────────
+          for (let mealIdx = 0; mealIdx < currentMeals.length; mealIdx++) {
+            const meal        = currentMeals[mealIdx];
+            const mealTargets = getMealMacroTargets(dailyTargets, mealsPerDay, meal.type, mealIdx);
+            const cnCal       = detailedResults[mealIdx].success
+              ? detailedResults[mealIdx].macros.calories : null;
+            console.log(
+              `[MealTarget] Day ${dayIdx + 1} Meal ${mealIdx + 1}` +
+              ` type="${meal.type}" → norm="${mealTargets.normalisedType}"` +
+              ` weight=${(mealTargets.weight * 100).toFixed(0)}%` +
+              ` target=${mealTargets.calories}kcal` +
+              ` CN=${cnCal !== null ? Math.round(cnCal) : 'N/A'}kcal` +
+              ` Claude=${meal.calories ?? 'N/A'}kcal`
+            );
+          }
 
           // ── Per-meal CN-vs-Claude arbitration ──────────────────────────────
           // If CN is within 25% of Claude's own estimate → Claude was right.

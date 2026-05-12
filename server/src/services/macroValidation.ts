@@ -4,23 +4,153 @@
 
 import { CNMacros } from './calorieNinjasService';
 
+// ── Canonical meal type names — keys must match MEAL_WEIGHT_DISTRIBUTIONS exactly ──
+export const CANONICAL_MEAL_TYPES: Record<number, string[]> = {
+  3: ['breakfast', 'lunch', 'dinner'],
+  4: ['breakfast', 'lunch', 'snack', 'dinner'],
+  5: ['breakfast', 'morning_snack', 'lunch', 'evening_snack', 'dinner'],
+};
+
 // ── Weighted meal calorie distributions ──────────────────────────────────────
 // A snack should NOT be held to the same target as lunch.
-// These weights reflect typical meal energy proportions.
+// Keys MUST be the canonical underscore-separated type names above.
 export const MEAL_WEIGHT_DISTRIBUTIONS: Record<number, Record<string, number>> = {
   3: { breakfast: 0.30, lunch: 0.40, dinner: 0.30 },
   4: { breakfast: 0.25, lunch: 0.35, snack: 0.10, dinner: 0.30 },
-  5: { breakfast: 0.25, 'mid-morning snack': 0.10, lunch: 0.30, 'evening snack': 0.15, dinner: 0.20 },
+  5: { breakfast: 0.25, morning_snack: 0.10, lunch: 0.30, evening_snack: 0.15, dinner: 0.20 },
 };
+
+// ── Meal type normaliser ──────────────────────────────────────────────────────
+/**
+ * Maps any Claude-generated meal type string to a canonical lowercase
+ * underscore-separated value that matches a key in MEAL_WEIGHT_DISTRIBUTIONS.
+ *
+ * Claude currently generates "Breakfast", "Lunch", "Snack", "Dinner" (PascalCase).
+ * For 5-meal plans it may also produce variants like "Mid-Morning Snack" or
+ * "Evening Snack". This normaliser handles all observed and plausible variants.
+ */
+export function normaliseMealType(
+  rawType:     string | undefined,
+  mealIndex:   number,
+  mealsPerDay: number,
+): string {
+  const canonical = CANONICAL_MEAL_TYPES[mealsPerDay as 3 | 4 | 5];
+
+  if (!rawType) {
+    // Index-based fallback when no type provided
+    return canonical?.[mealIndex] ?? 'snack';
+  }
+
+  const t = rawType.toLowerCase().trim()
+    .replace(/[-\s]+/g, '_')   // normalise spaces and hyphens → underscores
+    .replace(/[^a-z_]/g, '');  // strip anything not a letter or underscore
+
+  // Direct match (handles PascalCase after lowercasing)
+  if (['breakfast', 'lunch', 'dinner', 'snack',
+       'morning_snack', 'evening_snack'].includes(t)) return t;
+
+  // Alias map — exhaustive list of Claude-generated variants
+  const aliases: Record<string, string> = {
+    // Breakfast
+    morning_meal:        'breakfast',
+    first_meal:          'breakfast',
+    am_meal:             'breakfast',
+    early_morning:       'breakfast',
+
+    // Lunch
+    midday_meal:         'lunch',
+    mid_day_meal:        'lunch',
+    afternoon_meal:      'lunch',
+    second_meal:         'lunch',
+
+    // Snack (4-meal plan — single snack slot)
+    snack_1:             'snack',
+    mid_morning_snack:   'snack',
+    afternoon_snack:     'snack',
+    evening_snack_alt:   'snack',
+    tea_time:            'snack',
+    tea:                 'snack',
+
+    // Morning snack (5-meal plan)
+    snack_2:             'morning_snack',
+    pre_lunch_snack:     'morning_snack',
+    mid_morning:         'morning_snack',
+    morning_break:       'morning_snack',
+
+    // Evening snack (5-meal plan)
+    post_lunch_snack:    'evening_snack',
+    pre_dinner_snack:    'evening_snack',
+    evening_bite:        'evening_snack',
+    snack_3:             'evening_snack',
+    late_afternoon:      'evening_snack',
+
+    // Dinner
+    supper:              'dinner',
+    evening_meal:        'dinner',
+    night_meal:          'dinner',
+    last_meal:           'dinner',
+    final_meal:          'dinner',
+  };
+
+  if (aliases[t]) return aliases[t];
+
+  // Contains-based fallback
+  if (t.includes('breakfast'))                                   return 'breakfast';
+  if (t.includes('morning') && mealIndex === 0)                  return 'breakfast';
+  if (t.includes('lunch') || t.includes('midday'))               return 'lunch';
+  if (t.includes('dinner') || t.includes('supper'))              return 'dinner';
+  if (t.includes('snack')) {
+    if (mealsPerDay === 5) return mealIndex <= 2 ? 'morning_snack' : 'evening_snack';
+    return 'snack';
+  }
+
+  // Last resort: index-based canonical name
+  const indexBased = canonical?.[mealIndex];
+  console.warn(`[MealType] Unknown type "${rawType}" at index ${mealIndex}/${mealsPerDay} — falling back to "${indexBased}"`);
+  return indexBased ?? 'snack';
+}
 
 /**
  * Return the fraction of daily calories expected for `mealType` given `mealsPerDay`.
+ * Normalises the type string before lookup so PascalCase and variant names always match.
  * Falls back to equal split for unrecognised meal types.
  */
-export function getMealWeightPct(mealType: string, mealsPerDay: number): number {
-  const dist = MEAL_WEIGHT_DISTRIBUTIONS[mealsPerDay] ?? MEAL_WEIGHT_DISTRIBUTIONS[4];
-  const key  = (mealType ?? '').toLowerCase();
-  return dist[key] ?? (1 / mealsPerDay);
+export function getMealWeightPct(
+  mealType:   string,
+  mealsPerDay: number,
+  mealIndex:  number = 0,
+): number {
+  const dist           = MEAL_WEIGHT_DISTRIBUTIONS[mealsPerDay] ?? MEAL_WEIGHT_DISTRIBUTIONS[4];
+  const normalisedType = normaliseMealType(mealType, mealIndex, mealsPerDay);
+  return dist[normalisedType] ?? (1 / mealsPerDay);
+}
+
+/**
+ * Return per-meal macro targets as absolute values.
+ * Also returns the normalised type and weight fraction for logging.
+ */
+export function getMealMacroTargets(
+  dailyTargets: { calories: number; proteinG: number; carbsG: number; fatG: number; fibreG: number },
+  mealsPerDay:  number,
+  mealType?:    string,
+  mealIndex?:   number,
+): {
+  calories: number; proteinG: number; carbsG: number; fatG: number; fibreG: number;
+  weight: number; normalisedType: string;
+} {
+  const idx            = mealIndex ?? 0;
+  const normalisedType = normaliseMealType(mealType, idx, mealsPerDay);
+  const dist           = MEAL_WEIGHT_DISTRIBUTIONS[mealsPerDay] ?? MEAL_WEIGHT_DISTRIBUTIONS[4];
+  const weight         = dist[normalisedType] ?? (1 / mealsPerDay);
+  return {
+    calories: Math.round(dailyTargets.calories * weight),
+    proteinG: Math.round(dailyTargets.proteinG * weight * 10) / 10,
+    carbsG:   Math.round(dailyTargets.carbsG   * weight * 10) / 10,
+    fatG:     Math.round(dailyTargets.fatG     * weight * 10) / 10,
+    fibreG:   Math.round(dailyTargets.fibreG   * weight * 10) / 10,
+    weight,
+    normalisedType,
+  };
 }
 
 interface DailyTargets {
