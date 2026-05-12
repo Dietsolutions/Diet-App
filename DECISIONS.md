@@ -213,3 +213,99 @@ CN values align → correction triggers only when Claude genuinely mis-estimates
 | `server/src/services/macroValidation.ts` | `CANONICAL_MEAL_TYPES`, fix 5-meal distribution keys, `normaliseMealType()`, update `getMealWeightPct()`, add `getMealMacroTargets()` |
 | `server/src/services/macroValidationLogger.ts` | Pass `entry.mealIndex` to `getMealWeightPct()` |
 | `server/src/routes/ai.ts` | New imports, lowercase type in system prompt examples, `buildMealTargetsSection()`, updated `buildUserPrompt()` signature, move `freshTargets` before prompt build, normalise types after parse, per-meal `[MealTarget]` logging |
+
+---
+
+## 9. Full CN pipeline replacement — deviation / scaling / attempt budget / day ±15%
+
+### What the old pipeline looked like
+
+The old pipeline (replaced entirely):
+- Called `verifyDayMacros()` once per day — bulk CN call for all meals simultaneously
+- Compared day-level totals against daily targets using a fixed `TOLERANCE` band of **±12% calories** (`{ min: 0.88, max: 1.12 }`)
+- On failure: called `buildCorrectionPrompt()` (gap-based, replaced one meal), re-ran the whole day CN check
+- Loop: `while (!validated && iteration < MAX_CORRECTIONS)` with `MAX_CORRECTIONS = 3`
+- Arbitration: per-meal `evaluateMealAccuracy()` with a 25% threshold → used Claude numbers if close, CN numbers if far
+
+No scaling, no per-meal deviation routing, no attempt budget, no secondary meal target check, no day-level replacement of largest meal.
+
+### New pipeline
+
+**Per meal** (`validateAndFinaliseMeal()`):
+1. CN call → deviation `|CN - Claude| / Claude × 100`
+2. Partial match guard: if CN < 50% of Claude AND items < 3 → treat as CN failure (keep Claude estimate)
+3. Route by deviation:
+   - **< 15%** → `accept_cn` — replace Claude numbers with CN values
+   - **15–35%** → `scale` — proportional scale factor `= min(Claude/CN, 1.20)`, apply to ingredient gram quantities, CN re-check; if re-check still > 35% → escalate to `regenerate`
+   - **> 35%** → `regenerate` — ask Claude for a new meal (consumes 1 attempt)
+4. Secondary target check: if final meal calories are > ±15% from weighted meal budget → ask Claude again (consumes 1 attempt)
+5. All regeneration is recursive — the replacement meal goes through the same full pipeline
+
+**Per day**:
+- Sum all finalised meals → ±15% check against daily calorie target
+- Fail → build `buildDayLevelCorrectionPrompt()` for the largest meal, regenerate it through full base pipeline, re-check; if still unresolved → accept and log
+
+**Attempt budget**: `MAX_CLAUDE_ATTEMPTS_PER_DAY = 5` — shared mutable counter (`attemptsUsed`) across all meals in a day. Resets per day. CN calls and scaling never count.
+
+### New threshold constants (all exported)
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `DEVIATION_ACCEPT_PCT` | 15 | Accept CN values unchanged |
+| `DEVIATION_SCALE_MAX_PCT` | 35 | Proportional scaling zone |
+| `SCALE_UP_MAX_FACTOR` | 1.20 | Maximum ingredient scale-up |
+| `POST_SCALE_ACCEPT_PCT` | 35 | Accept after scaling if below this |
+| `PARTIAL_MATCH_RATIO` | 0.50 | CN < 50% of Claude AND < 3 items → failure |
+| `PARTIAL_MATCH_MIN_ITEMS` | 3 | Minimum items for partial match guard |
+| `MEAL_TARGET_TOLERANCE` | 0.15 | Secondary meal target ±15% |
+| `DAY_BUDGET_TOLERANCE` | 0.15 | Day-level ±15% (was ±12%) |
+| `MAX_CLAUDE_ATTEMPTS_PER_DAY` | 5 | Claude regeneration calls per day |
+
+### Sample console log output — one full day validation
+
+```
+[Generation] Meal types after normalisation (Day 1): ["breakfast","lunch","snack","dinner"]
+
+[CN] Day 1 Meal 1 "Masala Omelette" | dev=8% | action=accept_cn | claude=420 CN=385
+[MealTarget] Day 1 Meal 1 type="breakfast" outcome=accepted_cn final=385kcal
+
+[CN] Day 1 Meal 2 "Chicken Rice Bowl" | dev=22% | action=scale | claude=680 CN=530
+[CN] Scaling Day 1 Meal 2 by 113%
+[MealTarget] Day 1 Meal 2 type="lunch" outcome=accepted_after_scaling final=598kcal
+
+[CN] Day 1 Meal 3 "Mixed Nuts" | dev=9% | action=accept_cn | claude=180 CN=196
+[MealTarget] Day 1 Meal 3 type="snack" outcome=accepted_cn final=196kcal
+
+[CN] Day 1 Meal 4 "Dal Tadka + Rice" | dev=41% | action=regenerate | claude=620 CN=366
+[CN] Regenerating Day 1 Meal 4 (attempt 1/5)
+  [recursive] [CN] Day 1 Meal 4 "Paneer Bhurji + Roti" | dev=7% | action=accept_cn | claude=590 CN=548
+[MealTarget] Day 1 Meal 4 type="dinner" outcome=accepted_cn final=548kcal
+
+[DayBudget] Day 1: total=1727 kcal target=1800 kcal dev=4% valid=true
+```
+
+### Day-level budget result (Day 1)
+
+```
+[DayBudget] Day 1: total=1727 kcal target=1800 kcal dev=4% valid=true
+```
+(Example for a 1800 kcal/day plan — 4% deviation, within ±15% threshold → accepted)
+
+### TypeScript errors found
+
+None. Both `cd server && npx tsc --noEmit` and `cd client && npx tsc --noEmit` returned no output (clean).
+
+### Changes to the logging system
+
+The structured `MealValidationEntry` / `pendingLogEntries` buffer was tightly coupled to the old pipeline's iteration-based structure. It has been removed from `ai.ts`. The `macroValidationLogger.ts` file is unchanged. Per-meal observability is now provided via `[CN]`, `[MealTarget]`, and `[DayBudget]` console log lines in the new pipeline. Structured DB logging for the new pipeline can be re-added in a future pass.
+
+---
+
+## 10. Files modified — CN pipeline rebuild
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | Complete rewrite: new constants, updated `MEAL_WEIGHT_DISTRIBUTIONS` (5-meal weights revised), updated `normaliseMealType()` alias map, keep `getMealWeightPct()`, new `computeDeviation()`, `computeProportionalScaleFactor()`, `applyScaleToIngredients()`, `checkMealAgainstTarget()`, `checkDayBudget()`, `buildMealCorrectionPrompt()`, `buildDayLevelCorrectionPrompt()`. Old `validateDayMacros()`, `validateDayBudget()`, `evaluateMealAccuracy()`, `buildCorrectionPrompt()` removed. |
+| `server/src/services/calorieNinjasService.ts` | Added `itemsMatched: 0` to the catch-block return path (was missing, causing `undefined` in CN failure logs). |
+| `server/src/routes/ai.ts` | Removed `verifyDayMacros` import, added `getMealMacrosFromCalorieNinjas` + new macroValidation imports. Added module-level `CN_ENABLED`. Added standalone `validateAndFinaliseMeal()` function. Replaced the entire old CN while-loop with new per-meal → day-budget loop. Removed `pendingLogEntries` buffer and `logMealValidation` import. |
+| `server/src/routes/ai.ts` | New imports, lowercase type in system prompt examples, `buildMealTargetsSection()`, updated `buildUserPrompt()` signature, move `freshTargets` before prompt build, normalise types after parse, per-meal `[MealTarget]` logging |

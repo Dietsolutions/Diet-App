@@ -119,10 +119,11 @@ export async function getMealMacrosFromCalorieNinjas(
   } catch (err: any) {
     console.warn(`[CalorieNinjas] Failed for "${mealName}":`, err.message);
     return {
-      success:     false,
-      macros:      zeroed(),
-      error:       err.message,
-      queryString: query,
+      success:      false,
+      macros:       zeroed(),
+      error:        err.message,
+      queryString:  query,
+      itemsMatched: 0,
     };
   }
 }

@@ -3,18 +3,30 @@ import prisma from '../lib/prisma';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { calculateBMI, calculateTDEE } from '../utils/tdee';
-import { verifyDayMacros } from '../services/calorieNinjasService';
+import { getMealMacrosFromCalorieNinjas } from '../services/calorieNinjasService';
 import {
-  validateDayBudget, buildCorrectionPrompt, evaluateMealAccuracy,
-  normaliseMealType, getMealMacroTargets,
-  CANONICAL_MEAL_TYPES, MEAL_WEIGHT_DISTRIBUTIONS,
+  computeDeviation,
+  computeProportionalScaleFactor,
+  applyScaleToIngredients,
+  checkMealAgainstTarget,
+  checkDayBudget,
+  getMealMacroTargets,
+  buildMealCorrectionPrompt,
+  buildDayLevelCorrectionPrompt,
+  normaliseMealType,
+  CANONICAL_MEAL_TYPES,
+  MEAL_WEIGHT_DISTRIBUTIONS,
+  MAX_CLAUDE_ATTEMPTS_PER_DAY,
+  POST_SCALE_ACCEPT_PCT,
 } from '../services/macroValidation';
-import { logMealValidation, batchLogValidation, MealValidationEntry } from '../services/macroValidationLogger';
 
 const router = Router();
 
 // Use Haiku for speed (3-5x faster than Sonnet for structured JSON)
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
+
+// Module-level CN toggle — evaluated once at startup
+const CN_ENABLED = !!process.env.CALORIE_NINJAS_API_KEY;
 
 // Rate limit: 3 calls per user per day (in-memory, dev/legacy guard)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -136,6 +148,226 @@ MEAL TYPE VALUES — use ONLY these exact lowercase strings in the "type" field:
 Do NOT use "Breakfast", "Morning Snack", "Snack 1", or any other variant.
 
 Keep descriptions under 20 words. Be concise.`;
+
+// ── Per-meal CN validation — full deviation/scaling/attempt-budget flow ────────
+async function validateAndFinaliseMeal(params: {
+  meal:          any;
+  mealIndex:     number;
+  mealsPerDay:   number;
+  dailyTargets:  { calories: number; proteinG: number; carbsG: number; fatG: number; fibreG: number };
+  userProfile:   any;
+  anthropic:     Anthropic;
+  dayIdx:        number;
+  mealPlanId:    string;
+  userId:        string;
+  attemptsUsed:  { count: number };  // shared mutable counter for this day
+}): Promise<{ meal: any; outcome: string }> {
+  const {
+    meal, mealIndex, mealsPerDay, dailyTargets,
+    userProfile, anthropic, dayIdx, attemptsUsed,
+  } = params;
+
+  const mealTarget = getMealMacroTargets(
+    dailyTargets, mealsPerDay, meal.type, mealIndex,
+  );
+
+  let currentMeal  = { ...meal };
+  let finalOutcome = 'cn_unavailable';
+
+  // ── STEP 1: Initial CN call ───────────────────────────────────────────────
+  if (!CN_ENABLED) {
+    return { meal: currentMeal, outcome: 'cn_unavailable' };
+  }
+
+  const cnInitial = await getMealMacrosFromCalorieNinjas(
+    currentMeal.name,
+    currentMeal.ingredients || [currentMeal.description || currentMeal.name],
+  );
+  await new Promise(r => setTimeout(r, 50));
+
+  const deviation = computeDeviation(
+    currentMeal.calories,
+    cnInitial.macros.calories,
+    cnInitial.success,
+    cnInitial.itemsMatched ?? 0,
+  );
+
+  console.log(
+    `[CN] Day ${dayIdx + 1} Meal ${mealIndex + 1} "${currentMeal.name}"` +
+    ` | dev=${Math.round(deviation.deviationPct)}%` +
+    ` | action=${deviation.action}` +
+    ` | claude=${currentMeal.calories} CN=${cnInitial.macros.calories}`,
+  );
+
+  // ── STEP 2: Route by deviation action ────────────────────────────────────
+  if (deviation.action === 'cn_failure' || deviation.action === 'partial_match_failure') {
+    finalOutcome = deviation.action;
+    // Keep Claude estimate — no changes
+
+  } else if (deviation.action === 'accept_cn') {
+    // CN confirms Claude — use CN values
+    currentMeal = {
+      ...currentMeal,
+      calories: cnInitial.macros.calories,
+      protein:  cnInitial.macros.proteinG,
+      carbs:    cnInitial.macros.carbsG,
+      fat:      cnInitial.macros.fatG,
+      fibre:    cnInitial.macros.fibreG,
+    };
+    finalOutcome = 'accepted_cn';
+
+  } else if (deviation.action === 'scale') {
+    // ── Proportional scaling ──────────────────────────────────────────────
+    const scaleFactor = computeProportionalScaleFactor(
+      currentMeal.calories,
+      cnInitial.macros.calories,
+    );
+    const scaledIngredients = applyScaleToIngredients(
+      currentMeal.ingredients || [],
+      scaleFactor,
+    );
+
+    console.log(
+      `[CN] Scaling Day ${dayIdx + 1} Meal ${mealIndex + 1} by ${Math.round(scaleFactor * 100)}%`,
+    );
+
+    // CN re-check with scaled ingredients
+    const cnRecheck = await getMealMacrosFromCalorieNinjas(
+      currentMeal.name,
+      scaledIngredients.length > 0 ? scaledIngredients : [currentMeal.name],
+    );
+    await new Promise(r => setTimeout(r, 50));
+
+    const recheckDev = computeDeviation(
+      currentMeal.calories,
+      cnRecheck.macros.calories,
+      cnRecheck.success,
+      cnRecheck.itemsMatched ?? 0,
+    );
+
+    if (!cnRecheck.success || recheckDev.deviationPct > POST_SCALE_ACCEPT_PCT) {
+      // Scaling did not resolve — escalate to regeneration
+      console.log(
+        `[CN] Post-scale dev=${Math.round(recheckDev.deviationPct)}% — escalating to regeneration`,
+      );
+      deviation.action = 'regenerate';
+    } else {
+      // Scaling resolved — use scaled values
+      currentMeal = {
+        ...currentMeal,
+        ingredients: scaledIngredients,
+        calories:    cnRecheck.macros.calories,
+        protein:     cnRecheck.macros.proteinG,
+        carbs:       cnRecheck.macros.carbsG,
+        fat:         cnRecheck.macros.fatG,
+        fibre:       cnRecheck.macros.fibreG,
+      };
+      finalOutcome = 'accepted_after_scaling';
+    }
+  }
+
+  // ── Regeneration (from >35% deviation OR failed scaling) ─────────────────
+  if (deviation.action === 'regenerate') {
+    if (attemptsUsed.count >= MAX_CLAUDE_ATTEMPTS_PER_DAY) {
+      console.log(
+        `[CN] Attempts exhausted for day ${dayIdx + 1} — accepting Claude estimate`,
+      );
+      finalOutcome = 'attempts_exhausted';
+    } else {
+      attemptsUsed.count++;
+      console.log(
+        `[CN] Regenerating Day ${dayIdx + 1} Meal ${mealIndex + 1}` +
+        ` (attempt ${attemptsUsed.count}/${MAX_CLAUDE_ATTEMPTS_PER_DAY})`,
+      );
+
+      const correctionPrompt = buildMealCorrectionPrompt(
+        currentMeal,
+        mealTarget,
+        `CalorieNinjas found ${Math.round(deviation.deviationPct)}% deviation from Claude estimate` +
+        ` (Claude: ${currentMeal.calories} kcal, CN: ${Math.round(cnInitial.macros.calories)} kcal)`,
+        userProfile,
+      );
+
+      try {
+        const corrResp = await anthropic.messages.create({
+          model:      CLAUDE_MODEL,
+          max_tokens: 600,
+          messages:   [{ role: 'user', content: correctionPrompt }],
+        });
+
+        const corrText = corrResp.content[0].type === 'text'
+          ? corrResp.content[0].text : '';
+        const corrMeal = JSON.parse(corrText.replace(/```json|```/g, '').trim());
+
+        // Normalise type on the corrected meal
+        corrMeal.type = normaliseMealType(corrMeal.type, mealIndex, mealsPerDay);
+
+        // Re-run full CN validation on the corrected meal (recursive)
+        const recheckResult = await validateAndFinaliseMeal({
+          ...params,
+          meal:         corrMeal,
+          attemptsUsed, // shared counter carries over
+        });
+
+        currentMeal  = recheckResult.meal;
+        finalOutcome = recheckResult.outcome;
+
+      } catch (err: any) {
+        console.error(`[CN] Correction parse failed:`, err.message);
+        finalOutcome = 'correction_parse_failed';
+      }
+    }
+  }
+
+  // ── STEP 3: Secondary meal target check ──────────────────────────────────
+  // Even if CN accepted the meal, ensure it's within ±15% of the weighted
+  // meal budget. If not, ask Claude for a better-sized replacement.
+  const targetCheck = checkMealAgainstTarget(currentMeal.calories, mealTarget);
+
+  if (!targetCheck.withinTarget && attemptsUsed.count < MAX_CLAUDE_ATTEMPTS_PER_DAY) {
+    console.log(
+      `[CN] Secondary target check failed — meal ${currentMeal.calories} kcal` +
+      ` vs target ${mealTarget.calories} kcal (${targetCheck.deviationFromTarget}% off)`,
+    );
+
+    attemptsUsed.count++;
+
+    const targetPrompt = buildMealCorrectionPrompt(
+      currentMeal,
+      mealTarget,
+      `Meal macros (${currentMeal.calories} kcal) are ${targetCheck.deviationFromTarget}%` +
+      ` from the ${currentMeal.type} budget target of ${mealTarget.calories} kcal`,
+      userProfile,
+    );
+
+    try {
+      const targetResp = await anthropic.messages.create({
+        model:      CLAUDE_MODEL,
+        max_tokens: 600,
+        messages:   [{ role: 'user', content: targetPrompt }],
+      });
+
+      const targetText = targetResp.content[0].type === 'text'
+        ? targetResp.content[0].text : '';
+      const targetMeal = JSON.parse(targetText.replace(/```json|```/g, '').trim());
+      targetMeal.type  = normaliseMealType(targetMeal.type, mealIndex, mealsPerDay);
+
+      const finalResult = await validateAndFinaliseMeal({
+        ...params,
+        meal:         targetMeal,
+        attemptsUsed,
+      });
+
+      currentMeal  = finalResult.meal;
+      finalOutcome = finalResult.outcome;
+
+    } catch (err: any) {
+      console.warn(`[CN] Target correction parse failed:`, err.message);
+    }
+  }
+
+  return { meal: currentMeal, outcome: finalOutcome };
+}
 
 const GOAL_LABELS: Record<string, string> = {
   lose_weight:     'Lose fat (calorie deficit)',
@@ -542,24 +774,16 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     }
 
     // ── MACRO VERIFICATION PIPELINE ──────────────────────────────────────────
-    // Runs after Claude generation, before DB save.
-    // Uses CalorieNinjas to verify actual macro content per ingredient.
-    // Replaces Claude's estimates with CN-verified numbers.
-    // If a day is out of tolerance, asks Claude to replace one meal and re-verifies.
+    // New flow: per-meal deviation → scale or regenerate → secondary target check
+    // → day-level ±15% budget check → replace largest meal if needed.
+    // Attempt budget: 5 Claude regeneration calls per day (resets per day).
     // Completely skipped when CALORIE_NINJAS_API_KEY is not set.
-    const CN_ENABLED        = !!process.env.CALORIE_NINJAS_API_KEY;
-    const MAX_CORRECTIONS   = 3;   // max correction iterations per day
-    const DAYS_TO_VALIDATE  = planData.days.length; // 7 or 14
 
     // dailyTargets = same fresh values computed before the prompt was built.
-    // Using promptDailyTargets here ensures validation and generation use identical numbers.
     const dailyTargets = promptDailyTargets;
 
     let cnChecksTotal      = 0;
     let cnCorrectionsTotal = 0;
-
-    // Buffer for audit log entries — written after mealPlan.id is available
-    const pendingLogEntries: MealValidationEntry[] = [];
 
     // Start heartbeat now that we're entering the slow CN verification phase
     heartbeat = setInterval(() => {
@@ -570,392 +794,162 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
 
     try {
     if (CN_ENABLED) {
-      const isRegen = !!(await prisma.mealPlan.count({ where: { userId } }));
-      console.log(`[CN Pipeline] Starting — userId: ${userId}, isRegeneration: ${isRegen}, targetCalories: ${dailyTargets.calories}`);
+      sendEvent('progress', { step: 'Validating meal macros...' });
 
-      const mealsPerDay    = planData.days[0]?.meals?.length ?? 4;
-      const estimatedCalls = DAYS_TO_VALIDATE * mealsPerDay;
+      const mealsPerDay   = planData.days[0]?.meals?.length ?? profile.mealsPerDay ?? 4;
+      const daysToValidate = planData.days.length;
+
       console.log(
-        `[CalorieNinjas] Starting verification — estimated ${estimatedCalls} API calls` +
-        ` for ${DAYS_TO_VALIDATE}-day plan`
+        `[CN Pipeline] Starting — ${daysToValidate}-day plan,` +
+        ` mealsPerDay=${mealsPerDay}, targetCalories=${dailyTargets.calories}`,
       );
 
-      sendEvent('progress', { step: 'Verifying macro accuracy with nutrition database...' });
+      for (let dayIdx = 0; dayIdx < daysToValidate; dayIdx++) {
+        const day          = planData.days[dayIdx];
+        const attemptsUsed = { count: 0 }; // shared mutable counter for this day
 
-      // Process each day sequentially — free tier is 100 calls/day
-      for (let dayIdx = 0; dayIdx < DAYS_TO_VALIDATE; dayIdx++) {
-        const day         = planData.days[dayIdx];
-        let currentMeals  = [...day.meals];
-        let iteration     = 0;
-        let validated     = false;
+        // ── Step A: Normalise meal types on Claude output ────────────────────
+        day.meals = (day.meals as any[]).map((meal: any, i: number) => ({
+          ...meal,
+          type: normaliseMealType(meal.type, i, mealsPerDay),
+        }));
 
-        // Track the final outcome for the whole day (applied to all meals in log)
-        let dayFinalOutcome: MealValidationEntry['finalOutcome'] = 'passed_first_check';
+        // ── Step B: Validate each meal ───────────────────────────────────────
+        const finalisedMeals: any[] = [];
 
-        // Track per-iteration snapshot of the meals at the START of each iteration
-        // (before they are possibly replaced by a correction), for accurate logging.
-        let iterationStartMeals = [...currentMeals];
-
-        // Track correction details for the meal that was actually replaced
-        let lastCorrectionDetail: {
-          triggered:      boolean;
-          targetMealType: string;
-          reason:         string;
-          gapKcal:        number;
-          replaceIdx:     number;
-          correctedMeal?: {
-            name: string; calories: number; protein: number;
-            carbs: number; fat: number; fibre: number;
-          };
-        } | null = null;
-
-        // Store the final verifiedMacros and detailedResults after the loop exits
-        let finalVerifiedMacros: import('../services/calorieNinjasService').CNMacros[] = [];
-        let finalDetailedResults: import('../services/calorieNinjasService').CNDetailedResult[] = [];
-
-        // Store validation result from each iteration to compute day totals
-        let lastValidation: import('../services/macroValidation').ValidationResult | null = null;
-
-        while (!validated && iteration < MAX_CORRECTIONS) {
-          iterationStartMeals = [...currentMeals];
-
-          // Verify CN macros for all meals in this day
-          const { verifiedMacros, detailedResults } = await verifyDayMacros(currentMeals);
-          cnChecksTotal += currentMeals.length; // one CN call per meal
-
-          // ── Per-meal target logging ─────────────────────────────────────────
-          for (let mealIdx = 0; mealIdx < currentMeals.length; mealIdx++) {
-            const meal        = currentMeals[mealIdx];
-            const mealTargets = getMealMacroTargets(dailyTargets, mealsPerDay, meal.type, mealIdx);
-            const cnCal       = detailedResults[mealIdx].success
-              ? detailedResults[mealIdx].macros.calories : null;
-            console.log(
-              `[MealTarget] Day ${dayIdx + 1} Meal ${mealIdx + 1}` +
-              ` type="${meal.type}" → norm="${mealTargets.normalisedType}"` +
-              ` weight=${(mealTargets.weight * 100).toFixed(0)}%` +
-              ` target=${mealTargets.calories}kcal` +
-              ` CN=${cnCal !== null ? Math.round(cnCal) : 'N/A'}kcal` +
-              ` Claude=${meal.calories ?? 'N/A'}kcal`
-            );
-          }
-
-          // ── Per-meal CN-vs-Claude arbitration ──────────────────────────────
-          // If CN is within 25% of Claude's own estimate → Claude was right.
-          //   Use Claude's numbers (which respect the weighted calorie distribution).
-          // If CN differs >25% → Claude significantly miscalculated.
-          //   Use CN's more accurate numbers instead.
-          // This prevents spurious corrections when Claude correctly plans a
-          // 280 kcal snack but CN returns 260 kcal (7% diff → keep Claude's 280).
-          const finalizedMeals = currentMeals.map((meal, i) => {
-            const cn = verifiedMacros[i];
-            if (!detailedResults[i].success) return meal; // CN failed → keep Claude's estimate
-            const { accurate } = evaluateMealAccuracy(cn.calories, meal.calories ?? 0);
-            if (accurate) {
-              // CN confirms Claude — keep Claude's macro estimates (correctly weighted)
-              return meal;
-            }
-            // Claude was significantly off — use CN's verified numbers
-            return {
-              ...meal,
-              calories: cn.calories,
-              protein:  cn.proteinG,
-              carbs:    cn.carbsG,
-              fat:      cn.fatG,
-              fibre:    cn.fibreG,
-            };
+        for (let mealIdx = 0; mealIdx < (day.meals as any[]).length; mealIdx++) {
+          const result = await validateAndFinaliseMeal({
+            meal:         day.meals[mealIdx],
+            mealIndex:    mealIdx,
+            mealsPerDay,
+            dailyTargets,
+            userProfile:  profile,
+            anthropic:    client,
+            dayIdx,
+            mealPlanId:   '',   // not yet saved
+            userId,
+            attemptsUsed,
           });
 
-          // Day-level budget check on arbitrated meal macros
-          const validation = validateDayBudget(finalizedMeals, dailyTargets);
-          lastValidation   = validation;
+          finalisedMeals.push(result.meal);
+          cnChecksTotal++;
 
-          finalVerifiedMacros  = verifiedMacros;
-          finalDetailedResults = detailedResults;
+          console.log(
+            `[MealTarget] Day ${dayIdx + 1} Meal ${mealIdx + 1}` +
+            ` type="${result.meal.type}"` +
+            ` outcome=${result.outcome}` +
+            ` final=${result.meal.calories}kcal`,
+          );
+        }
 
-          if (validation.isValid) {
-            // Accept arbitrated meals (Claude's or CN's — whichever was more accurate)
-            currentMeals = finalizedMeals;
-            validated = true;
-            dayFinalOutcome = iteration === 0 ? 'passed_first_check' : 'passed_after_correction';
-            console.log(`[Validation] Day ${dayIdx + 1} passed on iteration ${iteration}`);
+        cnCorrectionsTotal += attemptsUsed.count;
+        day.meals = finalisedMeals;
 
-            // Build log entries for this iteration
-            const dayTotalCnCal = verifiedMacros.reduce((s, m) => s + m.calories, 0);
-            const dayTotalCnPro = verifiedMacros.reduce((s, m) => s + m.proteinG, 0);
-            const dayTotalCnCarb = verifiedMacros.reduce((s, m) => s + m.carbsG, 0);
-            const dayTotalCnFat  = verifiedMacros.reduce((s, m) => s + m.fatG, 0);
+        // ── Step C: Day-level budget check ───────────────────────────────────
+        const dayBudget = checkDayBudget(day.meals, dailyTargets);
 
-            for (let mealIdx = 0; mealIdx < iterationStartMeals.length; mealIdx++) {
-              const origMeal = iterationStartMeals[mealIdx];
-              const dr       = detailedResults[mealIdx];
-              const vm       = verifiedMacros[mealIdx];
-              const fm       = finalizedMeals[mealIdx]; // arbitrated (Claude or CN)
+        console.log(
+          `[DayBudget] Day ${dayIdx + 1}:` +
+          ` total=${dayBudget.dayTotalCalories} kcal` +
+          ` target=${dayBudget.targetCalories} kcal` +
+          ` dev=${dayBudget.deviationPct}%` +
+          ` valid=${dayBudget.isValid}`,
+        );
 
-              pendingLogEntries.push({
-                userId,
-                mealPlanId:   '__pending__',
-                planDuration,
-                dayIndex:     dayIdx,
-                mealIndex:    mealIdx,
-                iteration,
-                mealsPerDay,
-                mealType:     origMeal.type ?? 'unknown',
+        if (!dayBudget.isValid) {
+          sendEvent('progress', { step: `Adjusting Day ${dayIdx + 1} calorie budget...` });
 
-                claudeMeal: {
-                  name:        origMeal.name,
-                  calories:    origMeal.calories ?? 0,
-                  protein:     origMeal.protein  ?? 0,
-                  carbs:       origMeal.carbs    ?? 0,
-                  fat:         origMeal.fat      ?? 0,
-                  fibre:       origMeal.fibre    ?? 0,
-                  ingredients: Array.isArray(origMeal.ingredients) ? origMeal.ingredients : [],
-                },
+          const largestMeal       = day.meals[dayBudget.largestMealIndex];
+          const largestMealTarget = getMealMacroTargets(
+            dailyTargets, mealsPerDay,
+            largestMeal.type, dayBudget.largestMealIndex,
+          );
 
-                cn: {
-                  queryString:  dr.queryString,
-                  success:      dr.success,
-                  statusCode:   dr.statusCode,
-                  calories:     dr.success ? dr.macros.calories : undefined,
-                  protein:      dr.success ? dr.macros.proteinG : undefined,
-                  carbs:        dr.success ? dr.macros.carbsG   : undefined,
-                  fat:          dr.success ? dr.macros.fatG     : undefined,
-                  fibre:        dr.success ? dr.macros.fibreG   : undefined,
-                  itemsMatched: dr.itemsMatched,
-                },
-
-                targets: {
-                  dailyCalories: dailyTargets.calories,
-                  dailyProtein:  dailyTargets.proteinG,
-                  dailyCarbs:    dailyTargets.carbsG,
-                  dailyFat:      dailyTargets.fatG,
-                },
-
-                withinTolerance: validation.isValid,
-
-                dayTotals: {
-                  calories:         dayTotalCnCal,
-                  protein:          dayTotalCnPro,
-                  carbs:            dayTotalCnCarb,
-                  fat:              dayTotalCnFat,
-                  validationPassed: true,
-                },
-
-                finalOutcome: dayFinalOutcome,
-                // finalMacros = arbitrated values (Claude's if CN confirmed, else CN's)
-                finalMacros: {
-                  calories: fm?.calories ?? vm.calories,
-                  protein:  fm?.protein  ?? vm.proteinG,
-                  carbs:    fm?.carbs    ?? vm.carbsG,
-                  fat:      fm?.fat      ?? vm.fatG,
-                  fibre:    fm?.fibre    ?? vm.fibreG,
-                },
-              });
-            }
-
-          } else {
-            iteration++;
-            console.log(
-              `[Validation] Day ${dayIdx + 1} iteration ${iteration} — gaps:`,
-              validation.gaps.map(g => `${g.macro} ${g.pct}%`).join(', ')
+          if (attemptsUsed.count < MAX_CLAUDE_ATTEMPTS_PER_DAY) {
+            const dayPrompt = buildDayLevelCorrectionPrompt(
+              largestMeal,
+              largestMealTarget,
+              dayBudget.dayTotalCalories,
+              dayBudget.targetCalories,
+              profile,
             );
 
-            if (iteration < MAX_CORRECTIONS) {
-              sendEvent('progress', { step: `Adjusting Day ${dayIdx + 1} to hit your targets...` });
+            try {
+              attemptsUsed.count++;
 
-              // Use arbitrated meals for the correction prompt so Claude sees
-              // accurate calorie numbers (not raw CN or stale Claude estimates)
-              const correctionPrompt = buildCorrectionPrompt(
-                validation.gaps,
-                finalizedMeals,
-                profile,
+              const dayResp = await client.messages.create({
+                model:      CLAUDE_MODEL,
+                max_tokens: 600,
+                messages:   [{ role: 'user', content: dayPrompt }],
+              });
+
+              const dayText = dayResp.content[0]?.type === 'text'
+                ? dayResp.content[0].text : '';
+              const dayMeal = JSON.parse(dayText.replace(/```json|```/g, '').trim());
+              dayMeal.type  = normaliseMealType(
+                dayMeal.type, dayBudget.largestMealIndex, mealsPerDay,
               );
 
-              // Determine which meal will be replaced (same logic as buildCorrectionPrompt)
-              const calGap = Math.abs(validation.gaps.find(g => g.macro === 'calories')?.delta ?? 0);
-              const replaceIdx = (() => {
-                if (calGap > 250) {
-                  const li = finalizedMeals.findIndex((m: any) => m.type === 'lunch');
-                  if (li !== -1) return li;
-                  const di = finalizedMeals.findIndex((m: any) => m.type === 'dinner');
-                  if (di !== -1) return di;
-                  return 1;
-                }
-                const si = finalizedMeals.findIndex((m: any) => m.type === 'snack');
-                if (si !== -1) return si;
-                const li = finalizedMeals.findIndex((m: any) => m.type === 'lunch');
-                if (li !== -1) return li;
-                return 1;
-              })();
+              // Run full base validation on the day-level replacement
+              const dayResult = await validateAndFinaliseMeal({
+                meal:         dayMeal,
+                mealIndex:    dayBudget.largestMealIndex,
+                mealsPerDay,
+                dailyTargets,
+                userProfile:  profile,
+                anthropic:    client,
+                dayIdx,
+                mealPlanId:   '',
+                userId,
+                attemptsUsed,
+              });
 
-              try {
-                const corrResp = await client.messages.create({
-                  model:      CLAUDE_MODEL,
-                  max_tokens: 600,
-                  messages:   [{ role: 'user', content: correctionPrompt }],
-                });
+              day.meals[dayBudget.largestMealIndex] = dayResult.meal;
 
-                const corrText = corrResp.content[0]?.type === 'text'
-                  ? corrResp.content[0].text : '';
+              // Final re-check
+              const finalBudget = checkDayBudget(day.meals, dailyTargets);
+              console.log(
+                `[DayBudget] Day ${dayIdx + 1} after replacement:` +
+                ` total=${finalBudget.dayTotalCalories} valid=${finalBudget.isValid}`,
+              );
 
-                const corrMeal = JSON.parse(
-                  corrText.replace(/```json|```/g, '').trim()
+              if (!finalBudget.isValid) {
+                console.log(
+                  `[DayBudget] Day ${dayIdx + 1} still unresolved — accepting best result`,
                 );
-
-                lastCorrectionDetail = {
-                  triggered:      true,
-                  targetMealType: currentMeals[replaceIdx]?.type ?? 'unknown',
-                  reason:         validation.gaps.map(g => `${g.macro} ${g.pct}%`).join(', '),
-                  gapKcal:        calGap,
-                  replaceIdx,
-                  correctedMeal: {
-                    name:     corrMeal.name     ?? '',
-                    calories: corrMeal.calories ?? 0,
-                    protein:  corrMeal.protein  ?? 0,
-                    carbs:    corrMeal.carbs    ?? 0,
-                    fat:      corrMeal.fat      ?? 0,
-                    fibre:    corrMeal.fibre    ?? 0,
-                  },
-                };
-
-                // Apply correction on top of arbitrated meals
-                currentMeals = finalizedMeals.map((m: any, i: number) =>
-                  i === replaceIdx ? { ...corrMeal, mealIndex: m.mealIndex } : m
-                );
-                cnCorrectionsTotal += 1; // successful correction call
-
-              } catch (parseErr) {
-                console.warn(
-                  `[Validation] Correction parse failed day ${dayIdx + 1}:`, parseErr
-                );
-                // Accept arbitrated meals and move on
-                currentMeals    = finalizedMeals;
-                validated       = true;
-                dayFinalOutcome = 'max_iterations_reached';
               }
 
-            } else {
-              // Max iterations reached — accept arbitrated meals as-is
-              currentMeals    = finalizedMeals;
-              validated       = true;
-              dayFinalOutcome = 'max_iterations_reached';
-              console.log(`[Validation] Day ${dayIdx + 1} accepted after max iterations`);
+            } catch (err: any) {
+              console.error(`[DayBudget] Day ${dayIdx + 1} replacement failed:`, err.message);
             }
-
-            // Build log entries for this failed/correcting iteration
-            // (only when we did NOT just set validated=true above from parse failure)
-            if (!validated || dayFinalOutcome === 'max_iterations_reached') {
-              const dayTotalCnCal  = verifiedMacros.reduce((s, m) => s + m.calories, 0);
-              const dayTotalCnPro  = verifiedMacros.reduce((s, m) => s + m.proteinG, 0);
-              const dayTotalCnCarb = verifiedMacros.reduce((s, m) => s + m.carbsG, 0);
-              const dayTotalCnFat  = verifiedMacros.reduce((s, m) => s + m.fatG, 0);
-
-              for (let mealIdx = 0; mealIdx < iterationStartMeals.length; mealIdx++) {
-                const origMeal = iterationStartMeals[mealIdx];
-                const dr       = detailedResults[mealIdx];
-                const vm       = verifiedMacros[mealIdx];
-                const fm       = finalizedMeals[mealIdx]; // arbitrated for this iteration
-
-                // Correction detail only applies to the replaced meal
-                const isReplacedMeal = lastCorrectionDetail !== null
-                  && lastCorrectionDetail.replaceIdx === mealIdx
-                  && validated; // only log correction when we have final outcome
-
-                const correctionEntry = isReplacedMeal && lastCorrectionDetail ? {
-                  triggered:      true,
-                  targetMealType: lastCorrectionDetail.targetMealType,
-                  reason:         lastCorrectionDetail.reason,
-                  gapKcal:        lastCorrectionDetail.gapKcal,
-                  correctedMeal:  lastCorrectionDetail.correctedMeal,
-                } : undefined;
-
-                pendingLogEntries.push({
-                  userId,
-                  mealPlanId:   '__pending__',
-                  planDuration,
-                  dayIndex:     dayIdx,
-                  mealIndex:    mealIdx,
-                  iteration:    iteration - 1, // iteration was incremented before this block
-                  mealsPerDay,
-                  mealType:     origMeal.type ?? 'unknown',
-
-                  claudeMeal: {
-                    name:        origMeal.name,
-                    calories:    origMeal.calories ?? 0,
-                    protein:     origMeal.protein  ?? 0,
-                    carbs:       origMeal.carbs    ?? 0,
-                    fat:         origMeal.fat      ?? 0,
-                    fibre:       origMeal.fibre    ?? 0,
-                    ingredients: Array.isArray(origMeal.ingredients) ? origMeal.ingredients : [],
-                  },
-
-                  cn: {
-                    queryString:  dr.queryString,
-                    success:      dr.success,
-                    statusCode:   dr.statusCode,
-                    calories:     dr.success ? dr.macros.calories : undefined,
-                    protein:      dr.success ? dr.macros.proteinG : undefined,
-                    carbs:        dr.success ? dr.macros.carbsG   : undefined,
-                    fat:          dr.success ? dr.macros.fatG     : undefined,
-                    fibre:        dr.success ? dr.macros.fibreG   : undefined,
-                    itemsMatched: dr.itemsMatched,
-                  },
-
-                  targets: {
-                    dailyCalories: dailyTargets.calories,
-                    dailyProtein:  dailyTargets.proteinG,
-                    dailyCarbs:    dailyTargets.carbsG,
-                    dailyFat:      dailyTargets.fatG,
-                  },
-
-                  withinTolerance: false,
-
-                  dayTotals: {
-                    calories:         dayTotalCnCal,
-                    protein:          dayTotalCnPro,
-                    carbs:            dayTotalCnCarb,
-                    fat:              dayTotalCnFat,
-                    validationPassed: false,
-                  },
-
-                  correction: correctionEntry,
-
-                  finalOutcome: dayFinalOutcome,
-                  // finalMacros = arbitrated values for this iteration
-                  // (corrected meal if replaced, else arbitrated Claude/CN value)
-                  finalMacros: {
-                    calories: currentMeals[mealIdx]?.calories ?? fm?.calories ?? vm.calories,
-                    protein:  currentMeals[mealIdx]?.protein  ?? fm?.protein  ?? vm.proteinG,
-                    carbs:    currentMeals[mealIdx]?.carbs    ?? fm?.carbs    ?? vm.carbsG,
-                    fat:      currentMeals[mealIdx]?.fat      ?? fm?.fat      ?? vm.fatG,
-                    fibre:    currentMeals[mealIdx]?.fibre    ?? fm?.fibre    ?? vm.fibreG,
-                  },
-                });
-              }
-            }
+          } else {
+            console.log(
+              `[DayBudget] Day ${dayIdx + 1} — no attempts left for day-level correction`,
+            );
           }
         }
 
-        // Write corrected meals back to planData and recalculate day totals
-        planData.days[dayIdx].meals        = currentMeals;
-        planData.days[dayIdx].totalCalories = currentMeals.reduce((s: number, m: any) => s + (m.calories || 0), 0);
-        planData.days[dayIdx].totalProtein  = currentMeals.reduce((s: number, m: any) => s + (m.protein  || 0), 0);
-        planData.days[dayIdx].totalCarbs    = currentMeals.reduce((s: number, m: any) => s + (m.carbs    || 0), 0);
-        planData.days[dayIdx].totalFat      = currentMeals.reduce((s: number, m: any) => s + (m.fat      || 0), 0);
-        planData.days[dayIdx].totalFibre    = currentMeals.reduce((s: number, m: any) => s + (m.fibre    || 0), 0);
+        // Recalculate day totals from finalised meals
+        planData.days[dayIdx].meals         = day.meals;
+        planData.days[dayIdx].totalCalories = day.meals.reduce((s: number, m: any) => s + (m.calories || 0), 0);
+        planData.days[dayIdx].totalProtein  = day.meals.reduce((s: number, m: any) => s + (m.protein  || 0), 0);
+        planData.days[dayIdx].totalCarbs    = day.meals.reduce((s: number, m: any) => s + (m.carbs    || 0), 0);
+        planData.days[dayIdx].totalFat      = day.meals.reduce((s: number, m: any) => s + (m.fat      || 0), 0);
+        planData.days[dayIdx].totalFibre    = day.meals.reduce((s: number, m: any) => s + (m.fibre    || 0), 0);
       }
 
-      sendEvent('progress', { step: 'Macro verification complete...' });
+      sendEvent('progress', { step: 'Macro validation complete...' });
       console.log(
-        `[CN Summary] ${planDuration}-day plan: ${cnChecksTotal} CN checks,` +
-        ` ${cnCorrectionsTotal} corrections`
+        `[CN Summary] ${planDuration}-day plan: ${cnChecksTotal} meal checks,` +
+        ` ${cnCorrectionsTotal} Claude regeneration attempts`,
       );
 
     } else {
-      // CalorieNinjas not configured — skip silently, use Claude estimates as before
+      // CalorieNinjas not configured — skip silently, use Claude estimates
       console.log('[Validation] CalorieNinjas not configured — skipping macro verification');
     }
     } catch (cnErr: any) {
-      // CalorieNinjas failure must NEVER kill the generation — fall back to Claude's original estimates
+      // CN failure must NEVER kill the generation — fall back to Claude's original estimates
       console.error('[CalorieNinjas] Verification pipeline failed — skipping, using Claude estimates:', cnErr.message);
     } finally {
       clearHeartbeat();
@@ -988,25 +982,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         mealPrepGuide: planData.mealPrepGuide ?? null
       }
     });
-
-    // Write all validation log entries in parallel BEFORE sending the response.
-    // setImmediate-after-res.end was killed by Vercel within ~3s — not enough for 28 writes.
-    // Promise.allSettled runs all writes concurrently (~1-2s on Neon vs 1.5s sequential).
-    // Hard 8s ceiling via Promise.race so logging can never stall the response beyond that.
-    // logMealValidation() already swallows its own errors — allSettled adds belt+suspenders.
-    if (pendingLogEntries.length > 0) {
-      const entriesToLog = pendingLogEntries.map(e => ({ ...e, mealPlanId: mealPlan.id }));
-      const logTimeout = new Promise<void>(resolve => setTimeout(resolve, 8000));
-      await Promise.race([
-        Promise.allSettled(entriesToLog.map(e => logMealValidation(e))).then(results => {
-          const ok = results.filter(r => r.status === 'fulfilled').length;
-          console.log(`[ValidationLog] Wrote ${ok}/${results.length} validation log entries`);
-        }),
-        logTimeout.then(() => {
-          console.warn('[ValidationLog] 8s ceiling hit — some entries may be missing');
-        }),
-      ]);
-    }
 
     // Create all days in parallel
     await Promise.all(planData.days.map((dayData: any) =>
