@@ -486,3 +486,63 @@ going below 50g.
 | `server/src/prisma/migrations/20260513000000_extend_validation_log_v2/migration.sql` | `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for all 4 new columns. |
 | `server/src/services/macroValidationLogger.ts` | Added 4 new fields to `MealValidationEntry` interface and `logMealValidation` DB write. Added `scalingSanityFailures` and `fastTrackFailures` to `getValidationSummaryForPlan`. |
 | `server/src/routes/ai.ts` | Completely rewrote `validateAndFinaliseMeal` as flat while loop (no recursion). Added `cnFailureCount` fast-track. Added `DayBudgetAnnotation` type. Replaced secondary target check regeneration with budget scaling. Updated day loop with: `cnFailureCount`, meal count guard (Fix 8), day total annotation (Fix 7). Updated `pendingLogEntries` type with `dayBudgetResult?`. Updated write block with all new log fields. |
+
+---
+
+## 14. Plan-level CN slot failure tracker (2026-05-13)
+
+### What it does
+
+`cnSlotFailures: Record<number, number>` declared **before** the day loop (plan generation scope). Persists across all 7 or 14 days. Key: `mealIndex` (0-based). Value: count of confirmed CN failures at that meal slot.
+
+**Threshold:** `CN_FAST_TRACK_THRESHOLD = 2` — once a slot accumulates 2 confirmed failures across any days of the plan, all subsequent meals at that slot return `cn_plan_fast_track` immediately, with no CN API call and no attempt budget consumed.
+
+**Failure outcomes that increment the counter:**
+- `cn_failure`, `partial_match_failure`, `scaling_sanity_failed`
+- `attempts_exhausted`, `correction_parse_failed`, `cn_fast_track_failure`
+
+**Expected execution for a 7-day plan with fish dinner (mealIndex = 3 or 4):**
+```
+Day 1 Dinner: fish → attempts_exhausted → cnSlotFailures[3] = 1
+Day 2 Dinner: fish → attempts_exhausted → cnSlotFailures[3] = 2
+Day 3 Dinner: fish → planSlotFailCount = 2 → PLAN FAST-TRACK → cn_plan_fast_track (no CN call, 0 attempts)
+Day 4–7:      fish → plan fast-track every time
+```
+Claude regeneration calls saved: ~15 calls (Days 3–7 × ~3 attempts each). Cost saving: ~$0.10–$0.12 per 7-day plan with consistently unvalidatable dinners.
+
+### Architecture decision: slot-based vs category-based
+
+Used `mealIndex` as key (not food category string) because:
+1. Slot position is a reliable proxy — dinner is always at the last index regardless of dish name
+2. Avoids brittle keyword matching (`detectFoodCategory`) that fails on transliterated names
+3. Simpler: no keyword lists to maintain
+4. Per-day `cnFailureCount` already handles within-day fast-tracking; plan-level tracker handles cross-day patterns
+
+### How it differs from the per-day `cnFailureCount`
+
+| Tracker | Scope | Key | Resets | Outcomes tracked |
+|---------|-------|-----|--------|-----------------|
+| `cnFailureCount` | Per-day | mealIndex | Each day | `cn_failure`, `partial_match_failure` |
+| `cnSlotFailures` | Per-plan | mealIndex | Never (plan scope) | All 6 failure outcomes |
+
+### New log field
+
+`cnSlotFailCountAtSkip Int?` — the failure count at the time the plan-level fast-track was triggered. Only populated for `cn_plan_fast_track` outcome rows.
+
+### Vercel log output (after day loop)
+
+```
+[CN] Plan-level slot failure summary:
+  Slot 3: 2 failures — fast-tracked from failure 3 onwards
+  Slot 1: 1 failure(s) — 1 more failure(s) before fast-track triggers
+```
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | Added `export const CN_FAST_TRACK_THRESHOLD = 2`. |
+| `server/src/routes/ai.ts` | Added `cnSlotFailures` import and plan-scope declaration. Added `cnSlotFailures` param to `validateAndFinaliseMeal`. Added plan-level fast-track check (early return before while loop). Added slot failure counter increment after while loop. Passed `cnSlotFailures` into both call sites. Added plan-level summary log. Added `cnSlotFailCountAtSkip` to write block. |
+| `server/src/services/macroValidationLogger.ts` | Added `cnSlotFailCountAtSkip?: number` to `MealValidationEntry` interface and `logMealValidation` DB write. Added `planLevelFastTracks` to `getValidationSummaryForPlan`. |
+| `server/src/prisma/schema.prisma` | Added `cnSlotFailCountAtSkip Int?` to `MacroValidationLog`. |
+| `server/src/prisma/migrations/20260513100000_add_cn_slot_fast_track/migration.sql` | `ALTER TABLE ... ADD COLUMN IF NOT EXISTS "cnSlotFailCountAtSkip" INTEGER`. |

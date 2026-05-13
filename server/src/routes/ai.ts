@@ -19,6 +19,7 @@ import {
   MAX_CLAUDE_ATTEMPTS_PER_DAY,
   POST_SCALE_ACCEPT_PCT,
   SCALING_SANITY_MAX_MULTIPLIER,
+  CN_FAST_TRACK_THRESHOLD,
 } from '../services/macroValidation';
 import { logMealValidation, MealValidationEntry } from '../services/macroValidationLogger';
 
@@ -190,6 +191,8 @@ interface MealLogData {
   finalFibre:      number;
   finalOutcome:    string;
   withinTolerance: boolean;
+  // Plan-level slot fast-track — only set when finalOutcome = 'cn_plan_fast_track'
+  cnSlotFailCountAtSkip?: number;
 }
 
 // ── Day-level budget data annotated onto pending entries after day loop ───────
@@ -215,11 +218,12 @@ async function validateAndFinaliseMeal(params: {
   anthropic:      Anthropic;
   dayIdx:         number;
   attemptsUsed:   { count: number };            // shared mutable counter for this day
-  cnFailureCount: Record<number, number>;        // shared per-meal-index failure tracker
+  cnFailureCount: Record<number, number>;        // shared per-meal-index failure tracker (per-day)
+  cnSlotFailures: Record<number, number>;        // plan-level slot failure tracker (persists across days)
 }): Promise<{ meal: any; outcome: string; logData: MealLogData }> {
   const {
     originalMeal, mealIndex, mealsPerDay, dailyTargets,
-    userProfile, anthropic, dayIdx, attemptsUsed, cnFailureCount,
+    userProfile, anthropic, dayIdx, attemptsUsed, cnFailureCount, cnSlotFailures,
   } = params;
 
   const mealTarget             = getMealMacroTargets(dailyTargets, mealsPerDay, originalMeal.type, mealIndex);
@@ -263,11 +267,47 @@ async function validateAndFinaliseMeal(params: {
     };
   }
 
+  // ── Plan-level slot fast-track check ─────────────────────────────────────
+  // Fires BEFORE the while loop so no CN call or attempt budget is consumed.
+  // Triggers when this meal slot has accumulated CN_FAST_TRACK_THRESHOLD confirmed
+  // failures across ALL previous days of this plan (e.g. fish dinner, Day 3+).
+  const planSlotFailCount = cnSlotFailures[mealIndex] ?? 0;
+  if (planSlotFailCount >= CN_FAST_TRACK_THRESHOLD) {
+    console.log(
+      `[CN] Plan-level fast-track Day${dayIdx+1} Meal${mealIndex+1}` +
+      ` — slot ${mealIndex} has ${planSlotFailCount} confirmed failures this plan.` +
+      ` Accepting Claude estimate without CN call.`,
+    );
+    const ptc = checkMealAgainstTarget(originalMeal.calories, mealTarget);
+    return {
+      meal:    { ...originalMeal },
+      outcome: 'cn_plan_fast_track',
+      logData: {
+        cnQueryString: '', cnSuccess: false, cnItemsMatched: 0, cnIngredientsSentCount,
+        initialDeviationAction: 'cn_plan_fast_track',
+        deviationPct: 0, deviationAction: 'cn_plan_fast_track', partialMatchGuard: false,
+        scalingApplied: false,
+        mealTargetCalories:     mealTarget.calories,
+        mealTargetCheckPassed:  ptc.withinTarget,
+        mealTargetDeviationPct: ptc.deviationFromTarget,
+        attemptsUsedAtThisMeal: attemptsAtStart,
+        finalCalories:  originalMeal.calories,
+        finalProtein:   originalMeal.protein  ?? 0,
+        finalCarbs:     originalMeal.carbs    ?? 0,
+        finalFat:       originalMeal.fat      ?? 0,
+        finalFibre:     originalMeal.fibre    ?? 0,
+        finalOutcome:   'cn_plan_fast_track',
+        withinTolerance: false,
+        cnSlotFailCountAtSkip: planSlotFailCount,
+      },
+    };
+  }
+
   // ── Flat while loop: CN check → route → optionally regenerate and loop ───
   let resolved = false;
   while (!resolved) {
 
-    // ── 0. CN fast-track — skip meals whose slot consistently fails CN ─────
+    // ── 0. Per-day CN fast-track — skip slots that failed twice within this day ─
     if ((cnFailureCount[mealIndex] ?? 0) >= 2) {
       console.log(
         `[CN] Fast-track Day${dayIdx+1} Meal${mealIndex+1}:` +
@@ -449,6 +489,21 @@ async function validateAndFinaliseMeal(params: {
       resolved     = true;
     }
   } // end while loop
+
+  // ── Increment plan-level slot failure counter for confirmed CN failures ───
+  // These outcomes mean CN cannot validate this food type; future meals at the
+  // same slot will fast-track after CN_FAST_TRACK_THRESHOLD failures.
+  const PLAN_SLOT_FAILURE_OUTCOMES = [
+    'cn_failure', 'partial_match_failure', 'scaling_sanity_failed',
+    'attempts_exhausted', 'correction_parse_failed', 'cn_fast_track_failure',
+  ];
+  if (PLAN_SLOT_FAILURE_OUTCOMES.includes(finalOutcome)) {
+    cnSlotFailures[mealIndex] = (cnSlotFailures[mealIndex] ?? 0) + 1;
+    console.log(
+      `[CN] Plan-level slot ${mealIndex} failure count → ${cnSlotFailures[mealIndex]}` +
+      ` (fast-track triggers at ${CN_FAST_TRACK_THRESHOLD})`,
+    );
+  }
 
   // ── 4. Secondary meal target check — proportional budget scaling only ────
   // Pure maths: no Claude call, no CN re-check, just adjust portion toward
@@ -981,6 +1036,12 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       // Initialise the pending log buffer for this plan
       pendingLogEntries = [];
 
+      // Plan-level slot failure tracker — persists across all days.
+      // Key: mealIndex (0-based).  Value: count of confirmed CN failures at that slot.
+      // Once a slot reaches CN_FAST_TRACK_THRESHOLD failures, all subsequent meals
+      // at that slot skip CN entirely and accept Claude's estimate directly.
+      const cnSlotFailures: Record<number, number> = {};
+
       for (let dayIdx = 0; dayIdx < daysToValidate; dayIdx++) {
         const day            = planData.days[dayIdx];
         const attemptsUsed   = { count: 0 };             // shared mutable counter for this day
@@ -1007,6 +1068,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
             dayIdx,
             attemptsUsed,
             cnFailureCount,
+            cnSlotFailures,
           });
 
           finalisedMeals.push(result.meal);
@@ -1095,6 +1157,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 dayIdx,
                 attemptsUsed,
                 cnFailureCount,
+                cnSlotFailures,
               });
 
               day.meals[dayBudget.largestMealIndex] = dayResult.meal;
@@ -1154,6 +1217,20 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
             e.dayBudgetResult = dayAnnotation;
           }
         }
+      }
+
+      // ── Plan-level slot failure summary ──────────────────────────────────
+      const failedSlots = Object.entries(cnSlotFailures);
+      if (failedSlots.length > 0) {
+        console.log('[CN] Plan-level slot failure summary:');
+        failedSlots.forEach(([slot, count]) => {
+          const status = count >= CN_FAST_TRACK_THRESHOLD
+            ? `fast-tracked from failure ${CN_FAST_TRACK_THRESHOLD + 1} onwards`
+            : `${CN_FAST_TRACK_THRESHOLD - count} more failure(s) before fast-track triggers`;
+          console.log(`  Slot ${slot}: ${count} failure(s) — ${status}`);
+        });
+      } else {
+        console.log('[CN] No slot failures recorded — CN validated all meal slots successfully');
       }
 
       sendEvent('progress', { step: 'Macro validation complete...' });
@@ -1290,6 +1367,8 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
               cnIngredientsSentCount:  logData.cnIngredientsSentCount,
               scalingSanityFailed:     logData.scalingSanityFailed,
               dayMealCount:            planData.days[0]?.meals?.length ?? 4,
+              // Plan-level fast-track
+              cnSlotFailCountAtSkip:   logData.cnSlotFailCountAtSkip,
             };
             return logMealValidation(entry);
           })

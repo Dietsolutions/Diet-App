@@ -112,6 +112,9 @@ export interface MealValidationEntry {
   cnIngredientsSentCount?:  number;   // # ingredients in the original CN query
   scalingSanityFailed?:     boolean;  // true = post-scale CN > 3× original Claude estimate
   dayMealCount?:            number;   // total meals in this day
+
+  // ── New: plan-level slot fast-track ────────────────────────────────────
+  cnSlotFailCountAtSkip?:   number;   // slot failure count that triggered plan fast-track
 }
 
 export async function logMealValidation(entry: MealValidationEntry): Promise<void> {
@@ -253,6 +256,8 @@ export async function logMealValidation(entry: MealValidationEntry): Promise<voi
         cnIngredientsSentCount: entry.cnIngredientsSentCount ?? null,
         scalingSanityFailed:    entry.scalingSanityFailed    ?? false,
         dayMealCount:           entry.dayMealCount           ?? null,
+        // ── Plan-level slot fast-track ──────────────────────────────────────
+        cnSlotFailCountAtSkip:  entry.cnSlotFailCountAtSkip  ?? null,
       }
     });
 
@@ -301,6 +306,7 @@ export async function getValidationSummaryForPlan(mealPlanId: string) {
   const attemptsExhausted   = logs.filter(l => l.finalOutcome === 'attempts_exhausted').length;
   const scalingSanityFailed = logs.filter(l => l.scalingSanityFailed).length;
   const fastTrackFailures   = logs.filter(l => l.finalOutcome === 'cn_fast_track_failure').length;
+  const planFastTrack       = logs.filter(l => l.finalOutcome === 'cn_plan_fast_track').length;
   const dayLevelReplaced    = logs.filter(l => l.wasDayLevelReplacement).length;
   const targetCheckFailed   = logs.filter(l => l.mealTargetCheckPassed === false).length;
 
@@ -330,6 +336,7 @@ export async function getValidationSummaryForPlan(mealPlanId: string) {
     attemptsExhausted,
     scalingSanityFailures: scalingSanityFailed,
     fastTrackFailures,
+    planLevelFastTracks:   planFastTrack,
     dayLevelReplacements:  dayLevelReplaced,
     targetCheckFailures:   targetCheckFailed,
     avgDeviationPct:       Math.round(avgDeviationPct * 10) / 10,

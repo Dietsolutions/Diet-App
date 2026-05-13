@@ -513,6 +513,9 @@ model MacroValidationLog {
   scalingSanityFailed     Boolean   @default(false)  // true = post-scale CN > 3× original
   dayMealCount            Int?      // total meals in this day's plan
 
+  // ── New: plan-level slot fast-track ────────────────────────────────────
+  cnSlotFailCountAtSkip   Int?      // slot failure count when plan fast-track was triggered
+
   user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, mealPlanId])

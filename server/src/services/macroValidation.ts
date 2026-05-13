@@ -33,6 +33,13 @@ export const DAY_BUDGET_TOLERANCE    = 0.15  // ±15% of daily calorie target
 // ── Attempt budget ────────────────────────────────────────────────────────────
 export const MAX_CLAUDE_ATTEMPTS_PER_DAY = 5  // Claude regeneration calls per day plan
 
+// ── Plan-level CN slot failure fast-track ─────────────────────────────────────
+// Once a meal slot (by mealIndex) accumulates this many confirmed CN failures
+// across the entire plan, all future meals at that slot skip CN entirely and
+// accept Claude's estimate. Prevents burning Claude regeneration attempts on
+// food types that CN consistently cannot validate (e.g. Indian fish preparations).
+export const CN_FAST_TRACK_THRESHOLD = 2
+
 // ── Canonical meal type names ─────────────────────────────────────────────────
 export const CANONICAL_MEAL_TYPES: Record<number, string[]> = {
   3: ['breakfast', 'lunch', 'dinner'],
