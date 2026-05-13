@@ -106,6 +106,12 @@ export interface MealValidationEntry {
   wasDayLevelReplacement?:     boolean;
   dayTotalBeforeReplacement?:  number;  // day calorie total before this replacement
   dayTotalAfterReplacement?:   number;  // day calorie total after replacement
+
+  // ── New: extended pipeline observability ───────────────────────────────
+  initialDeviationAction?:  string;   // routing at first CN check, before escalation
+  cnIngredientsSentCount?:  number;   // # ingredients in the original CN query
+  scalingSanityFailed?:     boolean;  // true = post-scale CN > 3× original Claude estimate
+  dayMealCount?:            number;   // total meals in this day
 }
 
 export async function logMealValidation(entry: MealValidationEntry): Promise<void> {
@@ -241,6 +247,12 @@ export async function logMealValidation(entry: MealValidationEntry): Promise<voi
         wasDayLevelReplacement:   entry.wasDayLevelReplacement   ?? false,
         dayTotalBeforeReplacement: entry.dayTotalBeforeReplacement ?? null,
         dayTotalAfterReplacement:  entry.dayTotalAfterReplacement  ?? null,
+
+        // ── Extended pipeline observability ────────────────────────────────
+        initialDeviationAction: entry.initialDeviationAction ?? null,
+        cnIngredientsSentCount: entry.cnIngredientsSentCount ?? null,
+        scalingSanityFailed:    entry.scalingSanityFailed    ?? false,
+        dayMealCount:           entry.dayMealCount           ?? null,
       }
     });
 
@@ -287,6 +299,8 @@ export async function getValidationSummaryForPlan(mealPlanId: string) {
   const regenerated         = logs.filter(l => l.deviationAction === 'regenerate').length;
   const partialMatch        = logs.filter(l => l.partialMatchGuard).length;
   const attemptsExhausted   = logs.filter(l => l.finalOutcome === 'attempts_exhausted').length;
+  const scalingSanityFailed = logs.filter(l => l.scalingSanityFailed).length;
+  const fastTrackFailures   = logs.filter(l => l.finalOutcome === 'cn_fast_track_failure').length;
   const dayLevelReplaced    = logs.filter(l => l.wasDayLevelReplacement).length;
   const targetCheckFailed   = logs.filter(l => l.mealTargetCheckPassed === false).length;
 
@@ -314,6 +328,8 @@ export async function getValidationSummaryForPlan(mealPlanId: string) {
     regenerated,
     partialMatchFailures:  partialMatch,
     attemptsExhausted,
+    scalingSanityFailures: scalingSanityFailed,
+    fastTrackFailures,
     dayLevelReplacements:  dayLevelReplaced,
     targetCheckFailures:   targetCheckFailed,
     avgDeviationPct:       Math.round(avgDeviationPct * 10) / 10,

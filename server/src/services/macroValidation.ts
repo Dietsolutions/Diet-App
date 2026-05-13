@@ -13,6 +13,11 @@ export const SCALE_UP_MAX_FACTOR     = 1.20  // never scale ingredients above 12
 // After scaling + CN re-check, accept if deviation is now under this
 export const POST_SCALE_ACCEPT_PCT   = 35
 
+// ── Scaling sanity check ──────────────────────────────────────────────────────
+// If post-scale CN calories > this multiplier × original Claude estimate,
+// the scaled ingredient string was corrupted — accept Claude estimate instead
+export const SCALING_SANITY_MAX_MULTIPLIER = 3.0
+
 // ── Partial match guard ───────────────────────────────────────────────────────
 // If CN total < this fraction of Claude estimate AND items matched < MIN_ITEMS
 // treat as CN failure
@@ -204,13 +209,34 @@ export function applyScaleToIngredients(
   ingredients: string[],
   scaleFactor: number,
 ): string[] {
-  // Scales gram/ml quantities found in ingredient strings.
-  // e.g. "120g chicken breast" at 0.769 → "92g chicken breast"
+  // Clamp factor — never below 0.5 (never halve a meal) or above 1.2 (hard cap).
+  // This prevents runaway scaling from corrupted query strings.
+  const clampedFactor = Math.min(Math.max(scaleFactor, 0.50), 1.20);
+
   return ingredients.map(ing =>
-    ing.replace(/(\d+(?:\.\d+)?)\s*(g|ml|kg|l)\b/gi, (_, num, unit) => {
-      const scaled = Math.round(parseFloat(num) * scaleFactor * 10) / 10;
-      return `${scaled}${unit}`;
-    })
+    ing.replace(
+      /(\d+(?:\.\d+)?)\s*(g|ml|kg|l)\b/gi,
+      (fullMatch, numStr, unit) => {
+        const original = parseFloat(numStr);
+        if (isNaN(original) || original <= 0) return fullMatch; // leave unchanged
+
+        const scaled    = original * clampedFactor;
+        const unitLower = unit.toLowerCase();
+
+        // g/ml → round to nearest integer (most common; avoids "94.625g" noise)
+        // kg/l → round to 2 decimal places (small numbers need more precision)
+        const rounded = (unitLower === 'kg' || unitLower === 'l')
+          ? Math.round(scaled * 100) / 100
+          : Math.round(scaled);
+
+        // Never produce zero — floor at 1g or 0.01kg/0.01l
+        const safe = (unitLower === 'kg' || unitLower === 'l')
+          ? Math.max(0.01, rounded)
+          : Math.max(1, rounded);
+
+        return `${safe}${unit}`;
+      },
+    )
   );
 }
 

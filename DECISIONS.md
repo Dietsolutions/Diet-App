@@ -374,3 +374,115 @@ write-site guard from `typeof x !== 'undefined'` to `if (pendingLogEntries && ..
 | `server/src/routes/ai.ts` | Re-added `logMealValidation` + `MealValidationEntry` imports. Added `MealLogData` interface. Added `_isRecursive?` param to `validateAndFinaliseMeal`. Added tracking variables for scaling branch. Added `logData` build at end of pipeline (skipped on recursive calls). Updated recursive calls with `_isRecursive: true`. Hoisted `pendingLogEntries` declaration to outer scope. Added day-level `dayLevelExtra` metadata to log entries. Added post-plan-save log write block with 8s timeout ceiling. |
 | `server/src/scripts/queryValidationData.ts` | New diagnostic script — 6 queries: outcome distribution, scaling effectiveness, partial match failures, day-level corrections, meal target check failures, attempt budget usage. Run with `npm run query:validation [mealPlanId]`. |
 | `server/package.json` | Added `"query:validation": "tsx src/scripts/queryValidationData.ts"` script. |
+
+---
+
+## 13. Bug fixes — 8-issue CN pipeline repair (2026-05-13)
+
+### Fix 1 — `applyScaleToIngredients` regex corruption (Bug 1 — root cause)
+
+**Old behaviour:** `Math.round(parseFloat(num) * scaleFactor * 10) / 10` → 1 decimal place.
+"125g × 0.757 = 94.625 → rounds to 94.6g". CalorieNinjas reads "94.6g chicken" differently
+from "95g chicken" and in some cases concatenates values from adjacent token, producing
+spurious results like 2,818 kcal for a scaled-down meal.
+
+**New behaviour:**
+- `clampedFactor = min(max(scaleFactor, 0.50), 1.20)` — hard clamp before any math
+- g/ml → `Math.round(scaled)` — whole integer, no decimal noise
+- kg/l → `Math.round(scaled * 100) / 100` — 2dp for small quantities
+- floor: `Math.max(1, rounded)` for g/ml; `Math.max(0.01, rounded)` for kg/l
+
+Unit test: `applyScaleToIngredients(["125g chicken breast", "8g ghee", "50g cooked brown rice"], 0.757)`
+Expected: `["95g chicken breast", "6g ghee", "38g cooked brown rice"]`
+Must NOT produce: "94.6g", "6.056g", or any floating point noise
+
+### Fix 2 — Flat while loop replaces recursion (Issues 4, 5; Bug 6)
+
+The old implementation called `validateAndFinaliseMeal` recursively for each Claude
+regeneration and again for the secondary target check. This created three problems:
+
+1. **Meal mismatch (Issue 4)**: The `_isRecursive` flag suppressed logging for inner calls,
+   but the outer log captured the initial CN result while `finalOutcome` reflected the
+   recursive result. The logged meal and the saved meal diverged.
+2. **Missing meal indices (Issue 5)**: If an inner recursive call threw, `finalisedMeals.push`
+   could complete before the async chain resolved, leaving some slots undefined.
+3. **Wrong attempt counter (Bug 6)**: `attemptsUsedAtThisMeal: attemptsUsed.count` was
+   captured at the END of the function. Meals processed after all 5 attempts were exhausted
+   showed `attempts = 5` even if they were accepted on the first CN check.
+
+**New behaviour:** Single flat `while (!resolved)` loop. No recursion. `attemptsAtStart`
+snapshotted at the START of each meal. `cnInitialResult` saved from the first CN call for
+logging regardless of how many iterations follow. `_isRecursive` removed entirely.
+`logData` is always returned (not optional).
+
+### Fix 3 — Scaling sanity check (scaling corruption root cause)
+
+Added `SCALING_SANITY_MAX_MULTIPLIER = 3.0`. After CN re-check of scaled ingredients:
+if `postScaleCN > originalClaudeCalories × 3.0`, the ingredient string was corrupted
+(e.g. "94.6g" parsed as "946g", or values concatenated) — accept Claude estimate instead
+of escalating to regeneration. New `finalOutcome`: `scaling_sanity_failed`.
+
+This explains the $0.30 cost spike: corrupted queries escalated → 5 regenerations → exhausted.
+With the sanity check and the fixed regex, this chain is eliminated.
+
+### Fix 4 — Day totals empty in log (Bug 4)
+
+After the full day is finalised (including any day-level replacement), `DayBudgetAnnotation`
+is stamped onto every `pendingLogEntries` item for that day:
+```
+dayBudgetResult = { dayTotalCalories, dayTotalProtein, dayTotalCarbs, dayTotalFat, deviationPct, isValid }
+```
+Written to `dayTotals` in `MealValidationEntry` → `dayTotalCnCalories`, `dayDeltaCalories`,
+`dayValidationPassed` are now populated for all rows.
+
+### Fix 5 — CN fast-track for consistently failing meal slots (Bug 5)
+
+`cnFailureCount: Record<number, number>` tracks per-meal-index CN failures within a day.
+After 2+ failures on the same meal index (e.g. fish dinner at index 3), the next iteration
+skips the CN call entirely and accepts the Claude estimate with `finalOutcome = 'cn_fast_track_failure'`.
+This prevents burning all 5 regeneration attempts on dinners CN cannot validate.
+
+### Fix 6 — New log fields: `initialDeviationAction`, `cnIngredientsSentCount`, `scalingSanityFailed`, `dayMealCount`
+
+- `initialDeviationAction` — routing at first CN check BEFORE any escalation. Allows
+  distinguishing "32% deviation correctly scaled" from "32% deviation incorrectly escalated
+  to regenerate due to Bug 1". This was Bug 3.
+- `cnIngredientsSentCount` — ingredient count in the original CN query. Allows computing
+  the partial match rate: `cnItemsMatched / cnIngredientsSentCount`.
+- `scalingSanityFailed` — boolean set when the sanity check triggers (Fix 3).
+- `dayMealCount` — total meals in this day's plan.
+
+### Fix 7 — Secondary target check: scaling only, no regeneration (Issue 3)
+
+Old: target check failure → Claude call → recursive validation → uses attempt budget.
+New: target check failure → proportional budget scale factor (clamp 0.75–1.25) applied
+to ingredients + macros. Zero API calls. Attempt budget preserved for actual CN failures.
+
+### Fix 8 — Meal count guard (Issue 5 hardening)
+
+After `finalisedMeals` is built, a length check: if `finalisedMeals.length !== mealsPerDay`,
+fill missing slots with the original Claude meal. Prevents `MealPlanDay` from being saved
+with fewer meals than expected.
+
+### Fat floor — `fatTarget` minimum 30g/day (Bug 2)
+
+In `calculateTDEE()`, after all lifestyle adjustments, `fatTarget` is floored at 30g.
+When the safety carb adjustment (line 193: `fatTarget = Math.max(20, ...)`) reduces fat
+to 20g, the floor raises it to 30g and reduces carbs proportionally by `(30 - preFat) × 9 / 4`
+calories, keeping total energy stable. The `Math.max(50, ...)` guard on carbs prevents
+going below 50g.
+
+### TypeScript check
+
+`cd server && npx tsc --noEmit` — clean, no output.
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | Rewrote `applyScaleToIngredients` (whole-integer rounding, floor guard, 0.5–1.2 clamp). Added `SCALING_SANITY_MAX_MULTIPLIER = 3.0`. |
+| `server/src/utils/tdee.ts` | Added fat floor (30g/day minimum) after all lifestyle adjustments, before final safety floor. Carbs reduced proportionally to keep total kcal stable. |
+| `server/src/prisma/schema.prisma` | Added 4 new nullable columns: `initialDeviationAction`, `cnIngredientsSentCount`, `scalingSanityFailed`, `dayMealCount`. |
+| `server/src/prisma/migrations/20260513000000_extend_validation_log_v2/migration.sql` | `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for all 4 new columns. |
+| `server/src/services/macroValidationLogger.ts` | Added 4 new fields to `MealValidationEntry` interface and `logMealValidation` DB write. Added `scalingSanityFailures` and `fastTrackFailures` to `getValidationSummaryForPlan`. |
+| `server/src/routes/ai.ts` | Completely rewrote `validateAndFinaliseMeal` as flat while loop (no recursion). Added `cnFailureCount` fast-track. Added `DayBudgetAnnotation` type. Replaced secondary target check regeneration with budget scaling. Updated day loop with: `cnFailureCount`, meal count guard (Fix 8), day total annotation (Fix 7). Updated `pendingLogEntries` type with `dayBudgetResult?`. Updated write block with all new log fields. |

@@ -265,6 +265,24 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
     fatTarget     = Math.max(20, fatTarget - 5);
   }
 
+  // ── Minimum fat floor ─────────────────────────────────────────────────────
+  // Indian cooking uses ghee, coconut oil, paneer, dairy; below 30g/day fat
+  // is clinically unsafe for hormonal function and nutritionally incompatible
+  // with this cuisine style.  Applied AFTER all per-input adjustments so no
+  // single pathway can push fat below this level.
+  const FAT_FLOOR_GRAMS = 30;
+  if (fatTarget < FAT_FLOOR_GRAMS) {
+    const preFatTarget  = fatTarget;
+    fatTarget           = FAT_FLOOR_GRAMS;
+    // Offset the extra fat calories by reducing carbs (keeps total kcal stable)
+    const fatKcalAdded  = (FAT_FLOOR_GRAMS - preFatTarget) * 9;
+    carbTarget          = Math.max(50, carbTarget - Math.round(fatKcalAdded / 4));
+    console.log(
+      `[TDEE] Fat floor applied: ${preFatTarget}g → ${FAT_FLOOR_GRAMS}g/day;` +
+      ` carbs adjusted to ${carbTarget}g`,
+    );
+  }
+
   // ── Re-apply safety floor + round to nearest 25 after all adjustments ────
   const adjustedFloor = SAFETY_FLOOR[gender] ?? 1200;
   targetCalories = Math.max(adjustedFloor, targetCalories);

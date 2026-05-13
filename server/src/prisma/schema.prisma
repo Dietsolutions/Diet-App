@@ -507,6 +507,12 @@ model MacroValidationLog {
   dayTotalBeforeReplacement  Float?    // day calorie total before this replacement
   dayTotalAfterReplacement   Float?    // day calorie total after replacement
 
+  // ── New: extended pipeline observability ───────────────────────────────
+  initialDeviationAction  String?   // routing at first CN check, before any escalation
+  cnIngredientsSentCount  Int?      // # ingredients in the original CN query string
+  scalingSanityFailed     Boolean   @default(false)  // true = post-scale CN > 3× original
+  dayMealCount            Int?      // total meals in this day's plan
+
   user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, mealPlanId])
