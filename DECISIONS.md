@@ -672,3 +672,69 @@ Migration: `server/src/prisma/migrations/20260514000000_add_multi_macro_deviatio
 | `server/src/services/macroValidationLogger.ts` | Added 9 new fields to `MealValidationEntry` interface and `logMealValidation` Prisma write. |
 | `server/src/prisma/schema.prisma` | Added 9 new fields to `MacroValidationLog` model. |
 | `server/src/prisma/migrations/20260514000000_add_multi_macro_deviation_fields/migration.sql` | `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for all 9 new columns. |
+
+---
+
+## 16. Rejection history in correction prompt + correction data wired into logs (2026-05-14)
+
+**Commit:** `2146ffe`
+
+### Diagnostic findings (pre-fix)
+
+Queried last 3 plans from `macro_validation_logs`:
+
+- `correctedMealName = NULL` for **100% of exhausted meals** across all plans — the flat while loop was never populating correction data into logData or MealValidationEntry.
+- `buildMealCorrectionPrompt` received **no attempt number and no history** of previous failures — Claude generated a new meal with zero knowledge of what it already tried, producing near-identical dishes on each attempt.
+- Pattern observed in plan `cmp4bb4ol00079p3od`: D1M4 "Prawn Masala with Roti" (Claude: 382 kcal, CN: 1842 kcal) exhausted all 5 attempts — pre-normalisation roti bug caused >35% deviation on first call, then Claude regenerated more roti-based meals each time.
+
+### Fix 1 — Rejection history in `buildMealCorrectionPrompt`
+
+**New signature:**
+```typescript
+buildMealCorrectionPrompt(
+  originalMeal, mealTarget, rejectionReason, userProfile,
+  attemptNumber: number = 1,
+  previousAttempts: FailedAttempt[] = [],
+)
+```
+
+**`FailedAttempt`** interface (exported from macroValidation.ts):
+```typescript
+{ mealName, claudeCal, cnCal, deviationPct, triggerMacro }
+```
+
+**Prompt additions:**
+- At attempt ≥ 2: lists all prior failures with name + macro deviation + kcal gap so Claude cannot regenerate the same dish
+- At attempt ≥ 3: explicit escalation — "COMPLETELY DIFFERENT type of dish: different protein source, different cooking method"
+
+`buildDayLevelCorrectionPrompt` passes `attemptNumber=1, previousAttempts=[]` (day-level correction is always a single shot).
+
+### Fix 2 — Correction data wired from while loop into logs
+
+Inside `validateAndFinaliseMeal`:
+- `previousAttempts: FailedAttempt[]` accumulated before each correction call (pushes current deviation data so next call sees the history)
+- `lastCorrectedMeal` captures the most recent Claude correction for DB logging
+- `lastCorrectionReason` captures the formatted reason string
+
+New `MealLogData` fields: `correctionTriggered`, `correctionReason`, `correctedMealName`, `correctedCalories`, `correctedProtein`, `correctedCarbs`, `correctedFat`, `correctedFibre`
+
+Write block now populates `MealValidationEntry.correction` from these logData fields — `correctedMealName` will be non-NULL for all plans going forward.
+
+### Fix 3 — `queryAttemptDetail.ts` diagnostic script
+
+`server/src/scripts/queryAttemptDetail.ts` — run with `npm run query:attempts [planId]`.
+
+Prints:
+- All meals with `attemptsUsedAtThisMeal ≥ 3` or `finalOutcome = attempts_exhausted`
+- Full per-meal detail: original name, CN returned, deviation, scaling, corrected name, recheck cal, final outcome
+- Data completeness check: `correctedMealName populated X/Y`
+- Plan-level summary: outcome breakdown, fast-track count, correction count
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | Added `FailedAttempt` interface. Updated `buildMealCorrectionPrompt` with `attemptNumber` + `previousAttempts` params + history block + escalation block. Updated `buildDayLevelCorrectionPrompt` to pass `1, []`. |
+| `server/src/routes/ai.ts` | Imported `FailedAttempt`. Added correction fields to `MealLogData`. Added `previousAttempts[]`, `lastCorrectionReason`, `lastCorrectedMeal` vars. Push to `previousAttempts` before each correction. Pass `attemptNumber`+`previousAttempts` to `buildMealCorrectionPrompt`. Capture `lastCorrectedMeal` after parse. Populate correction logData fields. Wire `MealValidationEntry.correction` in write block. |
+| `server/src/scripts/queryAttemptDetail.ts` | New file — diagnostic query script. |
+| `server/package.json` | Added `"query:attempts": "tsx src/scripts/queryAttemptDetail.ts"`. |
