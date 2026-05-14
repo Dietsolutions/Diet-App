@@ -471,11 +471,21 @@ export function checkDayBudget(
 
 // ── Correction prompt builders ────────────────────────────────────────────────
 
+export interface FailedAttempt {
+  mealName:     string;
+  claudeCal:    number;
+  cnCal:        number;
+  deviationPct: number;
+  triggerMacro: string;
+}
+
 export function buildMealCorrectionPrompt(
-  originalMeal:    any,
-  mealTarget:      { calories: number; proteinG: number; carbsG: number; fatG: number },
-  rejectionReason: string,
-  userProfile:     any,
+  originalMeal:     any,
+  mealTarget:       { calories: number; proteinG: number; carbsG: number; fatG: number },
+  rejectionReason:  string,
+  userProfile:      any,
+  attemptNumber:    number        = 1,
+  previousAttempts: FailedAttempt[] = [],
 ): string {
   const cuisines = (() => {
     try { return JSON.parse(userProfile.cuisinePreferences || '[]'); } catch { return []; }
@@ -487,7 +497,25 @@ export function buildMealCorrectionPrompt(
     try { return JSON.parse(userProfile.healthConditions || '[]'); } catch { return []; }
   })();
 
-  return `You are correcting a meal in a diet plan.
+  // Build rejection history block so Claude knows exactly what it already tried
+  const historyBlock = previousAttempts.length > 0
+    ? `\nPREVIOUS ATTEMPTS THAT FAILED MACRO VALIDATION (do NOT generate these again):\n` +
+      previousAttempts.map((a, i) =>
+        `  Attempt ${i + 1}: "${a.mealName}" — ${a.triggerMacro} was ${Math.round(a.deviationPct)}% off` +
+        ` (Claude estimated ${a.claudeCal} kcal, nutrition database measured ${a.cnCal} kcal)`
+      ).join('\n')
+    : '';
+
+  // Escalation instruction on attempt 3+: force a fundamentally different dish
+  const escalationBlock = attemptNumber >= 3
+    ? `\nATTENTION — attempt ${attemptNumber}: all previous suggestions failed validation. ` +
+      `You MUST generate a COMPLETELY DIFFERENT type of dish: different protein source ` +
+      `(e.g. switch from fish/prawn to chicken/eggs/paneer), different cooking method, ` +
+      `and different cuisine style. Do not regenerate variations of what was already tried.`
+    : '';
+
+  return `You are correcting a meal in a diet plan. Attempt ${attemptNumber}.
+${historyBlock}${escalationBlock}
 
 REJECTED MEAL: ${originalMeal.name} (${originalMeal.type})
 REASON REJECTED: ${rejectionReason}
@@ -506,7 +534,7 @@ USER PREFERENCES:
   Custom instructions: ${userProfile.mealPlanCustomInstructions ?? 'None'}
 
 Generate ONE replacement meal for ${originalMeal.type}.
-The replacement MUST be different from "${originalMeal.name}".
+The replacement MUST be different from "${originalMeal.name}"${previousAttempts.length > 0 ? ' and from all previous attempts listed above' : ''}.
 The replacement MUST hit the calorie and macro targets above.
 List specific ingredients with gram quantities so macros can be verified.
 
@@ -540,5 +568,7 @@ export function buildDayLevelCorrectionPrompt(
     `Day total is ${Math.abs(gap)} kcal ${gap > 0 ? 'over' : 'under'} the daily budget of ${dailyTarget} kcal. ` +
     `This meal (${mealToReplace.name}, ${mealToReplace.calories} kcal) is the largest and needs replacing.`,
     userProfile,
+    1,   // attemptNumber — day-level correction is always a single shot
+    [],  // previousAttempts — no prior history for day-level corrections
   );
 }

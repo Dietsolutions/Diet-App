@@ -15,6 +15,7 @@ import {
   buildMealCorrectionPrompt,
   buildDayLevelCorrectionPrompt,
   normaliseMealType,
+  type FailedAttempt,
   CANONICAL_MEAL_TYPES,
   MEAL_WEIGHT_DISTRIBUTIONS,
   MAX_CLAUDE_ATTEMPTS_PER_DAY,
@@ -205,6 +206,20 @@ interface MealLogData {
   withinTolerance: boolean;
   // Plan-level slot fast-track — only set when finalOutcome = 'cn_plan_fast_track'
   cnSlotFailCountAtSkip?: number;
+  // Correction data — populated whenever at least one Claude regeneration fired
+  correctionTriggered?:    boolean;
+  correctionReason?:       string;
+  correctedMealName?:      string;
+  correctedCalories?:      number;
+  correctedProtein?:       number;
+  correctedCarbs?:         number;
+  correctedFat?:           number;
+  correctedFibre?:         number;
+  recheckCalories?:        number;
+  recheckProtein?:         number;
+  recheckCarbs?:           number;
+  recheckFat?:             number;
+  recheckWithinTolerance?: boolean;
 }
 
 // ── Day-level budget data annotated onto pending entries after day loop ───────
@@ -258,6 +273,11 @@ async function validateAndFinaliseMeal(params: {
   let scalingSanityFailed  = false;
   // Weighted blend components — set when scaling path is taken
   let logScaleComponents: { calFactor: number; protFactor: number; carbFactor: number; blendedRaw: number } | undefined;
+  // Rejection history — accumulated across loop iterations, passed to each correction call
+  const previousAttempts: FailedAttempt[] = [];
+  // Correction log — records the LAST correction that fired (for DB logging)
+  let lastCorrectionReason: string | undefined;
+  let lastCorrectedMeal: any | undefined;
 
   // ── CN not enabled → return Claude estimate with minimal log ─────────────
   if (!CN_ENABLED) {
@@ -502,6 +522,16 @@ async function validateAndFinaliseMeal(params: {
 
     // ── 3. Regeneration ───────────────────────────────────────────────────
     if (needRegeneration && !resolved) {
+      // Record this failed attempt BEFORE the correction call so the next
+      // Claude prompt knows exactly what was tried and why it was rejected.
+      previousAttempts.push({
+        mealName:     currentMeal.name ?? originalMeal.name,
+        claudeCal:    originalMeal.calories,
+        cnCal:        Math.round(cnResult.macros.calories),
+        deviationPct: deviation.deviationPct,
+        triggerMacro: deviation.triggerMacro,
+      });
+
       if (attemptsUsed.count >= MAX_CLAUDE_ATTEMPTS_PER_DAY) {
         console.log(`[CN] Attempts exhausted Day${dayIdx+1} — accepting Claude estimate`);
         currentMeal  = { ...originalMeal };
@@ -509,17 +539,25 @@ async function validateAndFinaliseMeal(params: {
         resolved     = true;
       } else {
         attemptsUsed.count++;
+        const attemptNumber = attemptsUsed.count;
         console.log(
           `[CN] Regenerating Day${dayIdx+1} Meal${mealIndex+1}` +
-          ` attempt=${attemptsUsed.count}/${MAX_CLAUDE_ATTEMPTS_PER_DAY}`,
+          ` attempt=${attemptNumber}/${MAX_CLAUDE_ATTEMPTS_PER_DAY}` +
+          ` trigger=${deviation.triggerMacro}` +
+          ` history=${previousAttempts.length - 1} prior failures`,
         );
+
+        const corrReason =
+          `trigger=${deviation.triggerMacro} dev=${Math.round(deviation.deviationPct)}%` +
+          ` (Claude: ${originalMeal.calories} kcal, CN: ${Math.round(cnResult.macros.calories)} kcal)`;
 
         const correctionPrompt = buildMealCorrectionPrompt(
           originalMeal,
           mealTarget,
-          `CalorieNinjas deviation ${Math.round(deviation.deviationPct)}%` +
-          ` (Claude: ${originalMeal.calories} kcal, CN: ${Math.round(cnResult.macros.calories)} kcal)`,
+          corrReason,
           userProfile,
+          attemptNumber,
+          previousAttempts,
         );
 
         try {
@@ -531,11 +569,13 @@ async function validateAndFinaliseMeal(params: {
 
           const corrText = corrResp.content[0].type === 'text' ? corrResp.content[0].text : '';
           const corrMeal = JSON.parse(corrText.replace(/```json|```/g, '').trim());
-          // Inject mealIndex — Claude's correction response does not include it,
-          // so without this the meal is stored without an index field, causing
-          // a vlog ↔ plan mismatch when the plan is loaded in the app.
+          // Inject mealIndex — Claude's correction response does not include it.
           corrMeal.mealIndex = mealIndex;
           corrMeal.type  = normaliseMealType(corrMeal.type, mealIndex, mealsPerDay);
+
+          // Track for logging — last corrected meal overwrites on each iteration
+          lastCorrectionReason = corrReason;
+          lastCorrectedMeal    = corrMeal;
 
           // Update currentMeal and loop back — next iteration CN-checks this meal
           currentMeal = corrMeal;
@@ -652,6 +692,15 @@ async function validateAndFinaliseMeal(params: {
     protScaleFactor:        logScaleComponents?.protFactor,
     carbScaleFactor:        logScaleComponents?.carbFactor,
     blendedScaleFactor:     logScaleComponents?.blendedRaw,
+    // Correction data — only populated when at least one Claude regeneration fired
+    correctionTriggered:    previousAttempts.length > 0,
+    correctionReason:       lastCorrectionReason,
+    correctedMealName:      lastCorrectedMeal?.name,
+    correctedCalories:      lastCorrectedMeal?.calories,
+    correctedProtein:       lastCorrectedMeal?.protein,
+    correctedCarbs:         lastCorrectedMeal?.carbs,
+    correctedFat:           lastCorrectedMeal?.fat,
+    correctedFibre:         lastCorrectedMeal?.fibre,
     mealTargetCalories:     mealTarget.calories,
     mealTargetCheckPassed:  finalTargetCheck.withinTarget,
     mealTargetDeviationPct: finalTargetCheck.deviationFromTarget,
@@ -1479,6 +1528,21 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
               dayMealCount:            planData.days[0]?.meals?.length ?? 4,
               // Plan-level fast-track
               cnSlotFailCountAtSkip:   logData.cnSlotFailCountAtSkip,
+              // Per-meal correction detail
+              correction: logData.correctionTriggered ? {
+                triggered:      true,
+                targetMealType: origMeal.type ?? 'unknown',
+                reason:         logData.correctionReason ?? '',
+                gapKcal:        (logData.correctedCalories ?? 0) - (origMeal.calories ?? 0),
+                correctedMeal: logData.correctedMealName ? {
+                  name:     logData.correctedMealName,
+                  calories: logData.correctedCalories ?? 0,
+                  protein:  logData.correctedProtein  ?? 0,
+                  carbs:    logData.correctedCarbs    ?? 0,
+                  fat:      logData.correctedFat      ?? 0,
+                  fibre:    logData.correctedFibre    ?? 0,
+                } : undefined,
+              } : undefined,
             };
             return logMealValidation(entry);
           })

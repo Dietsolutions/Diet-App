@@ -12,7 +12,8 @@
     "prisma:studio": "prisma studio --schema=src/prisma/schema.prisma",
     "seed:indian": "tsx src/scripts/seedIndianFoodDatabases.ts",
     "seed:kaggle": "tsx src/scripts/seedKaggleIndianFoods.ts",
-    "query:validation": "tsx src/scripts/queryValidationData.ts"
+    "query:validation": "tsx src/scripts/queryValidationData.ts",
+    "query:attempts":   "tsx src/scripts/queryAttemptDetail.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
