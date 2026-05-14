@@ -754,6 +754,17 @@ and keep the restriction. Otherwise, honour these instructions precisely.` : '';
   const canonicalTypes     = CANONICAL_MEAL_TYPES[profile.mealsPerDay as 3 | 4 | 5]
     ?? CANONICAL_MEAL_TYPES[4];
 
+  // ── Verification: log proportional per-meal macro targets so we can confirm
+  //    protein/carbs/fat are weighted (not equal-split) in Vercel logs.
+  {
+    const mealsPerDayV = profile.mealsPerDay ?? 4;
+    const verifyLines  = canonicalTypes.map((t, i) => {
+      const mt = getMealMacroTargets(dailyTargets, mealsPerDayV, t, i);
+      return `  ${t}: ${mt.calories}kcal P${mt.proteinG}g C${mt.carbsG}g F${mt.fatG}g (×${(mt.weight * 100).toFixed(0)}%)`;
+    });
+    console.log('[MealTargets] Per-meal proportional split:\n' + verifyLines.join('\n'));
+  }
+
   return `${dayRange}
 
 Profile: ${profile.name}, ${profile.age}y ${profile.gender}, ${profile.city} ${profile.country}
