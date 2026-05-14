@@ -546,3 +546,129 @@ Used `mealIndex` as key (not food category string) because:
 | `server/src/services/macroValidationLogger.ts` | Added `cnSlotFailCountAtSkip?: number` to `MealValidationEntry` interface and `logMealValidation` DB write. Added `planLevelFastTracks` to `getValidationSummaryForPlan`. |
 | `server/src/prisma/schema.prisma` | Added `cnSlotFailCountAtSkip Int?` to `MacroValidationLog`. |
 | `server/src/prisma/migrations/20260513100000_add_cn_slot_fast_track/migration.sql` | `ALTER TABLE ... ADD COLUMN IF NOT EXISTS "cnSlotFailCountAtSkip" INTEGER`. |
+
+---
+
+## 15. Multi-macro deviation routing, weighted blend scale factor, roti normalisation, mealIndex fix (2026-05-14)
+
+**Commit:** `d523cb9`
+
+### What changed and why
+
+#### Change 1 — Multi-macro `computeDeviation` (calories + protein + carbs)
+
+**Old signature:**
+```typescript
+computeDeviation(claudeCalories: number, cnCalories: number, cnSuccess: boolean, cnItemsMatched: number): DeviationResult
+// DeviationResult = { deviationPct, direction, action }
+```
+
+**New signature:**
+```typescript
+computeDeviation(
+  claude: { calories, protein, carbs, fat },
+  cn:     { calories, protein, carbs, fat, success, itemsMatched }
+): DeviationResult
+// DeviationResult = { calDeviationPct, protDeviationPct, carbDeviationPct, fatDeviationPct,
+//                     direction, action, triggerMacro, deviationPct (= calDeviationPct, backward compat) }
+```
+
+**Routing priority hierarchy** (fat excluded — CN fat estimates too noisy for Indian cooking):
+1. `calDev > 35%` → `regenerate` (trigger: calories)
+2. `protDev > 50%` → `regenerate` (trigger: protein) — new
+3. `calDev >= 15%` → `scale` (trigger: calories)
+4. `protDev > 30%` → `scale` (trigger: protein) — new
+5. `carbDev > 40%` → `scale` (trigger: carbs) — new
+6. All within tolerance → `accept_cn` (trigger: none)
+
+New constants: `PROTEIN_REGEN_PCT = 50`, `PROTEIN_SCALE_PCT = 30`, `CARB_SCALE_PCT = 40`.
+
+`triggerMacro` field added so logs identify which macro drove the routing decision.
+
+#### Change 2 — Weighted blend `computeProportionalScaleFactor`
+
+**Old:**
+```typescript
+computeProportionalScaleFactor(claudeCalories: number, cnCalories: number): number
+// returns single clamped scalar
+```
+
+**New:**
+```typescript
+computeProportionalScaleFactor(
+  claude: { calories, protein, carbs },
+  cn:     { calories, protein, carbs }
+): { scaleFactor, calFactor, protFactor, carbFactor, blendedRaw }
+```
+
+**Blend weights:** calories 50%, protein 35%, carbs 15%. Fat excluded (same reason as routing). Each per-macro factor = `claude.macro / cn.macro` (defaults to 1.0 when CN returns 0 to avoid collapsing the blend). Blended raw is clamped to [0.50, 1.20].
+
+**Log line per scaled meal:**
+```
+[Scale] D1M3 "Guava Slices" calF=1.240 protF=1.100 carbF=1.180 blend=1.192 → clamped=1.200
+```
+
+#### Change 5 — Roti/Chapati normalisation before CN query (`normaliseIngredientsForCN`)
+
+New exported functions in `macroValidation.ts`. Transforms count-based Indian bread descriptions to gram-only ONLY for the CN query string — original ingredients in the plan are never changed.
+
+**Confirmed transformation:**
+```
+"2 whole wheat rotis (80g)" → "160g whole wheat roti"
+"3 rotis" → "120g roti"   (using 40g/unit from UNIT_GRAM_MAP)
+```
+
+Items covered: whole wheat roti, roti, chapati, phulka, paratha, naan, puri, bhatura, thepla, idli, dosa, uttapam.
+
+Log line when normalisation fires:
+```
+[CN Normalise] D2M4 normalised 1 ingredient(s):
+  "2 whole wheat rotis (80g)" → "160g whole wheat roti"
+```
+
+#### Change 7 — `corrMeal.mealIndex` injected after Claude correction parse
+
+After `JSON.parse(corrText)`, Claude's correction response does not include `mealIndex`. Previously the regenerated meal was stored in `MealPlanDay.meals` without a `mealIndex` field, causing a vlog ↔ plan mismatch when the plan was loaded in the app (meal shown in wrong slot or missing). Fixed by adding `corrMeal.mealIndex = mealIndex` immediately after parse and before `normaliseMealType`.
+
+#### Change 4 — `buildMealTargetsSection` refactored to call `getMealMacroTargets`
+
+Function signature now accepts `fibreG` (was missing). Body delegates to `getMealMacroTargets` for each canonical slot — eliminating the duplicate inline calculation and ensuring the Claude prompt and validation pipeline use identical arithmetic. Format updated to show weight% per slot:
+
+```
+PER-MEAL MACRO TARGETS — follow all four macros precisely, not equal splits:
+  - Breakfast (25%): ~319 kcal · Protein 35.8g · Carbs 17.5g · Fat 13.0g
+  - Lunch (35%): ~446 kcal · Protein 50.1g · Carbs 24.5g · Fat 18.2g
+  - Snack (10%): ~128 kcal · Protein 14.3g · Carbs 7.0g · Fat 5.2g
+  - Dinner (30%): ~383 kcal · Protein 42.9g · Carbs 21.0g · Fat 15.6g
+Daily total: 1276 kcal · Protein 102g · Carbs 62g · Fat 52g
+```
+
+Snack protein is now ~14.3g (was 35.75g — equal split bug).
+
+#### Change 9 — 9 new schema fields + migration
+
+Added to `MacroValidationLog`:
+
+| Field | Type | Purpose |
+|---|---|---|
+| `calDeviationPct` | Float? | Calorie deviation % |
+| `protDeviationPct` | Float? | Protein deviation % |
+| `carbDeviationPct` | Float? | Carb deviation % |
+| `fatDeviationPct` | Float? | Fat deviation % (captured, not routed) |
+| `triggerMacro` | String? | Which macro triggered action |
+| `calScaleFactor` | Float? | Calorie-only scale factor |
+| `protScaleFactor` | Float? | Protein-only scale factor |
+| `carbScaleFactor` | Float? | Carb-only scale factor |
+| `blendedScaleFactor` | Float? | Weighted blend before clamping |
+
+Migration: `server/src/prisma/migrations/20260514000000_add_multi_macro_deviation_fields/migration.sql`
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | Added `PROTEIN_REGEN_PCT`, `PROTEIN_SCALE_PCT`, `CARB_SCALE_PCT`. Replaced `DeviationResult` + `computeDeviation` with multi-macro version. Replaced `computeProportionalScaleFactor` with weighted blend returning object. Added `normaliseIngredientForCN`, `normaliseIngredientsForCN`, `UNIT_GRAM_MAP`. |
+| `server/src/routes/ai.ts` | Added `normaliseIngredientsForCN` import. Added 9 new fields to `MealLogData`. Updated both call sites of `computeDeviation` and `computeProportionalScaleFactor`. Added `logScaleComponents` variable + blend log. Added CN normalisation block before each CN call. Added `corrMeal.mealIndex = mealIndex`. Updated logData assembly with new fields. Refactored `buildMealTargetsSection` to call `getMealMacroTargets` + accept `fibreG`. Updated write block with 9 new fields. |
+| `server/src/services/macroValidationLogger.ts` | Added 9 new fields to `MealValidationEntry` interface and `logMealValidation` Prisma write. |
+| `server/src/prisma/schema.prisma` | Added 9 new fields to `MacroValidationLog` model. |
+| `server/src/prisma/migrations/20260514000000_add_multi_macro_deviation_fields/migration.sql` | `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for all 9 new columns. |
