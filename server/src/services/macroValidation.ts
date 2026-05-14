@@ -6,6 +6,13 @@ export const DEVIATION_ACCEPT_PCT    = 15   // under this → accept CN, no acti
 export const DEVIATION_SCALE_MAX_PCT = 35   // 15–35 → proportional scaling
                                             // above 35 → regenerate meal
 
+// ── Secondary macro routing thresholds ───────────────────────────────────────
+// Fat is excluded from routing — CN fat estimates are too noisy for Indian
+// cooking (tiny ghee/oil quantities cause large percentage swings).
+export const PROTEIN_REGEN_PCT  = 50   // protein >50% off → escalate to regenerate
+export const PROTEIN_SCALE_PCT  = 30   // protein >30% off → escalate to scale
+export const CARB_SCALE_PCT     = 40   // carbs >40% off → escalate to scale
+
 // ── Proportional scaling cap ──────────────────────────────────────────────────
 export const SCALE_UP_MAX_FACTOR     = 1.20  // never scale ingredients above 120% of original
 
@@ -164,52 +171,219 @@ export function getMealMacroTargets(
 // ── Core deviation logic ──────────────────────────────────────────────────────
 
 export interface DeviationResult {
-  deviationPct: number;
-  direction:    'over' | 'under' | 'none';
+  // Per-macro deviation percentages (absolute %)
+  calDeviationPct:  number;
+  protDeviationPct: number;
+  carbDeviationPct: number;
+  fatDeviationPct:  number;    // captured but NOT used for routing — CN fat is too noisy
+
+  direction:    'over' | 'under' | 'none';  // CN vs Claude on calories
+
+  // Routing decision (priority: cn_failure > regenerate > scale > accept_cn)
   action:       'accept_cn' | 'scale' | 'regenerate' | 'cn_failure' | 'partial_match_failure';
+
+  // Which macro was the deciding trigger
+  triggerMacro: 'calories' | 'protein' | 'carbs' | 'cn_failure' | 'partial_match' | 'none';
+
+  // Backward-compat alias for existing callers that read deviation.deviationPct
+  deviationPct: number;   // = calDeviationPct
 }
 
 export function computeDeviation(
-  claudeCalories: number,
-  cnCalories:     number,
-  cnSuccess:      boolean,
-  cnItemsMatched: number,
+  claude: {
+    calories: number;
+    protein:  number;
+    carbs:    number;
+    fat:      number;
+  },
+  cn: {
+    calories:     number;
+    protein:      number;
+    carbs:        number;
+    fat:          number;
+    success:      boolean;
+    itemsMatched: number;
+  },
 ): DeviationResult {
-  if (!cnSuccess || cnCalories === 0) {
-    return { deviationPct: 0, direction: 'none', action: 'cn_failure' };
+  // ── CN failure checks ─────────────────────────────────────────────────────
+  if (!cn.success || cn.calories === 0) {
+    return {
+      calDeviationPct: 0, protDeviationPct: 0,
+      carbDeviationPct: 0, fatDeviationPct: 0,
+      direction: 'none', action: 'cn_failure', triggerMacro: 'cn_failure',
+      deviationPct: 0,
+    };
   }
 
-  // Partial match guard
-  if (
-    cnCalories < claudeCalories * PARTIAL_MATCH_RATIO &&
-    cnItemsMatched < PARTIAL_MATCH_MIN_ITEMS
-  ) {
-    return { deviationPct: 0, direction: 'none', action: 'partial_match_failure' };
+  // Partial match guard: CN total < 50% of Claude estimate AND < 3 items matched
+  if (cn.calories < claude.calories * PARTIAL_MATCH_RATIO && cn.itemsMatched < PARTIAL_MATCH_MIN_ITEMS) {
+    return {
+      calDeviationPct: 0, protDeviationPct: 0,
+      carbDeviationPct: 0, fatDeviationPct: 0,
+      direction: 'none', action: 'partial_match_failure', triggerMacro: 'partial_match',
+      deviationPct: 0,
+    };
   }
 
-  const deviationPct = Math.abs(cnCalories - claudeCalories) / claudeCalories * 100;
-  const direction    = cnCalories > claudeCalories ? 'over' : 'under';
+  // ── Per-macro deviation (absolute %) ─────────────────────────────────────
+  const calDev  = Math.abs(cn.calories - claude.calories) / claude.calories * 100;
+  const protDev = claude.protein > 0
+    ? Math.abs(cn.protein - claude.protein) / claude.protein * 100 : 0;
+  const carbDev = claude.carbs > 0
+    ? Math.abs(cn.carbs   - claude.carbs)   / claude.carbs   * 100 : 0;
+  const fatDev  = claude.fat > 0
+    ? Math.abs(cn.fat     - claude.fat)     / claude.fat     * 100 : 0;
 
-  let action: DeviationResult['action'];
-  if (deviationPct < DEVIATION_ACCEPT_PCT) {
-    action = 'accept_cn';
-  } else if (deviationPct <= DEVIATION_SCALE_MAX_PCT) {
-    action = 'scale';
-  } else {
-    action = 'regenerate';
+  const direction = cn.calories > claude.calories ? 'over' : 'under';
+
+  // ── Routing — priority hierarchy ──────────────────────────────────────────
+  // 1. Calorie deviation > 35% → regenerate (strictly above, so 35.0 → scale)
+  if (calDev > DEVIATION_SCALE_MAX_PCT) {
+    return {
+      calDeviationPct: calDev, protDeviationPct: protDev,
+      carbDeviationPct: carbDev, fatDeviationPct: fatDev,
+      direction, action: 'regenerate', triggerMacro: 'calories',
+      deviationPct: calDev,
+    };
   }
-
-  return { deviationPct, direction, action };
+  // 2. Protein deviation > 50% → regenerate
+  if (protDev > PROTEIN_REGEN_PCT) {
+    return {
+      calDeviationPct: calDev, protDeviationPct: protDev,
+      carbDeviationPct: carbDev, fatDeviationPct: fatDev,
+      direction, action: 'regenerate', triggerMacro: 'protein',
+      deviationPct: calDev,
+    };
+  }
+  // 3. Calorie deviation >= 15% → scale
+  if (calDev >= DEVIATION_ACCEPT_PCT) {
+    return {
+      calDeviationPct: calDev, protDeviationPct: protDev,
+      carbDeviationPct: carbDev, fatDeviationPct: fatDev,
+      direction, action: 'scale', triggerMacro: 'calories',
+      deviationPct: calDev,
+    };
+  }
+  // 4. Protein deviation > 30% → scale
+  if (protDev > PROTEIN_SCALE_PCT) {
+    return {
+      calDeviationPct: calDev, protDeviationPct: protDev,
+      carbDeviationPct: carbDev, fatDeviationPct: fatDev,
+      direction, action: 'scale', triggerMacro: 'protein',
+      deviationPct: calDev,
+    };
+  }
+  // 5. Carb deviation > 40% → scale
+  if (carbDev > CARB_SCALE_PCT) {
+    return {
+      calDeviationPct: calDev, protDeviationPct: protDev,
+      carbDeviationPct: carbDev, fatDeviationPct: fatDev,
+      direction, action: 'scale', triggerMacro: 'carbs',
+      deviationPct: calDev,
+    };
+  }
+  // 6. All within tolerance → accept CN values
+  return {
+    calDeviationPct: calDev, protDeviationPct: protDev,
+    carbDeviationPct: carbDev, fatDeviationPct: fatDev,
+    direction, action: 'accept_cn', triggerMacro: 'none',
+    deviationPct: calDev,
+  };
 }
 
 export function computeProportionalScaleFactor(
-  claudeCalories: number,
-  cnCalories:     number,
-): number {
-  // Scale factor brings ingredient quantities so CN would return ~Claude's estimate.
-  // Cap scale-up to SCALE_UP_MAX_FACTOR to prevent snack → full meal bloat.
-  const raw = claudeCalories / cnCalories;
-  return Math.min(raw, SCALE_UP_MAX_FACTOR);
+  claude: { calories: number; protein: number; carbs: number },
+  cn:     { calories: number; protein: number; carbs: number },
+): {
+  scaleFactor:  number;   // blended + clamped — the value to pass to applyScaleToIngredients
+  calFactor:    number;   // calorie-only scale factor
+  protFactor:   number;   // protein-only scale factor
+  carbFactor:   number;   // carb-only scale factor
+  blendedRaw:   number;   // weighted blend before clamping (for logging)
+} {
+  // Per-macro factors: target / actual (how much to multiply ingredients)
+  // Default 1.0 when CN returned 0 to avoid collapsing the blend.
+  const calFactor  = cn.calories > 0 ? claude.calories / cn.calories : 1.0;
+  const protFactor = cn.protein  > 0 ? claude.protein  / cn.protein  : 1.0;
+  const carbFactor = cn.carbs    > 0 ? claude.carbs    / cn.carbs    : 1.0;
+
+  // Weighted blend: calories 50%, protein 35%, carbs 15%
+  // Fat excluded — CN fat estimates are too noisy for Indian cooking.
+  const blendedRaw = (calFactor * 0.50) + (protFactor * 0.35) + (carbFactor * 0.15);
+
+  // Clamp: never scale below 50% or above 120% of original
+  const scaleFactor = Math.min(Math.max(blendedRaw, 0.50), SCALE_UP_MAX_FACTOR);
+
+  return { scaleFactor, calFactor, protFactor, carbFactor, blendedRaw };
+}
+
+// ── Count-to-gram normaliser for CN queries ───────────────────────────────────
+// Indian bread items are often described as "2 rotis" in the Claude output.
+// CN cannot look up "2 rotis" — it needs "80g whole wheat roti". This converts
+// count-based descriptions to gram-only ONLY for the CN query string; the
+// original ingredients stored in the plan and shown in the app are never changed.
+
+const UNIT_GRAM_MAP: Record<string, number> = {
+  'whole wheat roti': 40,
+  'wheat roti':       40,
+  'roti':             40,
+  'chapati':          40,
+  'chapatti':         40,
+  'phulka':           30,
+  'paratha':          60,
+  'naan':             90,
+  'puri':             25,
+  'bhatura':          80,
+  'thepla':           45,
+  'idli':             40,
+  'dosa':             80,
+  'uttapam':          90,
+};
+
+export function normaliseIngredientForCN(ingredient: string): string {
+  const lower = ingredient.toLowerCase();
+
+  // Pattern: optional leading count e.g. "2 whole wheat rotis (80g)" or "2 rotis"
+  // Group 1 = count, Group 2 = food description, Group 3 = optional gram hint
+  const countPattern = /^(\d+(?:\.\d+)?)\s+(.+?)(?:\s*\((\d+(?:\.\d+)?)g\))?$/i;
+  const match        = ingredient.match(countPattern);
+  if (!match) return ingredient;    // no leading count — return unchanged
+
+  const count     = parseFloat(match[1]);
+  const foodDesc  = match[2].trim();
+  const hintGrams = match[3] ? parseFloat(match[3]) : null;
+
+  // If the string already contains a gram hint in parentheses, use it
+  // "2 whole wheat rotis (80g)" → "160g whole wheat roti"
+  if (hintGrams) {
+    const totalGrams = Math.round(hintGrams * count);
+    const cleanName  = foodDesc
+      .replace(/rotis?\s*$/i, 'roti')
+      .replace(/chapatis?\s*$/i, 'chapati')
+      .replace(/chapattis?\s*$/i, 'chapatti')
+      .replace(/idlis?\s*$/i, 'idli')
+      .replace(/parathas?\s*$/i, 'paratha')
+      .replace(/puris?\s*$/i, 'puri')
+      .replace(/naans?\s*$/i, 'naan')
+      .replace(/dosas?\s*$/i, 'dosa')
+      .trim();
+    return `${totalGrams}g ${cleanName}`;
+  }
+
+  // No gram hint — check if food name matches a known item in UNIT_GRAM_MAP
+  for (const [keyword, gramsPerUnit] of Object.entries(UNIT_GRAM_MAP)) {
+    if (lower.includes(keyword)) {
+      const totalGrams = Math.round(count * gramsPerUnit);
+      return `${totalGrams}g ${keyword}`;
+    }
+  }
+
+  // No match — return unchanged to avoid corrupting unrecognised ingredients
+  return ingredient;
+}
+
+export function normaliseIngredientsForCN(ingredients: string[]): string[] {
+  return ingredients.map(normaliseIngredientForCN);
 }
 
 export function applyScaleToIngredients(

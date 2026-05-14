@@ -8,6 +8,7 @@ import {
   computeDeviation,
   computeProportionalScaleFactor,
   applyScaleToIngredients,
+  normaliseIngredientsForCN,
   checkMealAgainstTarget,
   checkDayBudget,
   getMealMacroTargets,
@@ -170,6 +171,12 @@ interface MealLogData {
   deviationPct:           number;
   deviationAction:        string;   // final routing action
   partialMatchGuard:      boolean;
+  // Per-macro deviation detail
+  calDeviationPct?:   number;
+  protDeviationPct?:  number;
+  carbDeviationPct?:  number;
+  fatDeviationPct?:   number;
+  triggerMacro?:      string;   // which macro triggered the routing action
   // Scaling
   scalingApplied:         boolean;
   scaleFactor?:           number;
@@ -177,6 +184,11 @@ interface MealLogData {
   postScaleDeviation?:    number;
   scalingResolved?:       boolean;
   scalingSanityFailed?:   boolean;  // true = post-scale CN > 3× original Claude estimate
+  // Scale factor components (weighted blend)
+  calScaleFactor?:     number;
+  protScaleFactor?:    number;
+  carbScaleFactor?:    number;
+  blendedScaleFactor?: number;
   // Meal target check
   mealTargetCalories:     number;
   mealTargetCheckPassed:  boolean;
@@ -244,6 +256,8 @@ async function validateAndFinaliseMeal(params: {
   let postScaleDeviationPct: number | undefined;
   let scalingResolvedFlag: boolean | undefined;
   let scalingSanityFailed  = false;
+  // Weighted blend components — set when scaling path is taken
+  let logScaleComponents: { calFactor: number; protFactor: number; carbFactor: number; blendedRaw: number } | undefined;
 
   // ── CN not enabled → return Claude estimate with minimal log ─────────────
   if (!CN_ENABLED) {
@@ -325,29 +339,59 @@ async function validateAndFinaliseMeal(params: {
     }
 
     // ── 1. CN call ────────────────────────────────────────────────────────
-    const cnResult = await getMealMacrosFromCalorieNinjas(
-      currentMeal.name,
-      Array.isArray(currentMeal.ingredients) && currentMeal.ingredients.length > 0
-        ? currentMeal.ingredients
+    // Normalise count-based ingredients (e.g. "2 rotis" → "80g roti") for CN only.
+    // The original ingredients array shown in the app is never changed.
+    const originalIngredients = Array.isArray(currentMeal.ingredients)
+      ? currentMeal.ingredients : [];
+    const cnIngredients = normaliseIngredientsForCN(
+      originalIngredients.length > 0
+        ? originalIngredients
         : [currentMeal.description || currentMeal.name],
     );
+
+    // Log any normalisation changes (once per changed ingredient, first occurrence only)
+    if (!cnInitialResult) {
+      const changed = originalIngredients.filter((ing: string, i: number) => ing !== cnIngredients[i]);
+      if (changed.length > 0) {
+        console.log(`[CN Normalise] D${dayIdx+1}M${mealIndex+1} normalised ${changed.length} ingredient(s):`);
+        changed.forEach((orig: string) => {
+          const idx  = originalIngredients.indexOf(orig);
+          console.log(`  "${orig}" → "${cnIngredients[idx]}"`);
+        });
+      }
+    }
+
+    const cnResult = await getMealMacrosFromCalorieNinjas(currentMeal.name, cnIngredients);
     await new Promise(r => setTimeout(r, 50));
 
     if (!cnInitialResult) cnInitialResult = cnResult;   // save first result for log
 
     const deviation = computeDeviation(
-      originalMeal.calories,          // always compare against ORIGINAL Claude estimate
-      cnResult.macros.calories,
-      cnResult.success,
-      cnResult.itemsMatched ?? 0,
+      {
+        calories: originalMeal.calories,
+        protein:  originalMeal.protein  ?? 0,
+        carbs:    originalMeal.carbs    ?? 0,
+        fat:      originalMeal.fat      ?? 0,
+      },
+      {
+        calories:     cnResult.macros.calories,
+        protein:      cnResult.macros.proteinG  ?? 0,
+        carbs:        cnResult.macros.carbsG    ?? 0,
+        fat:          cnResult.macros.fatG      ?? 0,
+        success:      cnResult.success,
+        itemsMatched: cnResult.itemsMatched ?? 0,
+      },
     );
 
     if (initialAction === 'cn_unavailable') initialAction = deviation.action;
 
     console.log(
       `[CN] Day${dayIdx+1} Meal${mealIndex+1} "${currentMeal.name}"` +
-      ` dev=${Math.round(deviation.deviationPct)}% action=${deviation.action}` +
-      ` claude=${originalMeal.calories} cn=${Math.round(cnResult.macros.calories)}`,
+      ` calDev=${Math.round(deviation.calDeviationPct)}%` +
+      ` protDev=${Math.round(deviation.protDeviationPct)}%` +
+      ` carbDev=${Math.round(deviation.carbDeviationPct)}%` +
+      ` trigger=${deviation.triggerMacro} action=${deviation.action}` +
+      ` claude=${originalMeal.calories}kcal cn=${Math.round(cnResult.macros.calories)}kcal`,
     );
 
     // ── 2. Route by deviation action ──────────────────────────────────────
@@ -373,16 +417,35 @@ async function validateAndFinaliseMeal(params: {
       resolved     = true;
 
     } else if (deviation.action === 'scale') {
-      // ── Proportional scaling ───────────────────────────────────────────
-      const sf = computeProportionalScaleFactor(originalMeal.calories, cnResult.macros.calories);
+      // ── Proportional scaling — weighted blend: cal 50%, prot 35%, carb 15% ──
+      const {
+        scaleFactor: sf, calFactor, protFactor, carbFactor, blendedRaw,
+      } = computeProportionalScaleFactor(
+        {
+          calories: originalMeal.calories,
+          protein:  originalMeal.protein ?? 0,
+          carbs:    originalMeal.carbs   ?? 0,
+        },
+        {
+          calories: cnResult.macros.calories,
+          protein:  cnResult.macros.proteinG ?? 0,
+          carbs:    cnResult.macros.carbsG   ?? 0,
+        },
+      );
       const scaledIngredients = applyScaleToIngredients(
         Array.isArray(currentMeal.ingredients) ? currentMeal.ingredients : [],
         sf,
       );
       scalingWasApplied  = true;
       appliedScaleFactor = sf;
+      // Store blend components for logging
+      logScaleComponents = { calFactor, protFactor, carbFactor, blendedRaw };
 
-      console.log(`[CN] Scaling Day${dayIdx+1} Meal${mealIndex+1} by ${Math.round(sf * 100)}%`);
+      console.log(
+        `[Scale] D${dayIdx+1}M${mealIndex+1} "${currentMeal.name}"` +
+        ` calF=${calFactor.toFixed(3)} protF=${protFactor.toFixed(3)} carbF=${carbFactor.toFixed(3)}` +
+        ` blend=${blendedRaw.toFixed(3)} → clamped=${sf.toFixed(3)}`,
+      );
 
       const cnRecheck = await getMealMacrosFromCalorieNinjas(
         currentMeal.name,
@@ -468,6 +531,10 @@ async function validateAndFinaliseMeal(params: {
 
           const corrText = corrResp.content[0].type === 'text' ? corrResp.content[0].text : '';
           const corrMeal = JSON.parse(corrText.replace(/```json|```/g, '').trim());
+          // Inject mealIndex — Claude's correction response does not include it,
+          // so without this the meal is stored without an index field, causing
+          // a vlog ↔ plan mismatch when the plan is loaded in the app.
+          corrMeal.mealIndex = mealIndex;
           corrMeal.type  = normaliseMealType(corrMeal.type, mealIndex, mealsPerDay);
 
           // Update currentMeal and loop back — next iteration CN-checks this meal
@@ -561,12 +628,30 @@ async function validateAndFinaliseMeal(params: {
       : 0,
     deviationAction:        finalOutcome === 'accepted_cn' ? 'accept_cn' : initialAction,
     partialMatchGuard:      initialAction === 'partial_match_failure',
+    // Per-macro deviation detail (from first CN check)
+    calDeviationPct:        cnInitialResult?.success
+      ? Math.abs(cnInitialResult.macros.calories - originalMeal.calories) / Math.max(originalMeal.calories, 1) * 100
+      : undefined,
+    protDeviationPct:       (cnInitialResult?.success && (originalMeal.protein ?? 0) > 0)
+      ? Math.abs((cnInitialResult.macros.proteinG ?? 0) - (originalMeal.protein ?? 0)) / (originalMeal.protein ?? 1) * 100
+      : undefined,
+    carbDeviationPct:       (cnInitialResult?.success && (originalMeal.carbs ?? 0) > 0)
+      ? Math.abs((cnInitialResult.macros.carbsG ?? 0) - (originalMeal.carbs ?? 0)) / (originalMeal.carbs ?? 1) * 100
+      : undefined,
+    fatDeviationPct:        (cnInitialResult?.success && (originalMeal.fat ?? 0) > 0)
+      ? Math.abs((cnInitialResult.macros.fatG ?? 0) - (originalMeal.fat ?? 0)) / (originalMeal.fat ?? 1) * 100
+      : undefined,
     scalingApplied:         scalingWasApplied,
     scaleFactor:            appliedScaleFactor,
     postScaleCnCalories,
     postScaleDeviation:     postScaleDeviationPct,
     scalingResolved:        scalingResolvedFlag,
     scalingSanityFailed,
+    // Weighted blend components
+    calScaleFactor:         logScaleComponents?.calFactor,
+    protScaleFactor:        logScaleComponents?.protFactor,
+    carbScaleFactor:        logScaleComponents?.carbFactor,
+    blendedScaleFactor:     logScaleComponents?.blendedRaw,
     mealTargetCalories:     mealTarget.calories,
     mealTargetCheckPassed:  finalTargetCheck.withinTarget,
     mealTargetDeviationPct: finalTargetCheck.deviationFromTarget,
@@ -597,16 +682,16 @@ function goalLabel(goal: string): string {
 }
 
 // ── Per-meal target section for the Claude prompt ────────────────────────────
-// Computes the weighted calorie/macro target for each meal slot and formats it
-// as a prompt section so Claude sizes meals correctly rather than using equal splits.
+// Computes the weighted per-meal macro targets and formats them as a prompt
+// section so Claude sizes every meal correctly. Calls getMealMacroTargets so
+// both the prompt and the validation pipeline use the same arithmetic.
 function buildMealTargetsSection(
-  dailyTargets: { calories: number; proteinG: number; carbsG: number; fatG: number },
+  dailyTargets: { calories: number; proteinG: number; carbsG: number; fatG: number; fibreG: number },
   mealsPerDay:  number,
 ): string {
-  const dist      = MEAL_WEIGHT_DISTRIBUTIONS[mealsPerDay as 3 | 4 | 5];
   const canonical = CANONICAL_MEAL_TYPES[mealsPerDay as 3 | 4 | 5] ?? [];
 
-  if (!dist || canonical.length === 0) {
+  if (canonical.length === 0) {
     const perMeal = Math.round(dailyTargets.calories / mealsPerDay);
     return `Each of the ${mealsPerDay} meals should contain approximately ${perMeal} kcal.`;
   }
@@ -620,17 +705,20 @@ function buildMealTargetsSection(
     dinner:        'Dinner',
   };
 
-  const lines = canonical.map(typeKey => {
-    const weight = dist[typeKey] ?? (1 / mealsPerDay);
-    const cal    = Math.round(dailyTargets.calories * weight);
-    const prot   = Math.round(dailyTargets.proteinG * weight * 10) / 10;
-    const carbs  = Math.round(dailyTargets.carbsG   * weight * 10) / 10;
-    const fat    = Math.round(dailyTargets.fatG      * weight * 10) / 10;
-    return `  - ${mealLabels[typeKey] ?? typeKey}: ~${cal} kcal · P ${prot}g · C ${carbs}g · F ${fat}g`;
+  const lines = canonical.map((typeKey, index) => {
+    const t = getMealMacroTargets(dailyTargets, mealsPerDay, typeKey, index);
+    return (
+      `  - ${mealLabels[typeKey] ?? typeKey} (${Math.round(t.weight * 100)}%):` +
+      ` ~${t.calories} kcal · Protein ${t.proteinG}g · Carbs ${t.carbsG}g · Fat ${t.fatG}g`
+    );
   });
 
-  return `PER-MEAL CALORIE TARGETS (follow these — not equal splits):
-${lines.join('\n')}`;
+  return (
+    `PER-MEAL MACRO TARGETS — follow all four macros precisely, not equal splits:\n` +
+    lines.join('\n') + '\n\n' +
+    `Daily total: ${dailyTargets.calories} kcal · Protein ${dailyTargets.proteinG}g` +
+    ` · Carbs ${dailyTargets.carbsG}g · Fat ${dailyTargets.fatG}g`
+  );
 }
 
 // ── Lifestyle context block — Group B inputs (not TDEE; passed as Claude guidance) ──
@@ -1358,12 +1446,23 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
               deviationPct:           logData.deviationPct,
               deviationAction:        logData.deviationAction,
               partialMatchGuard:      logData.partialMatchGuard,
+              // Per-macro deviation
+              calDeviationPct:        logData.calDeviationPct,
+              protDeviationPct:       logData.protDeviationPct,
+              carbDeviationPct:       logData.carbDeviationPct,
+              fatDeviationPct:        logData.fatDeviationPct,
+              triggerMacro:           logData.triggerMacro,
               // Scaling
               scalingApplied:         logData.scalingApplied,
               scaleFactor:            logData.scaleFactor,
               postScaleCnCalories:    logData.postScaleCnCalories,
               postScaleDeviation:     logData.postScaleDeviation,
               scalingResolved:        logData.scalingResolved,
+              // Weighted blend components
+              calScaleFactor:         logData.calScaleFactor,
+              protScaleFactor:        logData.protScaleFactor,
+              carbScaleFactor:        logData.carbScaleFactor,
+              blendedScaleFactor:     logData.blendedScaleFactor,
               // Meal target check
               mealTargetCheckPassed:  logData.mealTargetCheckPassed,
               mealTargetDeviationPct: logData.mealTargetDeviationPct,

@@ -516,6 +516,19 @@ model MacroValidationLog {
   // ── New: plan-level slot fast-track ────────────────────────────────────
   cnSlotFailCountAtSkip   Int?      // slot failure count when plan fast-track was triggered
 
+  // ── New: per-macro deviation detail ────────────────────────────────────
+  calDeviationPct    Float?   // calorie deviation % (absolute)
+  protDeviationPct   Float?   // protein deviation % (absolute)
+  carbDeviationPct   Float?   // carb deviation % (absolute)
+  fatDeviationPct    Float?   // fat deviation % (absolute, captured not used for routing)
+  triggerMacro       String?  // which macro triggered routing: calories|protein|carbs|none
+
+  // ── New: weighted blend scale factor components ─────────────────────────
+  calScaleFactor     Float?   // calorie-only scale factor (claude.cal / cn.cal)
+  protScaleFactor    Float?   // protein-only scale factor (claude.prot / cn.prot)
+  carbScaleFactor    Float?   // carb-only scale factor (claude.carb / cn.carb)
+  blendedScaleFactor Float?   // weighted blend before clamping (cal×50%+prot×35%+carb×15%)
+
   user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, mealPlanId])

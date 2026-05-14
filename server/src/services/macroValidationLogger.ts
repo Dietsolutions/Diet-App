@@ -115,6 +115,19 @@ export interface MealValidationEntry {
 
   // ── New: plan-level slot fast-track ────────────────────────────────────
   cnSlotFailCountAtSkip?:   number;   // slot failure count that triggered plan fast-track
+
+  // ── New: per-macro deviation detail ────────────────────────────────────────
+  calDeviationPct?:    number;   // calorie deviation %
+  protDeviationPct?:   number;   // protein deviation %
+  carbDeviationPct?:   number;   // carb deviation %
+  fatDeviationPct?:    number;   // fat deviation % (captured, not used for routing)
+  triggerMacro?:       string;   // which macro triggered routing
+
+  // ── New: weighted blend scale factor components ─────────────────────────────
+  calScaleFactor?:     number;   // calorie-only scale factor
+  protScaleFactor?:    number;   // protein-only scale factor
+  carbScaleFactor?:    number;   // carb-only scale factor
+  blendedScaleFactor?: number;   // raw blend before clamping
 }
 
 export async function logMealValidation(entry: MealValidationEntry): Promise<void> {
@@ -258,6 +271,17 @@ export async function logMealValidation(entry: MealValidationEntry): Promise<voi
         dayMealCount:           entry.dayMealCount           ?? null,
         // ── Plan-level slot fast-track ──────────────────────────────────────
         cnSlotFailCountAtSkip:  entry.cnSlotFailCountAtSkip  ?? null,
+        // ── Per-macro deviation detail ────────────────────────────────────────
+        calDeviationPct:    entry.calDeviationPct    ?? null,
+        protDeviationPct:   entry.protDeviationPct   ?? null,
+        carbDeviationPct:   entry.carbDeviationPct   ?? null,
+        fatDeviationPct:    entry.fatDeviationPct    ?? null,
+        triggerMacro:       entry.triggerMacro       ?? null,
+        // ── Weighted blend scale factor components ────────────────────────────
+        calScaleFactor:     entry.calScaleFactor     ?? null,
+        protScaleFactor:    entry.protScaleFactor    ?? null,
+        carbScaleFactor:    entry.carbScaleFactor    ?? null,
+        blendedScaleFactor: entry.blendedScaleFactor ?? null,
       }
     });
 
