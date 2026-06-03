@@ -2,7 +2,6 @@
   "version": 2,
   "buildCommand": "npm run build",
   "outputDirectory": "client/dist",
-  "installCommand": "NODE_ENV=development npm run install:all",
   "framework": null,
   "functions": {
     "api/index.ts": {
@@ -31,6 +30,18 @@
       "source": "/api/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://us.i.posthog.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://us.i.posthog.com https://*.ingest.sentry.io; font-src 'self' https://fonts.gstatic.com data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "geolocation=(), camera=(), microphone=()" }
       ]
     }
   ]

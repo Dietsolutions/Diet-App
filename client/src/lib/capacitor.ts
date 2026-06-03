@@ -65,3 +65,54 @@ export async function initCapacitor(): Promise<void> {
 
 export const isNative = (): boolean => Capacitor.isNativePlatform();
 export const platform = (): string => Capacitor.getPlatform();
+
+export interface AppleSignInPayload {
+  identityToken: string;
+  fullName: { givenName?: string; familyName?: string };
+  email: string;
+  user: string;
+}
+
+/**
+ * Sign in with Apple on iOS via the native AppDelegate handler.
+ *
+ * Returns a promise that resolves with the Apple identity token + user info.
+ * The server endpoint /api/auth/apple/callback verifies the JWT signature
+ * against Apple's JWKS and issues a session JWT.
+ */
+export function signInWithApple(): Promise<AppleSignInPayload> {
+  return new Promise((resolve, reject) => {
+    if (!isNative() || platform() !== 'ios') {
+      reject(new Error('Apple Sign-In is only available on iOS devices'));
+      return;
+    }
+
+    let resolved = false;
+    const onSuccess = (event: Event) => {
+      if (resolved) return;
+      resolved = true;
+      const detail = (event as CustomEvent<AppleSignInPayload>).detail;
+      cleanup();
+      resolve(detail);
+    };
+    const onError = (event: Event) => {
+      if (resolved) return;
+      resolved = true;
+      const detail = (event as CustomEvent<{ error: string }>).detail;
+      cleanup();
+      reject(new Error(detail?.error || 'Apple Sign-In was cancelled'));
+    };
+    const cleanup = () => {
+      window.removeEventListener('apple-signin-success', onSuccess as EventListener);
+      window.removeEventListener('apple-signin-error', onError as EventListener);
+    };
+
+    window.addEventListener('apple-signin-success', onSuccess as EventListener, { once: true });
+    window.addEventListener('apple-signin-error', onError as EventListener, { once: true });
+
+    // Bridge to the native AppDelegate via a custom URL scheme.
+    // The AppDelegate intercepts "dietplan://apple-signin" and starts the native flow.
+    // (WKWebView will not actually navigate to this scheme — the AppDelegate short-circuits it.)
+    window.location.href = 'dietplan://apple-signin';
+  });
+}

@@ -178,7 +178,7 @@ p{margin:0 0 12px}
 <p>We may update this policy. Material changes will be notified via the app or by email. Continued use after changes constitutes acceptance of the updated policy.</p>
 
 <h2>Contact</h2>
-<p>For privacy inquiries or data requests, contact: dietplanapp@privacy.com (replace with actual email before publication) or through the App Store / Play Store listing.</p>
+<p>For privacy inquiries or data requests, contact: support@dietplan.app or through the App Store / Play Store listing.</p>
 
 <h2>Governing Law</h2>
 <p>This policy is governed by the laws of India. For users in the European Union, the General Data Protection Regulation (GDPR) also applies.</p>
@@ -233,12 +233,100 @@ p{margin:0 0 12px}
 <p>These terms are governed by the laws of India. Any disputes arising from these terms shall be resolved through binding arbitration in accordance with the Arbitration and Conciliation Act, 1996. The arbitration shall be conducted in English in Mumbai, India. You agree to resolve disputes on an individual basis and waive the right to participate in a class action.</p>
 
 <h2>Contact</h2>
-<p>For questions about these terms, contact: dietplanapp@legal.com (replace with actual email before publication) or through the App Store / Play Store listing.</p>
+<p>For questions about these terms, contact: support@dietplan.app or through the App Store / Play Store listing.</p>
 </body></html>`;
 
 router.get('/reset-password', (_req: Request, res: Response) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(RESET_PASSWORD_PAGE);
+});
+
+const FORGOT_PASSWORD_PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Forgot Password - Diet Plan & Tracker</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:400px;margin:0 auto;padding:24px 16px;color:#333;line-height:1.5;font-size:15px;background:#f5f5f7}
+h1{font-size:20px;margin-bottom:4px;font-weight:600}
+p{color:#666;font-size:14px;margin-bottom:20px}
+label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em}
+input{width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:6px;font-size:15px;margin-bottom:14px;outline:none}
+input:focus{border-color:#F97316;box-shadow:0 0 0 2px rgba(249,115,22,0.2)}
+button{width:100%;padding:12px;background:#F97316;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer}
+button:disabled{opacity:0.6}
+button.secondary{background:transparent;color:#666;border:1px solid #ccc;margin-top:8px}
+.error{color:#d32f2f;font-size:13px;margin-bottom:12px;padding:10px;background:#ffebee;border-radius:6px;display:none}
+.success{color:#2e7d32;font-size:14px;margin-bottom:12px;padding:14px;background:#e8f5e9;border-radius:6px;text-align:center;display:none}
+.spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;display:inline-block;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+a.link{color:#F97316;text-decoration:none;font-weight:600}
+</style>
+</head>
+<body>
+<h1>Forgot Password</h1>
+<p>Enter the email address on your account and we'll send you a link to reset your password.</p>
+<div id="error" class="error"></div>
+<div id="success" class="success"></div>
+<form id="forgotForm">
+  <label for="email">Email</label>
+  <input id="email" type="email" required autocomplete="email" placeholder="you@example.com" />
+  <button type="submit" id="submitBtn">Send Reset Link</button>
+  <button type="button" class="secondary" onclick="window.location.href='/'">Back to App</button>
+</form>
+<script>
+document.getElementById('forgotForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  const error = document.getElementById('error');
+  const success = document.getElementById('success');
+  const btn = document.getElementById('submitBtn');
+
+  if (!email) {
+    error.textContent = 'Please enter your email address.';
+    error.style.display = 'block';
+    return;
+  }
+
+  error.style.display = 'none';
+  success.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Sending...';
+
+  try {
+    const res = await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      success.textContent = 'If that email is on file, a reset link is on its way. Check your inbox.';
+      success.style.display = 'block';
+      btn.style.display = 'none';
+      document.getElementById('email').disabled = true;
+    } else {
+      error.textContent = data.error || 'Could not send reset email. Please try again later.';
+      error.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Send Reset Link';
+    }
+  } catch {
+    error.textContent = 'Connection error. Please try again.';
+    error.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Send Reset Link';
+  }
+});
+</script>
+</body>
+</html>`;
+
+router.get('/forgot-password', (_req: Request, res: Response) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(FORGOT_PASSWORD_PAGE);
 });
 
 router.get('/privacy', (_req: Request, res: Response) => {

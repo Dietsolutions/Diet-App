@@ -32,11 +32,16 @@ function createTransporter() {
   });
 }
 
-// ── Review demo account (created on startup or via env var) ─────────────
-const REVIEW_USERNAME = process.env.REVIEW_USERNAME || 'review';
-const REVIEW_PASSWORD = process.env.REVIEW_PASSWORD || 'Review@2026!';
+// ── Review demo account (App Store / Play Store reviewer) ─────────────────
+// IMPORTANT: only created when BOTH env vars are explicitly set in production.
+// This avoids shipping a hard-coded backdoor credential in any deployment
+// that forgets to override the defaults.
+const REVIEW_USERNAME = process.env.REVIEW_USERNAME;
+const REVIEW_PASSWORD = process.env.REVIEW_PASSWORD;
 
 async function ensureReviewAccount(): Promise<void> {
+  if (!REVIEW_USERNAME || !REVIEW_PASSWORD) return;
+  if (process.env.NODE_ENV !== 'production') return;
   try {
     const existing = await prisma.user.findUnique({ where: { username: REVIEW_USERNAME } });
     if (existing) return;
@@ -53,7 +58,7 @@ async function ensureReviewAccount(): Promise<void> {
     console.warn('[Auth] Could not create review account:', (err as Error).message);
   }
 }
-if (process.env.REVIEW_USERNAME || process.env.REVIEW_PASSWORD) {
+if (REVIEW_USERNAME && REVIEW_PASSWORD && process.env.NODE_ENV === 'production') {
   ensureReviewAccount();
 }
 
@@ -352,50 +357,176 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response): Promise<
 });
 
 // ── Apple Sign-In ────────────────────────────────────────────────────────────
-// Sign in with Apple must be configured in Xcode (iOS target → Signing & Capabilities).
-// Server validates the identity token and creates/links the user account.
-const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || 'com.dietplan.tracker';
+// Apple's identity token is a JWT signed with ES256 by one of Apple's JWKS keys.
+// We MUST verify the signature cryptographically — decoding without verification
+// lets any attacker forge a valid token and impersonate any Apple user.
+//
+// Apple rotates keys; we cache the JWKS for 24h.
+const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || ''; // e.g. com.dietplan.tracker.signin (Service ID)
+const APPLE_JWKS_URL  = 'https://appleid.apple.com/auth/keys';
+const APPLE_ISSUER    = 'https://appleid.apple.com';
 
-// GET /api/auth/apple/check — check if Apple Sign-In is available
+let appleJwksCache: { keys: any[]; fetchedAt: number } | null = null;
+const APPLE_JWKS_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function getAppleJwks(): Promise<any[]> {
+  if (appleJwksCache && Date.now() - appleJwksCache.fetchedAt < APPLE_JWKS_TTL_MS) {
+    return appleJwksCache.keys;
+  }
+  const res = await fetch(APPLE_JWKS_URL);
+  const data = await res.json() as { keys: any[] };
+  appleJwksCache = { keys: data.keys, fetchedAt: Date.now() };
+  return data.keys;
+}
+
+function base64UrlDecode(input: string): Buffer {
+  const pad = input.length % 4 === 0 ? 0 : 4 - (input.length % 4);
+  return Buffer.from(input.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad), 'base64');
+}
+
+function base64UrlToBigInt(input: string): bigint {
+  return BigInt('0x' + base64UrlDecode(input).toString('hex'));
+}
+
+function ecdsaSigDerToRaw(sig: Buffer, keySizeBytes: number): Buffer {
+  // Convert ASN.1 DER signature (used by Node crypto) to raw r||s (used by JWT/JWKS)
+  if (sig[0] !== 0x30) throw new Error('Invalid DER signature');
+  let offset = 2;
+  if (sig[1] & 0x80) offset += (sig[1] & 0x7f);
+  if (sig[offset] !== 0x02) throw new Error('Invalid DER signature (r)');
+  let rLen = sig[offset + 1];
+  let rStart = offset + 2;
+  if (rLen & 0x80) { rStart += (rLen & 0x7f); rLen = sig[rStart - 1]; }
+  let r = sig.subarray(rStart, rStart + rLen);
+  if (r.length > keySizeBytes) r = r.subarray(r.length - keySizeBytes);
+  offset = rStart + rLen;
+  if (sig[offset] !== 0x02) throw new Error('Invalid DER signature (s)');
+  let sLen = sig[offset + 1];
+  let sStart = offset + 2;
+  if (sLen & 0x80) { sStart += (sLen & 0x7f); sLen = sig[sStart - 1]; }
+  let s = sig.subarray(sStart, sStart + sLen);
+  if (s.length > keySizeBytes) s = s.subarray(s.length - keySizeBytes);
+  return Buffer.concat([r, s]);
+}
+
+interface AppleClaims {
+  iss: string;
+  aud: string;
+  exp: number;
+  iat: number;
+  sub: string;   // stable Apple user ID for this app
+  email?: string;
+  email_verified?: boolean | string;
+  is_private_email?: boolean | string;
+  nonce?: string;
+  nonce_supported?: boolean;
+  c_hash?: string;
+  auth_time?: number;
+}
+
+async function verifyAppleIdentityToken(identityToken: string): Promise<AppleClaims> {
+  const parts = identityToken.split('.');
+  if (parts.length !== 3) throw new Error('Malformed identity token');
+
+  const header = JSON.parse(base64UrlDecode(parts[0]).toString('utf8')) as { kid: string; alg: string };
+  if (header.alg !== 'ES256') throw new Error('Unexpected alg: ' + header.alg);
+
+  const claims = JSON.parse(base64UrlDecode(parts[1]).toString('utf8')) as AppleClaims;
+
+  // Find the matching JWKS key
+  const keys = await getAppleJwks();
+  const key = keys.find((k: any) => k.kid === header.kid);
+  if (!key) throw new Error('No matching JWKS key for kid ' + header.kid);
+  if (key.kty !== 'EC' || key.crv !== 'P-256' || !key.x || !key.y) {
+    throw new Error('JWKS key is not P-256 EC');
+  }
+
+  // Build a Node KeyObject from the JWK
+  const crypto = await import('crypto');
+  const pubKey = crypto.createPublicKey({
+    key: {
+      kty: 'EC',
+      crv: 'P-256',
+      x: base64UrlDecode(key.x),
+      y: base64UrlDecode(key.y),
+      d: undefined as any,
+    } as any,
+    format: 'jwk',
+  });
+
+  // Verify ES256 signature
+  const signedData = Buffer.from(parts[0] + '.' + parts[1], 'utf8');
+  const derSig = base64UrlDecode(parts[2]);
+  const rawSig = ecdsaSigDerToRaw(derSig, 32);
+  const ok = crypto.verify('SHA256', signedData, { key: pubKey, dsaEncoding: 'ieee-p1363' }, rawSig);
+  if (!ok) throw new Error('Invalid identity token signature');
+
+  // Validate standard claims
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.iss !== APPLE_ISSUER) throw new Error('Invalid issuer');
+  if (claims.aud !== APPLE_CLIENT_ID) throw new Error('Invalid audience (aud=' + claims.aud + ')');
+  if (claims.exp < now) throw new Error('Identity token expired');
+  if (claims.iat > now + 60) throw new Error('Identity token issued in the future');
+  if (!claims.sub) throw new Error('Missing sub claim');
+
+  return claims;
+}
+
+// GET /api/auth/apple/check — check if Apple Sign-In is properly configured on the server
 router.get('/apple/check', (_req: Request, res: Response): void => {
-  res.json({ configured: true });
+  res.json({ configured: !!APPLE_CLIENT_ID });
 });
 
-// POST /api/auth/apple/callback — validate Apple identity token
+// POST /api/auth/apple/callback — verify Apple identity token and create/link the user account
 router.post('/apple/callback', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { identityToken, fullName } = req.body;
+    if (!APPLE_CLIENT_ID) {
+      res.status(503).json({ error: 'apple_not_configured', message: 'Apple Sign-In is not configured on this server. Set APPLE_CLIENT_ID.' });
+      return;
+    }
+
+    const { identityToken, fullName, email: providedEmail } = req.body || {};
     if (!identityToken) {
       res.status(400).json({ error: 'Identity token required' });
       return;
     }
 
-    // Decode the JWT without verification first to extract the Apple user ID
-    const decoded = jwt.decode(identityToken) as { sub?: string; email?: string } | null;
-    if (!decoded || !decoded.sub) {
-      res.status(400).json({ error: 'Invalid identity token' });
+    let claims: AppleClaims;
+    try {
+      claims = await verifyAppleIdentityToken(identityToken);
+    } catch (err) {
+      console.warn('[Apple] Identity token verification failed:', (err as Error).message);
+      res.status(401).json({ error: 'invalid_identity_token', message: 'Apple identity token could not be verified.' });
       return;
     }
 
-    const appleUserId = decoded.sub;
-    const appleEmail = decoded.email || '';
+    const appleUserId = claims.sub;
+    // Apple only sends the user's email on the FIRST sign-in. On subsequent sign-ins,
+    // the iOS app must supply it from its local cache (we accept `providedEmail`).
+    const appleEmail = (claims.email || providedEmail || '').toLowerCase();
 
-    // Find or create user
-    let user = await prisma.user.findFirst({ where: { googleId: appleUserId } });
+    // Find or create the user. Look up by appleId first.
+    let user = await prisma.user.findUnique({ where: { appleId: appleUserId } });
+
+    // If no appleId match, try to link to an existing account with the same email.
     if (!user && appleEmail) {
-      user = await prisma.user.findUnique({ where: { email: appleEmail } });
-      if (user) {
+      const byEmail = await prisma.user.findUnique({ where: { email: appleEmail } });
+      if (byEmail) {
         user = await prisma.user.update({
-          where: { id: user.id },
-          data: { googleId: appleUserId, name: fullName?.givenName ? `${fullName.givenName} ${fullName.familyName || ''}`.trim() : user.name },
+          where: { id: byEmail.id },
+          data: {
+            appleId: appleUserId,
+            name: fullName?.givenName ? `${fullName.givenName} ${fullName.familyName || ''}`.trim() : byEmail.name,
+          },
         });
       }
     }
+
     if (!user) {
       user = await prisma.user.create({
         data: {
           email: appleEmail || null,
-          googleId: appleUserId,
+          appleId: appleUserId,
           name: fullName?.givenName ? `${fullName.givenName} ${fullName.familyName || ''}`.trim() : '',
           onboardingDone: false,
         }
@@ -526,6 +657,7 @@ const deleteAccountLimiter = rateLimit({
   max: 2,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: false,
   keyGenerator: (req) => (req as AuthRequest).userId || req.ip || 'unknown',
   handler: (_req, res) => {
     res.status(429).json({ error: 'rate_limit', message: 'Too many deletion attempts. Try again in an hour.' });

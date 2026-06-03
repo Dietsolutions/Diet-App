@@ -1,5 +1,5 @@
 import app from './app';
-import { prisma } from './lib/prisma';
+import { prisma, reconnectPrisma } from './lib/prisma';
 
 const PORT = Number(process.env.PORT) || 3001;
 
@@ -19,7 +19,20 @@ async function wakeDatabase(): Promise<void> {
   }
 }
 
+// Keep DB alive — Neon free tier kills idle connections after ~5min
+async function keepAlive(): Promise<void> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    console.log('[DB] Reconnecting after idle timeout...');
+    await reconnectPrisma();
+    await prisma.$queryRaw`SELECT 1`;
+    console.log('[DB] Reconnected');
+  }
+}
+
 app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   await wakeDatabase();
+  setInterval(keepAlive, 180_000);
 });

@@ -40,13 +40,4 @@
     <!-- Core -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <!-- Camera (barcode scanning) -->
-    <uses-permission android:name="android.permission.CAMERA" />
-
-    <!-- Photo library (meal photos) -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-
-    <!-- Notifications (meal reminders) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

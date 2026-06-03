@@ -4,6 +4,10 @@ import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
 import { apiUrl } from '../lib/api';
+import { isNative, platform, signInWithApple } from '../lib/capacitor';
+import { storeToken } from '../lib/auth';
+import { identifyUser } from '../lib/analytics';
+import { useAuthStore } from '../store/authStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Btn } from './ui';
 
@@ -115,6 +119,7 @@ function Field({
 // ── AuthScreen ─────────────────────────────────────────────────────────────
 export function AuthScreen() {
   const { login, signup } = useAuth();
+  const { setUser } = useAuthStore();
 
   const [mode, setMode] = useState<AuthMode>(() => {
     try {
@@ -298,7 +303,29 @@ export function AuthScreen() {
   };
 
   const handleAppleLogin = async () => {
-    setErrors({ general: 'Sign in with Apple is available on iOS devices. Use credentials or Google Sign-In on this device.' });
+    if (!isNative || platform() !== 'ios') {
+      setErrors({ general: 'Sign in with Apple is only available on the iOS app. Use credentials or Google Sign-In here.' });
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      const payload = await signInWithApple();
+      if (!payload.identityToken) throw new Error('No identity token received from Apple');
+      const res = await axios.post('/api/auth/apple/callback', {
+        identityToken: payload.identityToken,
+        fullName: payload.fullName,
+        email: payload.email,
+      }, { withCredentials: true });
+      if (res.data?.token) storeToken(res.data.token);
+      setUser(res.data.user);
+      identifyUser(res.data.user.id);
+      setSuccessBurst(true);
+      setTimeout(() => setSuccessBurst(false), 800);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Apple Sign-In failed.';
+      setErrors({ general: msg });
+      setIsSubmitting(false);
+    }
   };
 
   const isSignup = mode === 'signup';
@@ -513,7 +540,7 @@ export function AuthScreen() {
             <div style={{ textAlign: 'right', marginTop: 8 }}>
               <button
                 type="button"
-                onClick={() => setErrors({ general: 'Password reset is not yet available with email. Contact support to reset your password.' })}
+                onClick={() => { window.location.href = apiUrl('/forgot-password'); }}
                 style={{
                   background: 'none', border: 'none',
                   fontFamily: s2.sans, fontSize: 12, color: s2.textDim,

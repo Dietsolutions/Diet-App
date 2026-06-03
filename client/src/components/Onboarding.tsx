@@ -5,11 +5,18 @@ import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
 import { apiUrl } from '../lib/api';
 import { OnboardingData } from '../types';
-import { Country, City } from 'country-state-city';
 import { COUNTRIES, COUNTRY_CODES, ALLERGENS, ALLERGEN_ICONS, INGREDIENT_CATEGORIES, INGREDIENT_ICONS, CUISINE_OPTIONS, CUISINE_REGIONS, KITCHEN_EQUIPMENT, EQUIPMENT_ICONS, HEALTH_CONDITIONS } from '../data/onboarding';
 import { s2 } from '../theme/tokens';
 import { PlanReviewScreen } from './PlanReviewScreen';
 import { track } from '../lib/analytics';
+
+// `country-state-city` is ~7.7 MB. Dynamic-import the parts we need so the
+// Onboarding chunk stays under the PWA 4 MB precache limit. The actual Country/City
+// functions are loaded on demand when the user opens the country/city dropdowns.
+const getCitiesOfCountry = async (iso: string) => {
+  const mod = await import(/* webpackChunkName: "country-state-city" */ 'country-state-city');
+  return mod.City.getCitiesOfCountry(iso) || [];
+};
 
 const INITIAL: OnboardingData = {
   name: '', age: 25, gender: 'male', country: 'India', city: '',
@@ -588,10 +595,22 @@ function StepPersonal({ data, update }: { data: OnboardingData; update: (p: Part
   const [citySearch, setCitySearch] = useState('');
   const [cityManual, setCityManual] = useState(false);
   const [ageStr, setAgeStr] = useState(data.age > 0 ? String(data.age) : '');
+  const [allCities, setAllCities] = useState<{ name: string; stateCode?: string }[]>([]);
+
+  // Load cities on demand — `country-state-city` is dynamically imported to keep the
+  // Onboarding chunk under the PWA 4 MB precache limit.
+  const countryIso = data.countryCode || COUNTRY_CODES[data.country] || '';
+  useEffect(() => {
+    if (!countryIso) { setAllCities([]); return; }
+    let cancelled = false;
+    setAllCities([]);
+    getCitiesOfCountry(countryIso).then((cities: { name: string; stateCode?: string }[]) => {
+      if (!cancelled) setAllCities(cities);
+    }).catch(() => { if (!cancelled) setAllCities([]); });
+    return () => { cancelled = true; };
+  }, [countryIso]);
 
   const filteredCountries = COUNTRIES.filter(c => c.toLowerCase().includes(countrySearch.toLowerCase()));
-  const countryIso = data.countryCode || COUNTRY_CODES[data.country] || '';
-  const allCities = countryIso ? (City.getCitiesOfCountry(countryIso) || []) : [];
   const filteredCities = citySearch.length >= 1
     ? allCities.filter(c => c.name.toLowerCase().startsWith(citySearch.toLowerCase())).slice(0, 8)
     : allCities.slice(0, 8);

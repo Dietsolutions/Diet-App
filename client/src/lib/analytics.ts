@@ -7,7 +7,7 @@ let initialised = false;
 
 function optedIn(): boolean {
   const stored = localStorage.getItem('analytics_opted_in');
-  return stored !== null ? stored === 'true' : true;
+  return stored !== null ? stored === 'true' : false;
 }
 
 export function initAnalytics(): void {

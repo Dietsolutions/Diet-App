@@ -35,20 +35,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>NSCameraUsageDescription</key>
-	<string>Diet Plan &amp; Tracker uses the camera to scan food labels and barcodes.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Diet Plan &amp; Tracker accesses your photo library to attach meal photos to your food diary.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Diet Plan &amp; Tracker saves meal photos to your photo library when you choose to export them.</string>
-	<key>NSUserNotificationUsageDescription</key>
-	<string>Diet Plan &amp; Tracker sends meal reminders and plan-refresh notifications.</string>
 	<key>UIApplicationSupportsMultipleScenes</key>
 	<false/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

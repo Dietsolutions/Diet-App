@@ -55,10 +55,10 @@ export function ProfileTab() {
   const [deleteDeleting, setDeleteDeleting] = useState(false);
   const deletePasswordRef = useRef<HTMLInputElement>(null);
 
-  // Analytics opt-in/opt-out (default true)
+  // Analytics opt-in/opt-out (default false — explicit consent required by App Store / Play Store rules)
   const [analyticsOptedIn, setAnalyticsOptedIn] = useState(() => {
     const stored = localStorage.getItem('analytics_opted_in');
-    return stored !== null ? stored === 'true' : true;
+    return stored !== null ? stored === 'true' : false;
   });
 
   useEffect(() => {

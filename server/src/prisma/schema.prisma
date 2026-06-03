@@ -19,6 +19,7 @@ model User {
   email          String?   @unique
   passwordHash   String?
   googleId       String?   @unique
+  appleId        String?   @unique
   name           String?
   avatar         String?
   onboardingDone Boolean   @default(false)
