@@ -13,13 +13,26 @@
     "prisma:migrate:dev": "npm run prisma:migrate:dev --prefix server",
     "prisma:studio": "npm run prisma:studio --prefix server",
     "seed": "npm run seed --prefix server",
-    "pre-deploy": "bash scripts/pre-deploy-check.sh"
+    "pre-deploy": "bash scripts/pre-deploy-check.sh",
+    "cap:sync": "npm run build --prefix client && cap sync",
+    "cap:open:ios": "cap open ios",
+    "cap:open:android": "cap open android",
+    "cap:build:ios": "npm run build --prefix client && cap sync ios && cap open ios",
+    "cap:build:android": "npm run build --prefix client && cap sync android && cap open android"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/cli": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/ios": "^8.3.4",
     "concurrently": "^9.2.1",
     "puppeteer": "^24.40.0"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@vercel/node": "^5.7.3"
   }
 }

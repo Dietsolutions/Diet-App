@@ -1,0 +1,3 @@
+json_key_file(ENV["GOOGLE_APPLICATION_CREDENTIALS"])
+package_name("com.dietplan.tracker")
+track("internal")

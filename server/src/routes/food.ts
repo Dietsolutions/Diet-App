@@ -69,7 +69,7 @@ function checkAIFallbackRateLimit(userId: string): boolean {
 async function cleanExpiredCache(): Promise<void> {
   try {
     await prisma.foodSearchCache.deleteMany({ where: { expiresAt: { lt: new Date() } } });
-  } catch { /* best-effort */ }
+  } catch (err) { console.warn('Cache cleanup failed:', (err as Error)?.message); }
 }
 
 // ── Deduplication ─────────────────────────────────────────────────────────
@@ -249,7 +249,7 @@ router.get('/search', requireAuth, async (req: AuthRequest, res: Response): Prom
         update: { results: results as any, cachedAt: new Date(), expiresAt },
         create: { query: normalizedQuery, source: 'combined', results: results as any, cachedAt: new Date(), expiresAt },
       });
-    } catch { /* caching failure must not break the response */ }
+    } catch (err) { console.warn('Food search cache upsert failed:', (err as Error)?.message); }
 
     res.json({ results, cached: false });
   } catch (err: any) {
@@ -275,7 +275,7 @@ router.post('/ai-estimate', requireAuth, async (req: AuthRequest, res: Response)
       return;
     }
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.OPENROUTER_API_KEY && !process.env.ANTHROPIC_API_KEY) {
       res.status(500).json({ error: 'AI service not configured' });
       return;
     }

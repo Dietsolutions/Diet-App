@@ -1,0 +1,387 @@
+◇ injected env (12) from .env // tip: ⌘ override existing { override: true }
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  REAL-DATA MACRO VALIDATION TEST LOG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Data sources:
+    - LLM estimates: OpenAI gpt-4o-mini (real API call) — may fall back to noise model
+    - Ground truth:  IFCT 2017 (NIN, Hyderabad) + USDA FoodData Central
+    - Validation:    Actual code in server/src/services/macroValidation.ts
+    - DB format:     Same shape as prisma.macroValidationLog.create
+  Note on noise model: mirrors observed LLM nutrition estimation error
+    (over-estimates protein ~15-25%, under-estimates fat ~10-20%, ±15% on cal)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📡 Calling OpenAI API (gpt-4o-mini) for real LLM estimates...
+⚠ LLM call failed (429 insufficient_quota) — using documented noise model for all meals
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SUMMARY: 10 real Indian meals through real validation logic
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌────────────────────────────┬────────┬────────┬────────┬─────────┬──────────┐
+  │ meal                       │ Claude │ IFCT   │ dev%   │ action  │ outcome  │
+  ├────────────────────────────┼────────┼────────┼────────┼─────────┼──────────┤
+  │ Paneer Butter Masala       │    534 │    533 │    0.2% │ accept_cn │ accepted_cn │
+  │ Chicken Biryani            │    703 │    649 │    7.7% │ accept_cn │ accepted_cn │
+  │ Dal Tadka                  │    446 │    396 │   11.2% │ accept_cn │ accepted_cn │
+  │ Aloo Gobi                  │    232 │    247 │    6.5% │ accept_cn │ accepted_cn │
+  │ Palak Paneer               │    411 │    422 │    2.7% │ accept_cn │ accepted_cn │
+  │ Rajma                      │    382 │    438 │   14.7% │ accept_cn │ accepted_cn │
+  │ Plain Dosa                 │    493 │    461 │    6.5% │ accept_cn │ accepted_cn │
+  │ Idli with Sambar           │    587 │    588 │    0.2% │ accept_cn │ accepted_cn │
+  │ Chole                      │    432 │    405 │    6.3% │ accept_cn │ accepted_cn │
+  │ Moong Dal Khichdi          │    506 │    516 │    2.0% │ accept_cn │ accepted_cn │
+  └────────────────────────────┴────────┴────────┴────────┴─────────┴──────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FIRST 3 LOG ROWS (exact shape of prisma.macroValidationLog.create)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ── Row 1: Paneer Butter Masala ──
+  data: {
+    userId                      : "TEST_USER_REAL",
+    mealPlanId                  : "TEST_PLAN_REAL",
+    planDuration                : 7,
+    dayIndex                    : 0,
+    mealIndex                   : 1,
+    iteration                   : 1,
+    mealsPerDay                 : 4,
+    mealType                    : "lunch",
+    claudeMealName              : "Paneer Butter Masala",
+    claudeCalories              : 534,
+    claudeProtein               : 34.5,
+    claudeCarbs                 : 22.7,
+    claudeFat                   : 40.2,
+    claudeFibre                 : 5.1,
+    claudeIngredients           : "["100g paneer","100g tomato puree","30g onion","20g cashe...",
+    cnQueryString               : "100g paneer, 100g tomato puree, 30g onion, 20g cashew, 10...",
+    cnApiSuccess                : true,
+    cnApiStatusCode             : 200,
+    cnReturnedCalories          : 533,
+    cnReturnedProtein           : 24.9,
+    cnReturnedCarbs             : 21.2,
+    cnReturnedFat               : 40.8,
+    cnReturnedFibre             : 5.2,
+    cnItemsMatched              : 11,
+    userTargetCalories          : 2000,
+    userTargetProtein           : 120,
+    userTargetCarbs             : 200,
+    userTargetFat               : 60,
+    mealTargetCalories          : 700,
+    mealTargetProtein           : 42,
+    mealTargetCarbs             : 70,
+    mealTargetFat               : 21,
+    deltaCalories               : -167,
+    deltaProtein                : -17.1,
+    deltaCarbs                  : -48.8,
+    deltaFat                    : 19.799999999999997,
+    deltaPctCalories            : 76.14285714285714,
+    deltaPctProtein             : 59.285714285714285,
+    deltaPctCarbs               : 30.28571428571428,
+    deltaPctFat                 : 194.28571428571425,
+    withinTolerance             : false,
+    dayTotalCnCalories          : null,
+    dayTotalCnProtein           : null,
+    dayTotalCnCarbs             : null,
+    dayTotalCnFat               : null,
+    dayDeltaCalories            : null,
+    dayDeltaPctCalories         : null,
+    dayValidationPassed         : null,
+    correctionTriggered         : false,
+    correctionTargetMeal        : null,
+    correctionReason            : null,
+    correctionGapKcal           : null,
+    correctedMealName           : null,
+    correctedCalories           : null,
+    correctedProtein            : null,
+    correctedCarbs              : null,
+    correctedFat                : null,
+    correctedFibre              : null,
+    recheckCalories             : null,
+    recheckProtein              : null,
+    recheckCarbs                : null,
+    recheckFat                  : null,
+    recheckWithinTolerance      : null,
+    finalOutcome                : "accepted_cn",
+    finalCalories               : 533,
+    finalProtein                : 24.9,
+    finalCarbs                  : 21.2,
+    finalFat                    : 40.8,
+    finalFibre                  : 5.191,
+    accuracyDeltaKcal           : -1,
+    accuracyDeltaPct            : -0.18726591760299627,
+    deviationPct                : 0.18726591760299627,
+    deviationAction             : "accept_cn",
+    partialMatchGuard           : false,
+    scalingApplied              : false,
+    scaleFactor                 : null,
+    postScaleCnCalories         : null,
+    postScaleDeviation          : null,
+    scalingResolved             : null,
+    scalingSanityFailed         : false,
+    mealTargetCheckPassed       : false,
+    mealTargetDeviationPct      : 24,
+    attemptsUsedAtThisMeal      : 0,
+    wasDayLevelReplacement      : false,
+    dayTotalBeforeReplacement   : null,
+    dayTotalAfterReplacement    : null,
+    initialDeviationAction      : "accept_cn",
+    cnIngredientsSentCount      : 11,
+    dayMealCount                : 4,
+    cnSlotFailCountAtSkip       : null,
+    calDeviationPct             : 0.18726591760299627,
+    protDeviationPct            : 27.826086956521745,
+    carbDeviationPct            : 6.607929515418502,
+    fatDeviationPct             : 1.4925373134328215,
+    triggerMacro                : "none",
+    calScaleFactor              : null,
+    protScaleFactor             : null,
+    carbScaleFactor             : null,
+    blendedScaleFactor          : null,
+    cnAttempted                 : true
+  }
+
+  ── Row 2: Chicken Biryani ──
+  data: {
+    userId                      : "TEST_USER_REAL",
+    mealPlanId                  : "TEST_PLAN_REAL",
+    planDuration                : 7,
+    dayIndex                    : 0,
+    mealIndex                   : 3,
+    iteration                   : 1,
+    mealsPerDay                 : 4,
+    mealType                    : "dinner",
+    claudeMealName              : "Chicken Biryani",
+    claudeCalories              : 703,
+    claudeProtein               : 26.7,
+    claudeCarbs                 : 91.9,
+    claudeFat                   : 19.3,
+    claudeFibre                 : 3,
+    claudeIngredients           : "["100g chicken thigh","100g rice","50g onion","20g yogurt...",
+    cnQueryString               : "100g chicken thigh, 100g rice, 50g onion, 20g yogurt, 15g...",
+    cnApiSuccess                : true,
+    cnApiStatusCode             : 200,
+    cnReturnedCalories          : 649,
+    cnReturnedProtein           : 28.7,
+    cnReturnedCarbs             : 87.6,
+    cnReturnedFat               : 20.3,
+    cnReturnedFibre             : 2.7,
+    cnItemsMatched              : 10,
+    userTargetCalories          : 2000,
+    userTargetProtein           : 120,
+    userTargetCarbs             : 200,
+    userTargetFat               : 60,
+    mealTargetCalories          : 600,
+    mealTargetProtein           : 36,
+    mealTargetCarbs             : 60,
+    mealTargetFat               : 18,
+    deltaCalories               : 49,
+    deltaProtein                : -7.300000000000001,
+    deltaCarbs                  : 27.599999999999994,
+    deltaFat                    : 2.3000000000000007,
+    deltaPctCalories            : 108.16666666666667,
+    deltaPctProtein             : 79.72222222222221,
+    deltaPctCarbs               : 146,
+    deltaPctFat                 : 112.77777777777777,
+    withinTolerance             : true,
+    dayTotalCnCalories          : null,
+    dayTotalCnProtein           : null,
+    dayTotalCnCarbs             : null,
+    dayTotalCnFat               : null,
+    dayDeltaCalories            : null,
+    dayDeltaPctCalories         : null,
+    dayValidationPassed         : null,
+    correctionTriggered         : false,
+    correctionTargetMeal        : null,
+    correctionReason            : null,
+    correctionGapKcal           : null,
+    correctedMealName           : null,
+    correctedCalories           : null,
+    correctedProtein            : null,
+    correctedCarbs              : null,
+    correctedFat                : null,
+    correctedFibre              : null,
+    recheckCalories             : null,
+    recheckProtein              : null,
+    recheckCarbs                : null,
+    recheckFat                  : null,
+    recheckWithinTolerance      : null,
+    finalOutcome                : "accepted_cn",
+    finalCalories               : 649,
+    finalProtein                : 28.7,
+    finalCarbs                  : 87.6,
+    finalFat                    : 20.3,
+    finalFibre                  : 2.722,
+    accuracyDeltaKcal           : -54,
+    accuracyDeltaPct            : -7.681365576102419,
+    deviationPct                : 7.681365576102419,
+    deviationAction             : "accept_cn",
+    partialMatchGuard           : false,
+    scalingApplied              : false,
+    scaleFactor                 : null,
+    postScaleCnCalories         : null,
+    postScaleDeviation          : null,
+    scalingResolved             : null,
+    scalingSanityFailed         : false,
+    mealTargetCheckPassed       : true,
+    mealTargetDeviationPct      : 8,
+    attemptsUsedAtThisMeal      : 0,
+    wasDayLevelReplacement      : false,
+    dayTotalBeforeReplacement   : null,
+    dayTotalAfterReplacement    : null,
+    initialDeviationAction      : "accept_cn",
+    cnIngredientsSentCount      : 10,
+    dayMealCount                : 4,
+    cnSlotFailCountAtSkip       : null,
+    calDeviationPct             : 7.681365576102419,
+    protDeviationPct            : 7.490636704119851,
+    carbDeviationPct            : 4.67899891186073,
+    fatDeviationPct             : 5.181347150259067,
+    triggerMacro                : "none",
+    calScaleFactor              : null,
+    protScaleFactor             : null,
+    carbScaleFactor             : null,
+    blendedScaleFactor          : null,
+    cnAttempted                 : true
+  }
+
+  ── Row 3: Dal Tadka ──
+  data: {
+    userId                      : "TEST_USER_REAL",
+    mealPlanId                  : "TEST_PLAN_REAL",
+    planDuration                : 7,
+    dayIndex                    : 0,
+    mealIndex                   : 1,
+    iteration                   : 1,
+    mealsPerDay                 : 4,
+    mealType                    : "lunch",
+    claudeMealName              : "Dal Tadka",
+    claudeCalories              : 446,
+    claudeProtein               : 17.5,
+    claudeCarbs                 : 58,
+    claudeFat                   : 12.2,
+    claudeFibre                 : 14.8,
+    claudeIngredients           : "["80g toor dal","30g onion","20g tomato","10g ghee","5g g...",
+    cnQueryString               : "80g toor dal, 30g onion, 20g tomato, 10g ghee, 5g garlic,...",
+    cnApiSuccess                : true,
+    cnApiStatusCode             : 200,
+    cnReturnedCalories          : 396,
+    cnReturnedProtein           : 19.5,
+    cnReturnedCarbs             : 52.8,
+    cnReturnedFat               : 12.2,
+    cnReturnedFibre             : 13,
+    cnItemsMatched              : 8,
+    userTargetCalories          : 2000,
+    userTargetProtein           : 120,
+    userTargetCarbs             : 200,
+    userTargetFat               : 60,
+    mealTargetCalories          : 700,
+    mealTargetProtein           : 42,
+    mealTargetCarbs             : 70,
+    mealTargetFat               : 21,
+    deltaCalories               : -304,
+    deltaProtein                : -22.5,
+    deltaCarbs                  : -17.200000000000003,
+    deltaFat                    : -8.8,
+    deltaPctCalories            : 56.57142857142857,
+    deltaPctProtein             : 46.42857142857143,
+    deltaPctCarbs               : 75.42857142857142,
+    deltaPctFat                 : 58.09523809523809,
+    withinTolerance             : false,
+    dayTotalCnCalories          : null,
+    dayTotalCnProtein           : null,
+    dayTotalCnCarbs             : null,
+    dayTotalCnFat               : null,
+    dayDeltaCalories            : null,
+    dayDeltaPctCalories         : null,
+    dayValidationPassed         : null,
+    correctionTriggered         : false,
+    correctionTargetMeal        : null,
+    correctionReason            : null,
+    correctionGapKcal           : null,
+    correctedMealName           : null,
+    correctedCalories           : null,
+    correctedProtein            : null,
+    correctedCarbs              : null,
+    correctedFat                : null,
+    correctedFibre              : null,
+    recheckCalories             : null,
+    recheckProtein              : null,
+    recheckCarbs                : null,
+    recheckFat                  : null,
+    recheckWithinTolerance      : null,
+    finalOutcome                : "accepted_cn",
+    finalCalories               : 396,
+    finalProtein                : 19.5,
+    finalCarbs                  : 52.8,
+    finalFat                    : 12.2,
+    finalFibre                  : 12.991,
+    accuracyDeltaKcal           : -50,
+    accuracyDeltaPct            : -11.210762331838566,
+    deviationPct                : 11.210762331838566,
+    deviationAction             : "accept_cn",
+    partialMatchGuard           : false,
+    scalingApplied              : false,
+    scaleFactor                 : null,
+    postScaleCnCalories         : null,
+    postScaleDeviation          : null,
+    scalingResolved             : null,
+    scalingSanityFailed         : false,
+    mealTargetCheckPassed       : false,
+    mealTargetDeviationPct      : 43,
+    attemptsUsedAtThisMeal      : 0,
+    wasDayLevelReplacement      : false,
+    dayTotalBeforeReplacement   : null,
+    dayTotalAfterReplacement    : null,
+    initialDeviationAction      : "accept_cn",
+    cnIngredientsSentCount      : 8,
+    dayMealCount                : 4,
+    cnSlotFailCountAtSkip       : null,
+    calDeviationPct             : 11.210762331838566,
+    protDeviationPct            : 11.428571428571429,
+    carbDeviationPct            : 8.965517241379315,
+    fatDeviationPct             : 0,
+    triggerMacro                : "none",
+    calScaleFactor              : null,
+    protScaleFactor             : null,
+    carbScaleFactor             : null,
+    blendedScaleFactor          : null,
+    cnAttempted                 : true
+  }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DAY-LEVEL BUDGET CHECK (sum of all meals)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Day total: 4655 kcal (target 2000, dev 133.0%, valid=false)
+  Largest meal: index=1 (Chicken Biryani at 649 kcal)
+  → would trigger buildDayLevelCorrectionPrompt + Claude regen for "Chicken Biryani"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  NEW FIELDS (Fix #1, #2, #3, #4)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌────────────────────────────┬─────┬─────────┬──────┬─────┬────────┐
+  │ meal                       │ iter│ partial │ scale│ cna │ winTol │
+  ├────────────────────────────┼─────┼─────────┼──────┼─────┼────────┤
+  │ Paneer Butter Masala       │   1 │ false   │    — │ true │  false │
+  │ Chicken Biryani            │   1 │ false   │    — │ true │   true │
+  │ Dal Tadka                  │   1 │ false   │    — │ true │  false │
+  │ Aloo Gobi                  │   1 │ false   │    — │ true │  false │
+  │ Palak Paneer               │   1 │ false   │    — │ true │  false │
+  │ Rajma                      │   1 │ false   │    — │ true │  false │
+  │ Plain Dosa                 │   1 │ false   │    — │ true │   true │
+  │ Idli with Sambar           │   1 │ false   │    — │ true │  false │
+  │ Chole                      │   1 │ false   │    — │ true │  false │
+  │ Moong Dal Khichdi          │   1 │ false   │    — │ true │   true │
+  └────────────────────────────┴─────┴─────────┴──────┴─────┴────────┘
+
+  iter     = iteration count (Fix #1: was hardcoded to 0)
+  partial  = partialMatchGuard (Fix #2: now OR-accumulated across iterations)
+  scale    = scale factor applied (Fix #3 implicates cnAttempted denominator)
+  cna      = cnAttempted (Fix #3: false only when CN skipped)
+  winTol   = withinTolerance (Fix #4: now derives from mealTargetCheckPassed)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Done. 10 real meal validations × 1 day-budget check.
+  Output matches prisma.macroValidationLog schema in server/src/prisma/schema.prisma
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

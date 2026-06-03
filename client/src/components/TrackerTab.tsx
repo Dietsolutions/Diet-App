@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { format, parseISO, startOfMonth, addMonths, subMonths, getDaysInMonth, getDay, addDays, startOfWeek } from 'date-fns';
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
+import { getPlanDayIndex } from '../utils/planUtils';
 import { track, trackPage } from '../lib/analytics';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useAdditionalMealsStore } from '../store/additionalMealsStore';
@@ -24,16 +25,6 @@ function getWeekStartStr(): string {
 function getMondayOfWeek(dateStr: string): string {
   return format(startOfWeek(parseISO(dateStr), { weekStartsOn: 1 }), 'yyyy-MM-dd');
 }
-/** Modulo-based plan day index — cycles indefinitely after plan start. Returns -1 before start. */
-function getPlanDayIndex(dateStr: string, planStartStr: string | null, planDuration: number): number {
-  if (!planStartStr || !planDuration) return -1;
-  const d = new Date(dateStr     + 'T00:00:00'); d.setHours(0, 0, 0, 0);
-  const s = new Date(planStartStr + 'T00:00:00'); s.setHours(0, 0, 0, 0);
-  const diffDays = Math.round((d.getTime() - s.getTime()) / 86400000);
-  if (diffDays < 0) return -1;
-  return diffDays % planDuration;
-}
-
 // ── TrackerTab ─────────────────────────────────────────────────────────────
 export function TrackerTab() {
   const { weekData, stats, loadWeekData } = useTracker();
@@ -188,7 +179,8 @@ export function TrackerTab() {
               const isFuture  = date > today;
               const isSelected = date === selectedDate;
               const dayData   = weekDataByDate[date];
-              const isPlan    = !!dayData;
+              // isPlan: true for any date on/after plan start (cycles indefinitely)
+              const isPlan    = getPlanDayIndex(date, planWeekStartDate, planDuration) >= 0 && !isFuture;
               const eaten     = dayData?.meals.filter(m => m.eaten).length ?? 0;
               const adherePct = isPlan ? Math.round((eaten / Math.max(mealsPerDay, 1)) * 100) : 0;
 

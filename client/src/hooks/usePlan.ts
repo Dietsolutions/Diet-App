@@ -1,9 +1,12 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
+import { useAuth } from './useAuth';
 
 export function usePlan() {
   const { planDays, isGenerated, setPlanDays, setMealsPerDay, setPlanDuration, setActivePlanId, setPlanWeekStartDate } = useAppStore();
+  const { user } = useAuth();
+  const fetchedRef = useRef(false);
 
   const loadPlan = useCallback(async () => {
     try {
@@ -36,8 +39,14 @@ export function usePlan() {
   }, []);
 
   useEffect(() => {
-    loadPlan();
-  }, [loadPlan]);
+    if (user) {
+      fetchedRef.current = false;
+    }
+    if (!fetchedRef.current) {
+      fetchedRef.current = true;
+      loadPlan();
+    }
+  }, [user, loadPlan]);
 
   return { planDays, isGenerated, loadPlan };
 }

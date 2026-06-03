@@ -37,7 +37,6 @@ export function ProfileTab() {
   const [regenerating, setRegenerating] = useState(false);
   const [regenStep, setRegenStep] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
   const [showPlanReview, setShowPlanReview] = useState(false);
   const [reviewMealPlanId, setReviewMealPlanId] = useState<string>('active');
@@ -48,6 +47,23 @@ export function ProfileTab() {
   const [genUsage, setGenUsage] = useState<{ used: number; limit: number; remaining: number; resetsOn: string } | null>(null);
   const instructionsRef = useRef('');
   const { fetchLogs, fetchProjection } = useWeightStore();
+
+  // Account deletion state
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteDeleting, setDeleteDeleting] = useState(false);
+  const deletePasswordRef = useRef<HTMLInputElement>(null);
+
+  // Analytics opt-in/opt-out (default true)
+  const [analyticsOptedIn, setAnalyticsOptedIn] = useState(() => {
+    const stored = localStorage.getItem('analytics_opted_in');
+    return stored !== null ? stored === 'true' : true;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('analytics_opted_in', String(analyticsOptedIn));
+  }, [analyticsOptedIn]);
 
   useEffect(() => {
     trackPage('body_tab');
@@ -161,6 +177,21 @@ export function ProfileTab() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!deletePassword) { setDeleteError('Enter your password'); deletePasswordRef.current?.focus(); return; }
+    setDeleteError('');
+    setDeleteDeleting(true);
+    try {
+      const res = await axios.delete('/api/auth/delete-account', { data: { password: deletePassword }, withCredentials: true });
+      if (res.data.success) logout();
+      else setDeleteError(res.data.error || 'Failed to delete account');
+    } catch (err: any) {
+      setDeleteError(err?.response?.data?.error || 'Network error');
+    } finally {
+      setDeleteDeleting(false);
+    }
+  };
+
   // ── Plan review screen — shown after re-generation ────────────────────
   if (showPlanReview) {
     return (
@@ -206,37 +237,6 @@ export function ProfileTab() {
               </button>
             </div>
           )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Success screen ─────────────────────────────────────────────────────
-  if (showSuccess) {
-    return (
-      <div style={{ background: s2.bg, minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
-        <div style={{ textAlign: 'center', maxWidth: 300, width: '100%' }}>
-          {/* Accent square "check" */}
-          <div style={{
-            width: 56, height: 56, background: s2.accentFill, border: `1px solid ${s2.accent}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px',
-          }}>
-            <svg width="24" height="24" viewBox="0 0 24 24">
-              <path d="M4 12 L9 17 L20 6" stroke={s2.accent} strokeWidth="2" fill="none" strokeLinecap="square"/>
-            </svg>
-          </div>
-          <div style={{ fontFamily: s2.sans, fontSize: 26, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text, marginBottom: 10 }}>
-            Plan Ready
-          </div>
-          <div style={{ fontFamily: s2.sans, fontSize: 14, color: s2.textDim, lineHeight: 1.55, marginBottom: 28 }}>
-            Your personalised {planDuration}-day meal plan has been generated. Head to Meals to view it.
-          </div>
-          <Btn primary onClick={() => { setShowSuccess(false); setActiveTab('meals'); }} style={{ width: '100%', marginBottom: 10 }}>
-            VIEW MEAL PLAN
-          </Btn>
-          <Btn onClick={() => setShowSuccess(false)} style={{ width: '100%' }}>
-            STAY ON PROFILE
-          </Btn>
         </div>
       </div>
     );
@@ -488,6 +488,134 @@ export function ProfileTab() {
         >
           LOGOUT
         </button>
+
+        <div style={{ height: 12 }} />
+
+        {/* ── Delete Account ──────────────────────────────────────────────── */}
+        {deleteConfirm ? (
+          <div style={{
+            border: `1px solid rgba(255,62,62,0.3)`, padding: 14,
+            fontFamily: s2.sans, fontSize: 13, color: s2.text,
+          }}>
+            <div style={{ marginBottom: 10, lineHeight: 1.4 }}>
+              This permanently deletes all your data including meal plans, logs, and profile.
+              This cannot be undone.
+            </div>
+            <input
+              ref={deletePasswordRef}
+              type="password"
+              placeholder="Enter your password"
+              value={deletePassword}
+              onChange={e => setDeletePassword(e.target.value)}
+              style={{
+                width: '100%', padding: '10px 12px', marginBottom: 10,
+                background: s2.bg, border: `1px solid ${s2.line}`,
+                fontFamily: s2.sans, fontSize: 13, color: s2.text,
+                outline: 'none',
+              }}
+            />
+            {deleteError && (
+              <div style={{ color: '#FF3E3E', fontSize: 12, marginBottom: 8 }}>{deleteError}</div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={handleDeleteAccount} disabled={deleteDeleting} style={{
+                flex: 1, padding: '10px 0', background: '#FF3E3E', border: 'none',
+                fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.2em', color: '#fff',
+                cursor: 'pointer', opacity: deleteDeleting ? 0.6 : 1,
+              }}>
+                {deleteDeleting ? 'DELETING...' : 'DELETE MY ACCOUNT'}
+              </button>
+              <button onClick={() => { setDeleteConfirm(false); setDeletePassword(''); setDeleteError(''); }} style={{
+                flex: 1, padding: '10px 0', background: 'transparent', border: `1px solid ${s2.line}`,
+                fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.2em', color: s2.textDim,
+                cursor: 'pointer',
+              }}>
+                CANCEL
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setDeleteConfirm(true)}
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: `1px solid ${s2.line}`,
+              padding: '13px 0',
+              fontFamily: s2.mono,
+              fontSize: 10,
+              letterSpacing: '0.2em',
+              color: s2.textDim,
+              cursor: 'pointer',
+              textTransform: 'uppercase',
+            }}
+          >
+            DELETE ACCOUNT
+          </button>
+        )}
+
+        <div style={{ height: 12 }} />
+
+        {/* ── Analytics toggle ────────────────────────────────────────────── */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 14px', border: `1px solid ${s2.line}`,
+        }}>
+          <div>
+            <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.text }}>Usage Analytics</div>
+            <div style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer, marginTop: 2 }}>
+              Anonymous usage data to improve the app
+            </div>
+          </div>
+          <button
+            onClick={() => setAnalyticsOptedIn(!analyticsOptedIn)}
+            style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none',
+              background: analyticsOptedIn ? '#4CAF82' : s2.line,
+              cursor: 'pointer', position: 'relative', transition: 'background 200ms',
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: 2, left: analyticsOptedIn ? 22 : 2,
+              width: 20, height: 20, borderRadius: '50%', background: '#fff',
+              transition: 'left 200ms',
+            }} />
+          </button>
+        </div>
+
+        {/* ── AI & Medical Disclaimer ─────────────────────────────────────── */}
+        <div style={{
+          marginBottom: 12, padding: '10px 14px',
+          border: `1px solid rgba(249,115,22,0.25)`,
+          background: 'rgba(249,115,22,0.06)',
+          fontFamily: s2.sans, fontSize: 11, lineHeight: 1.55, color: s2.textDimmer,
+        }}>
+          <strong style={{ color: s2.accent }}>AI Disclaimer:</strong> Meal plans are
+          AI-generated and for informational purposes only. Not a substitute for
+          professional medical advice. Consult a healthcare provider before starting
+          any diet program.
+        </div>
+
+        <div style={{ height: 12 }} />
+
+        {/* ── Legal links ─────────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 16 }}>
+          <a
+            href={apiUrl('/privacy')}
+            target="_blank" rel="noopener noreferrer"
+            style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer }}
+          >
+            Privacy Policy
+          </a>
+          <span style={{ color: s2.line }}>|</span>
+          <a
+            href={apiUrl('/terms')}
+            target="_blank" rel="noopener noreferrer"
+            style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer }}
+          >
+            Terms of Service
+          </a>
+        </div>
 
         <div style={{ height: 16 }} />
       </div>

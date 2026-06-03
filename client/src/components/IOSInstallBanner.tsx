@@ -3,13 +3,18 @@
  *
  * Shown only when:
  *   - User agent is iOS Safari (not already in standalone/PWA mode)
+ *   - App is NOT running inside a native Capacitor shell
  *   - User has NOT previously dismissed it (localStorage flag)
  *   - 4 seconds have passed since mount
+ *
+ * Suppressed inside the native iOS / Android app — there's nothing to install
+ * since the user is already in a real App Store / Play Store binary.
  */
 
 import { useEffect, useState } from 'react';
 import { s2 } from '../theme/tokens';
 import { HairLabel } from './ui';
+import { isNative } from '../lib/capacitor';
 
 const DISMISSED_KEY = 'ios_install_banner_dismissed';
 
@@ -32,6 +37,7 @@ export function IOSInstallBanner() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    if (isNative()) return;
     if (!isIosSafari() || wasDismissed()) return;
     const timer = setTimeout(() => setVisible(true), 4000);
     return () => clearTimeout(timer);

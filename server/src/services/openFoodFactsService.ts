@@ -123,8 +123,8 @@ export async function searchOpenFoodFacts(query: string): Promise<FoodResult[]> 
       search_terms: query,
       page_size:    String(MAX + 4), // fetch extra to have enough after dedup
     });
-  } catch {
-    // Global pass failing must not discard the India results we already have
+  } catch (err) {
+    console.warn('OpenFoodFacts global search failed:', (err as Error)?.message);
   }
 
   const seenIds = new Set(indiaResults.map(r => r.id));

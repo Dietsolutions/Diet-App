@@ -140,7 +140,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   toggleShoppingItem: (key, bought) =>
     set((state) => ({
-      boughtItems: state.boughtItems + (bought ? 1 : -1),
+      boughtItems: Math.max(0, state.boughtItems + (bought ? 1 : -1)),
       shoppingCategories: state.shoppingCategories.map((cat) => ({
         ...cat,
         items: cat.items.map((item) => item.key === key ? { ...item, bought } : item)

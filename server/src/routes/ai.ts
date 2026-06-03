@@ -1,9 +1,9 @@
 import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
-import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { calculateBMI, calculateTDEE } from '../utils/tdee';
 import { getMealMacrosFromCalorieNinjas } from '../services/calorieNinjasService';
+import { callLLM } from '../services/llmClient';
 import {
   computeDeviation,
   computeProportionalScaleFactor,
@@ -196,6 +196,13 @@ interface MealLogData {
   mealTargetDeviationPct: number;
   // Attempt counter SNAPSHOT at START of this meal's processing
   attemptsUsedAtThisMeal: number;
+  // Number of CN-check rounds this meal went through (1+ when the main loop ran).
+  // Was hardcoded to 0 in older rows; new writes capture the real count.
+  iteration:        number;
+  // True iff getMealMacrosFromCalorieNinjas was called at least once for this meal.
+  // False only for the three "skipped" paths: CN not enabled, plan-level fast-track,
+  // and any pre-loop early return. Used by the summary to compute a real CN attempt rate.
+  cnAttempted:      boolean;
   // Final state
   finalCalories:   number;
   finalProtein:    number;
@@ -242,7 +249,6 @@ async function validateAndFinaliseMeal(params: {
   mealsPerDay:    number;
   dailyTargets:   { calories: number; proteinG: number; carbsG: number; fatG: number; fibreG: number };
   userProfile:    any;
-  anthropic:      Anthropic;
   dayIdx:         number;
   attemptsUsed:   { count: number };            // shared mutable counter for this day
   cnFailureCount: Record<number, number>;        // shared per-meal-index failure tracker (per-day)
@@ -250,7 +256,7 @@ async function validateAndFinaliseMeal(params: {
 }): Promise<{ meal: any; outcome: string; logData: MealLogData }> {
   const {
     originalMeal, mealIndex, mealsPerDay, dailyTargets,
-    userProfile, anthropic, dayIdx, attemptsUsed, cnFailureCount, cnSlotFailures,
+    userProfile, dayIdx, attemptsUsed, cnFailureCount, cnSlotFailures,
   } = params;
 
   const mealTarget             = getMealMacroTargets(dailyTargets, mealsPerDay, originalMeal.type, mealIndex);
@@ -294,6 +300,7 @@ async function validateAndFinaliseMeal(params: {
         mealTargetCheckPassed: targetCheck.withinTarget,
         mealTargetDeviationPct: targetCheck.deviationFromTarget,
         attemptsUsedAtThisMeal: attemptsAtStart,
+        iteration: 1, cnAttempted: false,
         finalCalories: currentMeal.calories, finalProtein: currentMeal.protein ?? 0,
         finalCarbs: currentMeal.carbs ?? 0, finalFat: currentMeal.fat ?? 0,
         finalFibre: currentMeal.fibre ?? 0, finalOutcome: 'cn_unavailable', withinTolerance: false,
@@ -325,6 +332,7 @@ async function validateAndFinaliseMeal(params: {
         mealTargetCheckPassed:  ptc.withinTarget,
         mealTargetDeviationPct: ptc.deviationFromTarget,
         attemptsUsedAtThisMeal: attemptsAtStart,
+        iteration: 1, cnAttempted: false,
         finalCalories:  originalMeal.calories,
         finalProtein:   originalMeal.protein  ?? 0,
         finalCarbs:     originalMeal.carbs    ?? 0,
@@ -339,7 +347,16 @@ async function validateAndFinaliseMeal(params: {
 
   // ── Flat while loop: CN check → route → optionally regenerate and loop ───
   let resolved = false;
+  // Track how many CN-check rounds this meal goes through — persisted to the log
+  // as `iteration` so the DB row tells you whether this was a 1-shot accept or
+  // a 5-round grind. Was previously hardcoded to 0.
+  let iterationCount = 0;
+  // OR-accumulate partial-match-guard hits across iterations. Was previously
+  // read from `initialAction` only, so a partial_match failure that fired
+  // AFTER a successful first CN check was silently underreported.
+  let partialMatchGuardFlag = false;
   while (!resolved) {
+    iterationCount++;
 
     // ── 0. Per-day CN fast-track — skip slots that failed twice within this day ─
     if ((cnFailureCount[mealIndex] ?? 0) >= 2) {
@@ -420,6 +437,7 @@ async function validateAndFinaliseMeal(params: {
     if (deviation.action === 'cn_failure' || deviation.action === 'partial_match_failure') {
       // Track this CN failure for fast-track detection on future iterations
       cnFailureCount[mealIndex] = (cnFailureCount[mealIndex] ?? 0) + 1;
+      if (deviation.action === 'partial_match_failure') partialMatchGuardFlag = true;
       currentMeal  = { ...originalMeal };
       finalOutcome = deviation.action;
       resolved     = true;
@@ -561,13 +579,7 @@ async function validateAndFinaliseMeal(params: {
         );
 
         try {
-          const corrResp = await anthropic.messages.create({
-            model:      CLAUDE_MODEL,
-            max_tokens: 600,
-            messages:   [{ role: 'user', content: correctionPrompt }],
-          });
-
-          const corrText = corrResp.content[0].type === 'text' ? corrResp.content[0].text : '';
+          const corrText = await callLLM(correctionPrompt, { maxTokens: 600 });
           const corrMeal = JSON.parse(corrText.replace(/```json|```/g, '').trim());
           // Inject mealIndex — Claude's correction response does not include it.
           corrMeal.mealIndex = mealIndex;
@@ -667,7 +679,7 @@ async function validateAndFinaliseMeal(params: {
       ? Math.abs(cnInitialResult.macros.calories - originalMeal.calories) / Math.max(originalMeal.calories, 1) * 100
       : 0,
     deviationAction:        finalOutcome === 'accepted_cn' ? 'accept_cn' : initialAction,
-    partialMatchGuard:      initialAction === 'partial_match_failure',
+    partialMatchGuard:      partialMatchGuardFlag,
     // Per-macro deviation detail (from first CN check)
     calDeviationPct:        cnInitialResult?.success
       ? Math.abs(cnInitialResult.macros.calories - originalMeal.calories) / Math.max(originalMeal.calories, 1) * 100
@@ -705,13 +717,15 @@ async function validateAndFinaliseMeal(params: {
     mealTargetCheckPassed:  finalTargetCheck.withinTarget,
     mealTargetDeviationPct: finalTargetCheck.deviationFromTarget,
     attemptsUsedAtThisMeal: attemptsAtStart,  // snapshot at START of this meal
+    iteration:              iterationCount,
+    cnAttempted:            true,  // we reached the main loop, so CN was tried at least once
     finalCalories:  currentMeal.calories,
     finalProtein:   currentMeal.protein  ?? 0,
     finalCarbs:     currentMeal.carbs    ?? 0,
     finalFat:       currentMeal.fat      ?? 0,
     finalFibre:     currentMeal.fibre    ?? 0,
     finalOutcome,
-    withinTolerance: finalOutcome === 'accepted_cn' || finalOutcome === 'accepted_after_scaling',
+    withinTolerance: finalTargetCheck.withinTarget,
   };
 
   return { meal: currentMeal, outcome: finalOutcome, logData };
@@ -958,9 +972,9 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     }
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    res.status(500).json({ error: 'Anthropic API key not configured. Set ANTHROPIC_API_KEY in .env' });
+    res.status(500).json({ error: 'No LLM provider configured. Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY in server/.env' });
     return;
   }
 
@@ -972,7 +986,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
 
   const planDuration: number = (profile as any).planDuration === 14 ? 14 : 7;
   const systemPrompt = planDuration === 14 ? SYSTEM_PROMPT_14 : SYSTEM_PROMPT_7;
-  const maxTokens = planDuration === 14 ? 14000 : 8000;
+  const maxTokens = planDuration === 14 ? 12000 : 8000;
 
   // Set up SSE
   res.setHeader('Content-Type', 'text/event-stream');
@@ -993,7 +1007,8 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
   };
 
   try {
-    const client = new Anthropic({ apiKey });
+    // LLM provider is auto-selected by callLLM (OpenRouter if OPENROUTER_API_KEY
+    // is set, else Anthropic). The client is no longer instantiated here.
 
     // ── Compute fresh targets BEFORE building the prompt ──────────────────────
     // This ensures the per-meal targets injected into the Claude prompt are the
@@ -1050,45 +1065,22 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     const startTime = Date.now();
 
     console.log(`AI generation starting with model ${CLAUDE_MODEL}, planDuration=${planDuration}...`);
+    sendEvent('progress', { step: 'Generating plan with AI...', tokens: 0 });
 
-    const stream = client.messages.stream({
-      model: CLAUDE_MODEL,
-      max_tokens: maxTokens,
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-      messages: [
-        { role: 'user', content: userPrompt }
-      ]
+    // Non-streaming LLM call via unified client (supports OpenRouter + Anthropic).
+    // The SSE heartbeat below keeps the connection alive during the long call.
+    // Per-meal progress events are emitted later in the CN validation loop.
+    const aiText = await callLLM(userPrompt, {
+      system: systemPrompt,
+      maxTokens: maxTokens,
     });
-
-    // Stream token count progress to client every ~300 chars
-    // Frequent SSE events also keep the connection alive on Vercel
-    let tokenCount = 0;
-    stream.on('text', (text) => {
-      tokenCount += text.length;
-      if (tokenCount % 300 < text.length) {
-        sendEvent('progress', { step: 'Writing meals...', tokens: tokenCount });
-      }
-    });
-
-    const message = await stream.finalMessage();
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`AI response in ${elapsed}s — stop_reason: ${message.stop_reason}, usage: ${JSON.stringify(message.usage)}`);
+    console.log(`AI response in ${elapsed}s (${aiText.length} chars)`);
 
-    if (message.stop_reason === 'max_tokens') {
-      sendEvent('error', { error: 'AI response was too long. Please try again.' });
-      res.end();
-      return;
-    }
-
-    const textBlock = message.content.find(b => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') {
-      sendEvent('error', { error: 'AI returned no text response. Please try again.' });
-      res.end();
-      return;
-    }
+    sendEvent('progress', { step: 'Plan generated, validating macros...', tokens: aiText.length });
 
     try {
-      let raw = textBlock.text.trim();
+      let raw = aiText.trim();
       if (raw.startsWith('```')) {
         raw = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
       }
@@ -1099,7 +1091,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       }
       planData = JSON.parse(raw);
     } catch (parseErr) {
-      console.error(`JSON parse failed (${textBlock.text.length} chars)`);
+      console.error(`JSON parse failed (${aiText.length} chars)`);
       sendEvent('error', { error: 'AI returned malformed data. Please try again.' });
       res.end();
       return;
@@ -1112,7 +1104,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       const mealsPerDayInPlan = planData.days?.[0]?.meals?.length ?? profile.mealsPerDay ?? 4;
       planData.days = (planData.days ?? []).map((day: any) => ({
         ...day,
-        meals: (day.meals ?? []).map((meal: any, mealIndex: number) => ({
+        meals: (day.meals ?? []).filter((meal: any) => meal != null).map((meal: any, mealIndex: number) => ({
           ...meal,
           type: normaliseMealType(meal.type, mealIndex, mealsPerDayInPlan),
         })),
@@ -1212,7 +1204,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
             mealsPerDay,
             dailyTargets,
             userProfile:  profile,
-            anthropic:    client,
             dayIdx,
             attemptsUsed,
             cnFailureCount,
@@ -1281,14 +1272,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
             try {
               attemptsUsed.count++;
 
-              const dayResp = await client.messages.create({
-                model:      CLAUDE_MODEL,
-                max_tokens: 600,
-                messages:   [{ role: 'user', content: dayPrompt }],
-              });
-
-              const dayText = dayResp.content[0]?.type === 'text'
-                ? dayResp.content[0].text : '';
+              const dayText = await callLLM(dayPrompt, { maxTokens: 600 });
               const dayMeal = JSON.parse(dayText.replace(/```json|```/g, '').trim());
               dayMeal.type  = normaliseMealType(
                 dayMeal.type, dayBudget.largestMealIndex, mealsPerDay,
@@ -1301,7 +1285,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 mealsPerDay,
                 dailyTargets,
                 userProfile:  profile,
-                anthropic:    client,
                 dayIdx,
                 attemptsUsed,
                 cnFailureCount,
@@ -1438,7 +1421,8 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
               planDuration,
               dayIndex:     dayIdx,
               mealIndex:    mealIdx,
-              iteration:    0,
+              iteration:    logData.iteration,
+              cnAttempted:  logData.cnAttempted,
               mealsPerDay:  planData.days[0]?.meals?.length ?? 4,
               mealType:     origMeal.type ?? 'unknown',
 
@@ -1608,8 +1592,10 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     let errorMsg = 'Failed to generate meal plan. Please try again.';
     if (err.message?.includes('timeout') || err.message?.includes('ETIMEDOUT')) {
       errorMsg = 'AI generation timed out. Please try again.';
+    } else if (err?.status === 402 || err.message?.includes('insufficient_quota') || err.message?.includes('insufficient_credits')) {
+      errorMsg = 'Service temporarily unavailable. Please try again later.';
     } else if (err?.status === 401 || err.message?.includes('auth')) {
-      errorMsg = 'AI API authentication failed. Check ANTHROPIC_API_KEY.';
+      errorMsg = 'AI API authentication failed. Check OPENROUTER_API_KEY or ANTHROPIC_API_KEY.';
     } else if (err?.status === 404 || err.message?.includes('not_found')) {
       errorMsg = `Model "${CLAUDE_MODEL}" not found. Check CLAUDE_MODEL env var.`;
     }

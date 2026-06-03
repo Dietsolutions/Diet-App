@@ -20,6 +20,7 @@ const RAW_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
  */
 axios.defaults.baseURL = RAW_BASE || undefined;
 axios.defaults.withCredentials = true;
+axios.defaults.timeout = 15000;
 
 /**
  * iOS Safari PWA fallback: attach stored JWT as Authorization header.
@@ -33,6 +34,22 @@ axios.interceptors.request.use((config) => {
   }
   return config;
 });
+
+/**
+ * Global response interceptor: handle 401 (session expired), network errors.
+ */
+axios.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.code === 'ECONNABORTED') {
+      return Promise.reject(new Error('Request timed out. Please check your connection.'));
+    }
+    if (!err.response) {
+      return Promise.reject(new Error('Network error. Please check your connection.'));
+    }
+    return Promise.reject(err);
+  }
+);
 
 export function apiUrl(path: string): string {
   const normalised = path.startsWith('/') ? path : `/${path}`;

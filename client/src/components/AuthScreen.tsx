@@ -130,6 +130,23 @@ export function AuthScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  // ── Google OAuth error handling from redirect ──────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get('error');
+    if (error) {
+      const messages: Record<string, string> = {
+        google_auth_failed: 'Google Sign-In failed. Please try again or use credentials to sign in.',
+        google_token_failed: 'Google Sign-In could not be completed. Please try again.',
+        google_no_email: 'Google account has no email address linked.',
+        google_auth_error: 'An error occurred during Google Sign-In. Please try again.',
+      };
+      setErrors({ general: messages[error] || 'Sign-In failed. Please try again.' });
+      window.history.replaceState(null, '', window.location.pathname);
+      setMode('login');
+    }
+  }, []);
+
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
   const [usernameChecking, setUsernameChecking] = useState(false);
 
@@ -182,7 +199,7 @@ export function AuthScreen() {
     setUsername(value);
     if (mode === 'signup') {
       if (value.length === 0) { setErrors(e => ({ ...e, username: undefined })); setUsernameAvailable(null); }
-      else { const err = validateUsernameFormat(value); setErrors(e => ({ ...e, username: err || undefined })); }
+      else { setUsernameAvailable(null); const err = validateUsernameFormat(value); setErrors(e => ({ ...e, username: err || undefined })); }
       lastCheckedRef.current = value;
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
       debounceRef.current = window.setTimeout(() => checkUsername(value), 500);
@@ -221,7 +238,11 @@ export function AuthScreen() {
       if (!username.trim() || !password) { setErrors({ general: 'Please enter your username and password' }); return; }
       setIsSubmitting(true);
       try { await login(username.trim(), password); }
-      catch (err: any) { setErrors({ general: err?.response?.data?.error || 'Invalid username or password' }); }
+      catch (err: any) {
+        const data = err?.response?.data;
+        if (data?.error === 'database_unavailable') setErrors({ general: data.message || 'Database is waking up. Please wait a moment and try again.' });
+        else setErrors({ general: data?.message || 'Invalid username or password' });
+      }
       finally { setIsSubmitting(false); }
       return;
     }
@@ -256,6 +277,8 @@ export function AuthScreen() {
         setErrors({ [data.field]: data.message } as Errors);
       } else if (data?.error === 'rate_limit') {
         setErrors({ general: data.message });
+      } else if (data?.error === 'database_unavailable') {
+        setErrors({ general: data.message || 'Database is waking up. Please wait a moment and try again.' });
       } else {
         setErrors({ general: data?.message || 'Something went wrong. Please try again.' });
       }
@@ -272,6 +295,10 @@ export function AuthScreen() {
     } catch {
       setErrors({ general: 'Google Sign-In is not available. Please use credentials to sign in.' });
     }
+  };
+
+  const handleAppleLogin = async () => {
+    setErrors({ general: 'Sign in with Apple is available on iOS devices. Use credentials or Google Sign-In on this device.' });
   };
 
   const isSignup = mode === 'signup';
@@ -449,6 +476,7 @@ export function AuthScreen() {
           {/* Submit */}
           <button
             type="submit"
+            aria-label={isSignup ? 'Create Account' : 'Log In'}
             disabled={isSubmitting || successBurst}
             style={{
               width: '100%',
@@ -479,6 +507,24 @@ export function AuthScreen() {
               </>
             ) : isSignup ? 'CREATE ACCOUNT →' : 'LOGIN →'}
           </button>
+
+          {/* Forgot password (login only) */}
+          {!isSignup && (
+            <div style={{ textAlign: 'right', marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={() => setErrors({ general: 'Password reset is not yet available with email. Contact support to reset your password.' })}
+                style={{
+                  background: 'none', border: 'none',
+                  fontFamily: s2.sans, fontSize: 12, color: s2.textDim,
+                  cursor: 'pointer', padding: 0,
+                  textDecoration: 'underline', textUnderlineOffset: 3,
+                }}
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
         </form>
 
         {/* ── Divider ───────────────────────────────────────────────────── */}
@@ -488,36 +534,95 @@ export function AuthScreen() {
           <div style={{ flex: 1, height: 1, background: s2.line }} />
         </div>
 
-        {/* ── Google ────────────────────────────────────────────────────── */}
-        <button
-          type="button"
-          onClick={handleGoogleLogin}
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-            padding: '13px 0',
-            background: s2.surface,
-            border: `1px solid ${s2.lineStrong}`,
-            fontFamily: s2.sans,
-            fontSize: 14,
-            color: s2.text,
-            cursor: 'pointer',
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 48 48">
-            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-          </svg>
-          Continue with Google
-        </button>
+        {/* ── Social buttons row ─────────────────────────────────────────── */}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            type="button"
+            aria-label="Sign in with Google"
+            onClick={handleGoogleLogin}
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: '12px 0',
+              background: s2.surface,
+              border: `1px solid ${s2.lineStrong}`,
+              fontFamily: s2.sans,
+              fontSize: 13,
+              color: s2.text,
+              cursor: 'pointer',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            Google
+          </button>
+          <button
+            type="button"
+            aria-label="Sign in with Apple"
+            onClick={handleAppleLogin}
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              padding: '12px 0',
+              background: '#000',
+              border: '1px solid #333',
+              fontFamily: s2.sans,
+              fontSize: 13,
+              color: '#fff',
+              cursor: 'pointer',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff" aria-hidden="true">
+              <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+            </svg>
+            Apple
+          </button>
+        </div>
 
         <div style={{ textAlign: 'center', marginTop: 28 }}>
           <HairLabel>AI-POWERED NUTRITION PLANNING</HairLabel>
+        </div>
+
+        <div style={{
+          marginTop: 20, padding: '12px 14px',
+          border: `1px solid ${s2.line}`,
+          fontSize: 11, lineHeight: 1.5, color: s2.textDimmer,
+          fontFamily: s2.sans, textAlign: 'center',
+        }}>
+          <strong style={{ color: s2.textDim }}>Medical Disclaimer:</strong>{' '}
+          This app provides AI-generated meal plans for informational purposes only.
+          It is not a substitute for professional medical advice, diagnosis, or treatment.
+          Always consult a qualified healthcare provider before starting any diet or nutrition program.
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 14, paddingBottom: 8 }}>
+          <a
+            href={apiUrl('/privacy')}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer }}
+          >
+            Privacy Policy
+          </a>
+          <span style={{ color: s2.line }}>|</span>
+          <a
+            href={apiUrl('/terms')}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer }}
+          >
+            Terms of Service
+          </a>
         </div>
       </div>
     </div>

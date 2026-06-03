@@ -14,6 +14,7 @@ import weightRoutes from './routes/weight';
 import foodRoutes from './routes/food';
 import mealsRoutes from './routes/meals';
 import waterRoutes from './routes/water';
+import pagesRoutes from './routes/pages';
 
 // ---------------------------------------------------------------------------
 // Startup env-var check — missing JWT_SECRET is fatal in production.
@@ -21,7 +22,7 @@ import waterRoutes from './routes/water';
 const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'] as const;
 const OPTIONAL_ENV = [
   'DIRECT_URL', 'CLIENT_URL', 'FRONTEND_URL',
-  'ANTHROPIC_API_KEY', 'CLAUDE_MODEL',
+  'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'CLAUDE_MODEL',
   'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL',
   'USDA_API_KEY', 'AI_FOOD_ESTIMATE_DAILY_LIMIT',
   'NODE_ENV'
@@ -56,7 +57,12 @@ const OPTIONAL_ENV = [
 function buildCorsOptions(): cors.CorsOptions {
   const explicit = new Set<string>([
     'http://localhost:5173',
-    'http://127.0.0.1:5173'
+    'http://127.0.0.1:5173',
+    // Capacitor iOS WebView origin (default)
+    'http://localhost',
+    'capacitor://localhost',
+    // Capacitor Android WebView origin
+    'https://localhost',
   ]);
   if (process.env.CLIENT_URL) explicit.add(process.env.CLIENT_URL);
   if (process.env.FRONTEND_URL) explicit.add(process.env.FRONTEND_URL);
@@ -132,6 +138,7 @@ export function createApp(): Express {
   app.use('/api/food', foodRoutes);
   app.use('/api/meals', mealsRoutes);
   app.use('/api/water', waterRoutes);
+  app.use(pagesRoutes);
 
   // 404 for unknown /api routes
   app.use('/api', (_req: Request, res: Response) => {

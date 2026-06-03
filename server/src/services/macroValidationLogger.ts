@@ -116,6 +116,9 @@ export interface MealValidationEntry {
   // ── New: plan-level slot fast-track ────────────────────────────────────
   cnSlotFailCountAtSkip?:   number;   // slot failure count that triggered plan fast-track
 
+  // ── Was CN actually attempted for this meal? ──────────────────────────
+  cnAttempted?:             boolean;  // false when CN was skipped (not enabled, fast-track, etc.)
+
   // ── New: per-macro deviation detail ────────────────────────────────────────
   calDeviationPct?:    number;   // calorie deviation %
   protDeviationPct?:   number;   // protein deviation %
@@ -271,6 +274,8 @@ export async function logMealValidation(entry: MealValidationEntry): Promise<voi
         dayMealCount:           entry.dayMealCount           ?? null,
         // ── Plan-level slot fast-track ──────────────────────────────────────
         cnSlotFailCountAtSkip:  entry.cnSlotFailCountAtSkip  ?? null,
+        // ── CN actually attempted? ───────────────────────────────────────────
+        cnAttempted:            entry.cnAttempted            ?? false,
         // ── Per-macro deviation detail ────────────────────────────────────────
         calDeviationPct:    entry.calDeviationPct    ?? null,
         protDeviationPct:   entry.protDeviationPct   ?? null,
@@ -321,6 +326,10 @@ export async function getValidationSummaryForPlan(mealPlanId: string) {
   });
 
   const totalMeals          = logs.length;
+  // Denominator = meals where CN was actually attempted (not fast-tracked or skipped).
+  // Numerator stays the same: only rows where CN returned a usable result.
+  // Old behaviour: denominator was totalMeals, so fast-tracked rows dragged the rate down.
+  const cnAttemptedCount    = logs.filter(l => l.cnAttempted).length;
   const cnSuccess           = logs.filter(l => l.cnApiSuccess).length;
   const acceptedCn          = logs.filter(l => l.finalOutcome === 'accepted_cn').length;
   const acceptedAfterScale  = logs.filter(l => l.finalOutcome === 'accepted_after_scaling').length;
@@ -351,7 +360,7 @@ export async function getValidationSummaryForPlan(mealPlanId: string) {
   return {
     mealPlanId,
     totalMeals,
-    cnApiSuccessRate:       `${cnSuccess}/${totalMeals}`,
+    cnApiSuccessRate:       `${cnSuccess}/${cnAttemptedCount}`,
     acceptedCn,
     acceptedAfterScaling:  acceptedAfterScale,
     scalingApplied,

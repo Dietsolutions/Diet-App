@@ -10,9 +10,7 @@
  */
 
 import prisma from '../lib/prisma';
-import Anthropic from '@anthropic-ai/sdk';
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { callLLM } from '../services/llmClient';
 
 export async function regenerateShoppingList(
   userId: string,
@@ -92,19 +90,12 @@ Respond ONLY with valid JSON — no markdown, no explanation:
 Use only these categories (skip empty ones):
 Proteins, Dairy, Vegetables, Fruits, Dry Goods, Pantry & Spices, Supplements`;
 
-    const response = await anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const rawText =
-      response.content[0].type === 'text' ? response.content[0].text : '';
+    const response = await callLLM(prompt, { maxTokens: 1500 });
 
     // Extract JSON from the response (handle possible markdown fences)
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.warn('regenerateShoppingList: no JSON found in Claude response');
+      console.warn('regenerateShoppingList: no JSON found in LLM response');
       return;
     }
 

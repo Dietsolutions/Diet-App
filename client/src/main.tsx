@@ -32,14 +32,20 @@ if (typeof (Array.prototype as any).at !== 'function') {
 // ── Now safe to import React and the rest of the app ─────────────────────────
 import React, { Component, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
+import { Capacitor } from '@capacitor/core';
 // Configure axios defaults (baseURL, withCredentials) before any component mounts.
 import './lib/api';
 import { initAnalytics } from './lib/analytics';
+import { initCapacitor } from './lib/capacitor';
 import App from './App';
 import './index.css';
 
 // Initialise analytics before React mounts so the first events are captured.
 initAnalytics();
+
+// Initialise native platform plugins (StatusBar, SplashScreen, App lifecycle).
+// No-op on web.
+void initCapacitor();
 
 /**
  * iOS Safari 100vh fix.
@@ -85,7 +91,7 @@ window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 100)
  * updateViaCache: 'none' ensures the browser always re-fetches the SW script
  * from the network (bypasses HTTP cache) so iOS Safari gets new versions fast.
  */
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
   navigator.serviceWorker
     .register('/sw.js', { updateViaCache: 'none' })
     .catch((err) => { console.warn('[SW] Registration failed:', err); });

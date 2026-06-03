@@ -8,14 +8,12 @@ import { logSecurityEvent } from '../utils/securityLogger';
 // on *every* request — never throw or call process.exit at module scope.
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
   if (process.env.NODE_ENV === 'production') {
-    console.error(
-      '[CRITICAL] JWT_SECRET env var is not set. ' +
-      'Add it to your Vercel project environment variables immediately. ' +
-      'Falling back to the legacy default — this is insecure.'
-    );
+    console.error('[CRITICAL] JWT_SECRET env var is not set. Set it in your Vercel environment variables.');
+    console.error('[CRITICAL] Using dev-only fallback — sessions will fail to verify after next deploy.');
+  } else {
+    console.warn('[DEV] JWT_SECRET not set — using dev-only fallback. Set JWT_SECRET in production.');
   }
-  // Must match the pre-security-audit fallback so existing JWTs remain valid.
-  return 'fat-loss-secret-key-change-in-prod';
+  return 'dev-jwt-secret-not-for-production';
 })();
 
 export interface AuthRequest extends Request {

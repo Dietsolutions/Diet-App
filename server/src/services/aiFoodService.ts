@@ -1,17 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { callLLMJson } from './llmClient';
 import { FoodResult, AIEstimateResult } from './foodTypes';
 
-const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
-
-function getClient(): Anthropic {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
-  return new Anthropic({ apiKey });
-}
-
 export async function getAIFoodEstimate(query: string): Promise<FoodResult[]> {
-  const client = getClient();
-
   const prompt = `You are a nutrition database. Return macro information for "${query}".
 Provide 1-2 common serving options.
 Respond ONLY with valid JSON, no markdown, no preamble:
@@ -27,23 +17,7 @@ Respond ONLY with valid JSON, no markdown, no preamble:
   ]
 }`;
 
-  const response = await client.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 600,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const text = response.content[0].type === 'text' ? response.content[0].text : '';
-  let raw = text.trim();
-  if (raw.startsWith('```')) {
-    raw = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
-  }
-  const jsonStart = raw.indexOf('{');
-  const jsonEnd = raw.lastIndexOf('}');
-  if (jsonStart !== -1 && jsonEnd > jsonStart) {
-    raw = raw.substring(jsonStart, jsonEnd + 1);
-  }
-  const parsed = JSON.parse(raw);
+  const parsed = await callLLMJson<{ results: any[] }>(prompt, { maxTokens: 600 });
 
   return (parsed.results || []).map((r: any) => ({
     id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -76,8 +50,6 @@ Respond ONLY with valid JSON, no markdown, no preamble:
 export async function getAINaturalLanguageEstimate(
   description: string
 ): Promise<AIEstimateResult> {
-  const client = getClient();
-
   const prompt = `You are a professional nutritionist. A user has described what they ate. Break it down into individual components and estimate accurate macros for each.
 
 Meal description: ${description}
@@ -106,21 +78,5 @@ Respond ONLY with valid JSON, no preamble, no explanation:
   "confidenceNote": "string"
 }`;
 
-  const response = await client.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 800,
-    messages: [{ role: 'user', content: prompt }],
-  });
-
-  const text = response.content[0].type === 'text' ? response.content[0].text : '';
-  let raw = text.trim();
-  if (raw.startsWith('```')) {
-    raw = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
-  }
-  const jsonStart = raw.indexOf('{');
-  const jsonEnd = raw.lastIndexOf('}');
-  if (jsonStart !== -1 && jsonEnd > jsonStart) {
-    raw = raw.substring(jsonStart, jsonEnd + 1);
-  }
-  return JSON.parse(raw) as AIEstimateResult;
+  return callLLMJson<AIEstimateResult>(prompt, { maxTokens: 800 });
 }

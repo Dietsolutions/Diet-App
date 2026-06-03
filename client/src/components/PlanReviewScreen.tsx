@@ -223,6 +223,20 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
           </div>
         </div>
 
+        {/* ── AI disclosure ── */}
+        <div style={{
+          margin: '16px 20px 0',
+          padding: '10px 14px',
+          background: 'rgba(249,115,22,0.08)',
+          border: `1px solid rgba(249,115,22,0.25)`,
+          fontFamily: s2.sans, fontSize: 11.5, lineHeight: 1.5, color: s2.textDim,
+        }}>
+          <strong style={{ color: s2.accent }}>AI-Generated:</strong> This meal plan was created by
+          artificial intelligence based on your profile. Always verify ingredients and portions
+          align with your dietary needs. Consult a healthcare professional before starting any
+          diet program.
+        </div>
+
         {/* ── Error banner ── */}
         {error && (
           <div style={{

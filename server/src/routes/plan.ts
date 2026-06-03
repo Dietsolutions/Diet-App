@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
-import Anthropic from '@anthropic-ai/sdk';
+import { callLLM } from '../services/llmClient';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { MEAL_PLAN } from '../data/mealPlan';
 import { regenerateShoppingList } from '../utils/shoppingListUtils';
@@ -214,20 +214,9 @@ Return ONLY a JSON array — no markdown, no explanation, no prose:
 
 Generate 4 varied, realistic options. Vary cuisines where possible.`;
 
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const message = await anthropic.messages.create({
-      model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
-      max_tokens: 2500,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const text = await callLLM(prompt, { maxTokens: 2500 });
 
-    const textContent = message.content.find(c => c.type === 'text');
-    if (!textContent || textContent.type !== 'text') {
-      res.status(500).json({ error: 'No AI response' });
-      return;
-    }
-
-    const jsonMatch = textContent.text.trim().match(/\[[\s\S]*\]/);
+    const jsonMatch = text.trim().match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       res.status(500).json({ error: 'Invalid AI response format' });
       return;
@@ -491,19 +480,9 @@ Respond ONLY with valid JSON (no markdown):
   ]
 }`;
 
-    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const message = await anthropic.messages.create({
-      model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      messages:   [{ role: 'user', content: prompt }],
-    });
+    const text = await callLLM(prompt, { maxTokens: 2000 });
 
-    const textContent = message.content.find(c => c.type === 'text');
-    if (!textContent || textContent.type !== 'text') {
-      res.status(500).json({ error: 'no_ai_response' }); return;
-    }
-
-    const jsonMatch = textContent.text.trim().match(/\{[\s\S]*\}/);
+    const jsonMatch = text.trim().match(/\{[\s\S]*\}/);
     if (!jsonMatch) { res.status(500).json({ error: 'invalid_ai_response' }); return; }
 
     const parsed = JSON.parse(jsonMatch[0]);

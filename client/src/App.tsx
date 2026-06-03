@@ -43,6 +43,18 @@ export default function App() {
   const toastRef = useRef<ToastHandle>(null);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
 
   // Load plan data when user is logged in and onboarded
   usePlan();
@@ -156,6 +168,21 @@ export default function App() {
   return (
     <div style={{ background: s2.bg, minHeight: '100dvh' }}>
       <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: '100dvh', position: 'relative', background: s2.bg }}>
+        {/* Offline banner */}
+        {!isOnline && (
+          <div style={{
+            background: '#B33',
+            padding: '6px 20px',
+            textAlign: 'center',
+            fontFamily: s2.sans,
+            fontSize: 12,
+            color: '#fff',
+            fontWeight: 500,
+          }}>
+            No internet connection — some features may be unavailable
+          </div>
+        )}
+
         {/* Safe-area spacer (AppBar renders this) */}
         <ErrorBoundary>
           <AppBar title="Diet Plan & Tracker" />

@@ -1,0 +1,87 @@
+default_platform(:android)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Diet Plan & Tracker — Android Fastfile
+# ─────────────────────────────────────────────────────────────────────────────
+# Used by .github/workflows/android.yml and the optional
+# `bundle exec fastlane android <lane>` local command.
+#
+# Required environment variables:
+#   GOOGLE_APPLICATION_CREDENTIALS  — path to Play Console service account JSON
+#   ANDROID_KEYSTORE_BASE64         — base64-encoded release keystore
+# ─────────────────────────────────────────────────────────────────────────────
+
+platform :android do
+
+  before_all do
+    setup_ci if ENV["CI"]
+  end
+
+  desc "Sync the JS bundle into android/app/src/main/assets/public/"
+  lane :sync do
+    sh("cd .. && npm run build --prefix client")
+    sh("cd .. && npx cap sync android")
+  end
+
+  desc "Decode the keystore from base64 (CI only)"
+  lane :decode_keystore do
+    unless ENV["ANDROID_KEYSTORE_BASE64"].nil?
+      FileUtils.mkdir_p("../app")
+      File.open("../app/diet-plan-release.jks", "wb") do |f|
+        f.write(Base64.decode64(ENV["ANDROID_KEYSTORE_BASE64"]))
+      end
+      UI.success("Keystore decoded to app/diet-plan-release.jks")
+    end
+  end
+
+  desc "Build a signed .aab for Play Store distribution"
+  lane :build do
+    sync
+    decode_keystore
+
+    # Bump versionCode
+    android_set_version_code(
+      version_code: ENV["GITHUB_RUN_NUMBER"] || (number_of_commits + 1),
+      gradle_file: "app/build.gradle"
+    )
+
+    gradle(
+      task: "bundleRelease",
+      project_dir: ".",
+      flags: "--no-daemon",
+      properties: {
+        "android.injected.signing.store.file"     => "#{Dir.pwd}/app/diet-plan-release.jks",
+        "android.injected.signing.store.password"  => ENV["ANDROID_KEYSTORE_PASSWORD"],
+        "android.injected.signing.key.alias"       => ENV["ANDROID_KEY_ALIAS"],
+        "android.injected.signing.key.password"    => ENV["ANDROID_KEY_PASSWORD"]
+      }
+    )
+  end
+
+  desc "Upload the .aab to Play Console (internal track)"
+  lane :upload do
+    aab_path = ENV["AAB_PATH"] || lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH]
+    supply(
+      aab: aab_path,
+      track: "internal",
+      skip_upload_apk: true,
+      skip_upload_aab: false,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: false,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Build and upload in one shot"
+  lane :release do
+    build
+    upload
+  end
+
+  desc "Build a debug .apk for local testing"
+  lane :dev do
+    sync
+    gradle(task: "assembleDebug", project_dir: ".", flags: "--no-daemon")
+  end
+end

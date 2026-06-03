@@ -1,0 +1,154 @@
+name: Build Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Build type'
+        required: true
+        type: choice
+        default: release
+        options:
+          - release
+          - debug
+      upload_play_console:
+        description: 'Upload to Play Console internal track'
+        required: true
+        type: choice
+        default: 'false'
+        options:
+          - 'true'
+          - 'false'
+
+  push:
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'client/**'
+      - 'capacitor.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android.yml'
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Sign Android .aab
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android/.gradle
+            android/app/build
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Install root dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Install server dependencies
+        run: npm install --prefix server --legacy-peer-deps --no-audit --no-fund
+
+      - name: Install client dependencies
+        run: npm install --prefix client --no-audit --no-fund
+
+      - name: Build client (Vite)
+        run: npm run build --prefix client
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+
+      - name: Verify Capacitor sync
+        run: npx cap sync android
+
+      - name: Decode Android keystore
+        # The keystore is stored base64-encoded in the ANDROID_KEYSTORE_BASE64
+        # secret. Decoding it here keeps the binary out of git history.
+        run: |
+          mkdir -p android/app
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/diet-plan-release.jks
+          echo "Keystore size: $(wc -c < android/app/diet-plan-release.jks) bytes"
+
+      - name: Bump version code
+        # Auto-increment versionCode so each CI build has a unique code.
+        # Google Play rejects uploads with the same versionCode.
+        run: |
+          cd android
+          CURRENT=$(grep -oE 'versionCode [0-9]+' app/build.gradle | head -1 | grep -oE '[0-9]+')
+          NEW=$((CURRENT + 1))
+          sed -i "s/versionCode $CURRENT/versionCode $NEW/" app/build.gradle
+          echo "versionCode bumped: $CURRENT → $NEW"
+
+      - name: Build signed .aab
+        working-directory: android
+        run: |
+          ./gradlew bundleRelease \
+            --no-daemon \
+            -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/android/app/diet-plan-release.jks \
+            -Pandroid.injected.signing.store.password=${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
+            -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
+            -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Locate .aab
+        id: find_aab
+        run: |
+          AAB_PATH=$(find android/app/build/outputs/bundle/release -name "*.aab" | head -1)
+          echo "aab_path=$AAB_PATH" >> $GITHUB_OUTPUT
+          echo "AAB: $AAB_PATH"
+          ls -la "$AAB_PATH"
+
+      - name: Upload .aab artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: diet-plan-android-${{ inputs.build_mode == 'debug' && 'debug' || 'release' }}-${{ github.run_number }}
+          path: ${{ steps.find_aab.outputs.aab_path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload to Play Console (internal track)
+        if: ${{ inputs.upload_play_console == 'true' || startsWith(github.ref, 'refs/tags/') }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.dietplan.tracker
+          releaseFiles: ${{ steps.find_aab.outputs.aab_path }}
+          track: internal
+          status: completed
+          mappingFile: android/app/build/outputs/mapping/release/mapping.txt
+          whatsNewDirectory: android/fastlane/whatsnew
+        continue-on-error: true
+
+  notify:
+    name: Notify on failure
+    needs: build
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failure
+        run: echo "::error::Android build failed. Check the build job logs."

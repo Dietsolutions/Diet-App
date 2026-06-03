@@ -1,11 +1,9 @@
 import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
-import Anthropic from '@anthropic-ai/sdk';
+import { callLLM } from '../services/llmClient';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { generateAudio } from '../services/ttsService';
 import { storeAudioFile } from '../services/storageService';
-
-const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
 
 const router = Router();
 
@@ -58,11 +56,6 @@ async function buildEnglishAudioScript(
   originalMeal: any,   // plan meal object — always English
   servings:     number,
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
-
-  const client = new Anthropic({ apiKey });
-
   const ingredientsList = Array.isArray(originalMeal?.ingredients)
     ? originalMeal.ingredients.join(', ')
     : '';
@@ -85,18 +78,10 @@ Structure:
 Output plain text only. No JSON. No headers. No bullet points.
 Write as natural spoken English — short sentences, easy to follow while cooking.`;
 
-  const response = await client.messages.create({
-    model:      CLAUDE_MODEL,
-    max_tokens: 800,
-    messages:   [{ role: 'user', content: prompt }],
-  });
-
-  const text = response.content[0]?.type === 'text'
-    ? response.content[0].text.trim()
-    : '';
+  const text = await callLLM(prompt, { maxTokens: 800 });
 
   // Hard cap at 2800 chars to stay within Unreal Speech limit
-  return text.substring(0, 2800);
+  return text.trim().substring(0, 2800);
 }
 
 // POST /api/meals/replace
@@ -173,8 +158,8 @@ router.post('/replace', requireAuth, async (req: AuthRequest, res: Response): Pr
         update: { eaten: true, loggedAt: new Date() },
         create: { userId, date, dayIndex: dIdx >= 0 ? dIdx : (dayIndex ?? 0), mealIndex, eaten: true },
       });
-    } catch {
-      // non-critical
+    } catch (err) {
+      console.warn('Meal log upsert failed:', (err as Error)?.message);
     }
 
     // Upsert RecentFoodLog — keep latest 10 per user
@@ -207,8 +192,8 @@ router.post('/replace', requireAuth, async (req: AuthRequest, res: Response): Pr
           where: { id: { in: toDelete } },
         });
       }
-    } catch {
-      // non-critical
+    } catch (err) {
+      console.warn('RecentFoodLog upsert failed:', (err as Error)?.message);
     }
 
     res.json({ replacement });
@@ -370,7 +355,7 @@ router.post('/additional', requireAuth, async (req: AuthRequest, res: Response):
       if (allRecent.length > 10) {
         await prisma.recentFoodLog.deleteMany({ where: { id: { in: allRecent.slice(10).map(r => r.id) } } });
       }
-    } catch { /* non-critical */ }
+    } catch (err) { console.warn('RecentFoodLog cleanup failed:', (err as Error)?.message); }
 
     res.json({ additionalMeal });
   } catch (err: any) {
@@ -480,9 +465,8 @@ router.post('/instructions/generate', requireAuth, async (req: AuthRequest, res:
     const meal = mealsArr[mealIndex];
     if (!meal) { res.status(404).json({ error: 'Meal not found at that index' }); return; }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY;
     if (!apiKey) { res.status(500).json({ error: 'AI service not configured' }); return; }
-    const client = new Anthropic({ apiKey });
 
     const ingredientsList = Array.isArray(meal.ingredients) ? meal.ingredients.join('\n') : 'Based on the meal name and description';
     const servingsLabel   = servings === 1 ? '1 person (single serving)' : `${servings} people`;
@@ -545,14 +529,8 @@ Respond ONLY with valid JSON matching this exact structure:
   "substitution": string
 }`;
 
-    const aiRes = await client.messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: 4096,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    const rawText = aiRes.content[0].type === 'text' ? aiRes.content[0].text : '';
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    const aiText = await callLLM(prompt, { maxTokens: 4096 });
+    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) { res.status(500).json({ error: 'AI returned invalid format. Please try again.' }); return; }
     const parsed = JSON.parse(jsonMatch[0]);
 

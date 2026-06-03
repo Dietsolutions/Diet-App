@@ -1,0 +1,92 @@
+default_platform(:ios)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Diet Plan & Tracker — iOS Fastfile
+# ─────────────────────────────────────────────────────────────────────────────
+# Used by .github/workflows/ios.yml and the optional `bundle exec fastlane ios <lane>`
+# local command.
+#
+# Required environment variables (set in GitHub repo secrets):
+#   APPLE_TEAM_ID          — your Apple Developer Team ID (10 chars)
+#   APPLE_ID               — your Apple ID email
+#   MATCH_GIT_URL          — private git repo for certs (used by `match`)
+#   MATCH_PASSWORD         — encryption password for the match repo
+# ─────────────────────────────────────────────────────────────────────────────
+
+platform :ios do
+
+  before_all do
+    setup_ci if ENV["CI"]
+  end
+
+  desc "Sync the JS bundle into ios/App/App/public/"
+  lane :sync do
+    sh("cd .. && npm run build --prefix client")
+    sh("cd .. && npx cap sync ios")
+  end
+
+  desc "Build a signed .ipa for App Store distribution"
+  lane :build do |options|
+    build_mode = options[:mode] || "release"
+
+    sync
+
+    # Bump build number
+    increment_build_number(
+      xcodeproj: "App.xcodeproj",
+      build_number: ENV["GITHUB_RUN_NUMBER"] || latest_testflight_build_number + 1
+    )
+
+    match(
+      type: "appstore",
+      app_identifier: "com.dietplan.tracker",
+      readonly: true,
+      git_url: ENV["MATCH_GIT_URL"]
+    )
+
+    gym(
+      workspace: "App.xcworkspace",
+      scheme: "App",
+      configuration: build_mode.capitalize,
+      destination: "generic/platform=iOS",
+      output_directory: "./build",
+      output_name: "Diet Plan & Tracker.ipa",
+      export_options: {
+        method: "app-store",
+        teamID: ENV["APPLE_TEAM_ID"],
+        uploadSymbols: true,
+        uploadBitcode: false,
+        thinning: "<none>"
+      }
+    )
+  end
+
+  desc "Upload the .ipa to TestFlight"
+  lane :upload do
+    pilot(
+      skip_waiting_for_build_processing: true,
+      ipa: ENV["IPA_PATH"] || "./build/Diet Plan & Tracker.ipa"
+    )
+  end
+
+  desc "Build and upload to TestFlight in one shot"
+  lane :release do
+    build
+    upload
+  end
+
+  desc "Build for local development (no signing, simulator)"
+  lane :dev do
+    sync
+    gym(
+      workspace: "App.xcworkspace",
+      scheme: "App",
+      configuration: "Debug",
+      destination: "generic/platform=iOS Simulator",
+      skip_codesigning: true,
+      skip_package_pkg: true,
+      output_directory: "./build",
+      output_name: "Diet Plan & Tracker-dev.app"
+    )
+  end
+end
