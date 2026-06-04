@@ -1,6 +1,8 @@
 import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { validateWeightNote } from '../utils/validation';
+import { perUserLimiter } from '../middleware/perUserLimiter';
 
 const router = Router();
 
@@ -20,7 +22,7 @@ router.get('/logs', requireAuth, async (req: AuthRequest, res: Response): Promis
 });
 
 // POST /api/weight/log — create a new weight log
-router.post('/log', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/log', requireAuth, perUserLimiter({ windowMs: 60_000, max: 60, keyPrefix: 'weight-log' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const { weightKg, note, loggedAt } = req.body;
@@ -29,6 +31,7 @@ router.post('/log', requireAuth, async (req: AuthRequest, res: Response): Promis
       res.status(400).json({ error: 'Weight must be a number between 20 and 300 kg' });
       return;
     }
+    const cleanNote = validateWeightNote(note) ?? '';
 
     const logDate = loggedAt ? new Date(loggedAt) : new Date();
 
@@ -54,15 +57,27 @@ router.post('/log', requireAuth, async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    const log = await prisma.weightLog.create({
-      data: {
-        userId,
-        weightKg,
-        loggedAt: logDate,
-        note: note || ''
-      },
-      select: { id: true, weightKg: true, loggedAt: true, note: true }
-    });
+    // P2002 guard: a concurrent POST from another tab/device can win the
+    // race past the findFirst check. Translating the unique-constraint
+    // violation to a 409 keeps the user informed instead of returning 500.
+    let log;
+    try {
+      log = await prisma.weightLog.create({
+        data: {
+          userId,
+          weightKg,
+          loggedAt: logDate,
+          note: cleanNote
+        },
+        select: { id: true, weightKg: true, loggedAt: true, note: true }
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        res.status(409).json({ error: 'duplicate_weight_log', message: 'A weight log for this day already exists.' });
+        return;
+      }
+      throw err;
+    }
 
     res.json({ log });
   } catch (err) {
@@ -91,7 +106,14 @@ router.patch('/log/:id', requireAuth, async (req: AuthRequest, res: Response): P
 
     const updateData: any = {};
     if (weightKg !== undefined) updateData.weightKg = weightKg;
-    if (note !== undefined) updateData.note = note;
+    if (note !== undefined) {
+      const cleanNote = validateWeightNote(note);
+      if (cleanNote === null && note !== null) {
+        res.status(400).json({ error: 'note must be a string under 500 chars' });
+        return;
+      }
+      updateData.note = cleanNote ?? '';
+    }
 
     const log = await prisma.weightLog.update({
       where: { id },

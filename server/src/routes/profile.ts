@@ -2,6 +2,23 @@ import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { calculateTDEE, calculateBMI } from '../utils/tdee';
+import {
+  validateName,
+  validateCountry,
+  validateCity,
+  validateCountryCode,
+  validateCurrency,
+  validateCookingStyle,
+  validateShortString,
+  validateCuisinePrefs,
+  validateAllergies,
+  validatePreferredIng,
+  validateAvoidIng,
+  validateHealthConds,
+  validateKitchenEquip,
+  validateTimeHHMM,
+} from '../utils/validation';
+import { perUserLimiter } from '../middleware/perUserLimiter';
 
 const router = Router();
 
@@ -37,7 +54,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response): Promise<vo
 });
 
 // POST /api/profile — create or update profile
-router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requireAuth, perUserLimiter({ windowMs: 60_000, max: 30, keyPrefix: 'profile-save' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const data = req.body;
@@ -108,38 +125,38 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
 
     const profileData = {
       userId,
-      name: data.name,
+      name: validateName(data.name) ?? '',
       age: data.age,
       gender: data.gender,
-      country: data.country,
-      city: data.city,
+      country: validateCountry(data.country) ?? '',
+      city: validateCity(data.city) ?? '',
       weightKg: data.weightKg,
       heightCm: data.heightCm,
       targetWeightKg: data.targetWeightKg ?? null,
-      mealPreference: data.mealPreference,
-      cuisinePreferences: JSON.stringify(data.cuisinePreferences || []),
+      mealPreference: validateShortString(data.mealPreference) ?? 'vegetarian',
+      cuisinePreferences: JSON.stringify(validateCuisinePrefs(data.cuisinePreferences) ?? []),
       mealsPerDay: data.mealsPerDay || 4,
-      eatingWindow: data.eatingWindow || 'standard',
-      allergies: JSON.stringify(data.allergies || []),
-      preferredIngredients: JSON.stringify(data.preferredIngredients || []),
-      avoidIngredients: JSON.stringify(data.avoidIngredients || []),
+      eatingWindow: validateShortString(data.eatingWindow) ?? 'standard',
+      allergies: JSON.stringify(validateAllergies(data.allergies) ?? []),
+      preferredIngredients: JSON.stringify(validatePreferredIng(data.preferredIngredients) ?? []),
+      avoidIngredients: JSON.stringify(validateAvoidIng(data.avoidIngredients) ?? []),
       primaryGoal: data.primaryGoal,
       dietIntensity: data.dietIntensity ?? null,
-      activityLevel: data.activityLevel,
-      healthConditions: JSON.stringify(data.healthConditions || []),
-      wakeUpTime: data.wakeUpTime || '07:00',
-      sleepTime: data.sleepTime || '23:00',
-      cookingStyle: data.cookingStyle || 'home',
-      kitchenEquipment: JSON.stringify(data.kitchenEquipment || []),
+      activityLevel: validateShortString(data.activityLevel) ?? 'moderate',
+      healthConditions: JSON.stringify(validateHealthConds(data.healthConditions) ?? []),
+      wakeUpTime: validateTimeHHMM(data.wakeUpTime) ?? '07:00',
+      sleepTime: validateTimeHHMM(data.sleepTime) ?? '23:00',
+      cookingStyle: validateCookingStyle(data.cookingStyle) ?? 'home',
+      kitchenEquipment: JSON.stringify(validateKitchenEquip(data.kitchenEquipment) ?? []),
       weeklyBudget: data.weeklyBudget || null,
-      budgetCurrency: data.budgetCurrency || 'INR',
+      budgetCurrency: validateCurrency(data.budgetCurrency) ?? 'INR',
       waterIntakeGoal: data.waterIntakeGoal || 8,
       planDuration: data.planDuration === 14 ? 14 : 7,
-      countryCode: data.countryCode || null,
+      countryCode: validateCountryCode(data.countryCode) ?? null,
       eatingWindowHours: data.eatingWindowHours ?? null,
       fastingWindowHours: data.fastingWindowHours ?? null,
-      eatingStartTime: data.eatingStartTime || null,
-      eatingEndTime: data.eatingEndTime || null,
+      eatingStartTime: validateTimeHHMM(data.eatingStartTime) ?? null,
+      eatingEndTime: validateTimeHHMM(data.eatingEndTime) ?? null,
       // Group A — TDEE inputs
       trainingType:          data.trainingType          ?? 'none',
       trainingDaysPerWeek:   data.trainingDaysPerWeek   ?? 3,

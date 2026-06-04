@@ -20,6 +20,8 @@ import { getAIFoodEstimate, getAINaturalLanguageEstimate } from '../services/aiF
 import { searchINDB, searchICMRNIN } from '../services/indianFoodService';
 import { getMealMacrosFromCalorieNinjas } from '../services/calorieNinjasService';
 import { FoodResult } from '../services/foodTypes';
+import { perUserLimiter } from '../middleware/perUserLimiter';
+import { logSecurityEvent } from '../utils/securityLogger';
 
 const router = Router();
 
@@ -201,7 +203,7 @@ async function runWaterfall(
       console.warn('[Waterfall] AI fallback failed:', err.message);
     }
   } else {
-    console.log(`[Waterfall] AI fallback rate-limited for ${userId}`);
+    logSecurityEvent('ai_fallback_rate_limited', { userId });
   }
 
   return { results: dedup(collected).slice(0, limit), sources, usedAI };
@@ -209,7 +211,7 @@ async function runWaterfall(
 
 // ── GET /api/food/search ──────────────────────────────────────────────────
 
-router.get('/search', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/search', requireAuth, perUserLimiter({ windowMs: 60_000, max: 30, keyPrefix: 'food-search' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const query  = (req.query.q as string || '').trim();
     const limit  = Math.min(parseInt(req.query.limit as string || '10', 10), 20);

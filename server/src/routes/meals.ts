@@ -4,6 +4,15 @@ import { callLLM } from '../services/llmClient';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { generateAudio } from '../services/ttsService';
 import { storeAudioFile } from '../services/storageService';
+import { perUserLimiter } from '../middleware/perUserLimiter';
+import {
+  validateFoodName,
+  validateFoodSource,
+  validateMealNote,
+  validateServingSize,
+  validateMealTime,
+  validateCustomInstr,
+} from '../utils/validation';
 
 const router = Router();
 
@@ -85,7 +94,7 @@ Write as natural spoken English — short sentences, easy to follow while cookin
 }
 
 // POST /api/meals/replace
-router.post('/replace', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/replace', requireAuth, perUserLimiter({ windowMs: 60_000, max: 60, keyPrefix: 'meals-replace' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const {
@@ -96,8 +105,12 @@ router.post('/replace', requireAuth, async (req: AuthRequest, res: Response): Pr
       note, isAiEstimate,
     } = req.body;
 
-    // Validate required fields
-    if (!date || typeof mealIndex !== 'number' || !foodName || !foodSource) {
+    // Validate required fields (with length caps to prevent 1MB notes)
+    const cleanFoodName    = validateFoodName(foodName);
+    const cleanFoodSource  = validateFoodSource(foodSource) ?? '';
+    const cleanServingSize = validateServingSize(servingSize);
+    const cleanNote        = validateMealNote(note);
+    if (!date || typeof mealIndex !== 'number' || !cleanFoodName || !cleanFoodSource) {
       res.status(400).json({ error: 'Missing required fields: date, mealIndex, foodName, foodSource' });
       return;
     }
@@ -114,10 +127,10 @@ router.post('/replace', requireAuth, async (req: AuthRequest, res: Response): Pr
       },
       update: {
         dayIndex: dayIndex ?? 0,
-        foodName,
-        foodSource,
+        foodName: cleanFoodName,
+        foodSource: cleanFoodSource,
         foodExternalId: foodExternalId || null,
-        servingSize: servingSize || '1 serving',
+        servingSize: cleanServingSize || '1 serving',
         servingQty: servingQty ?? 1,
         servingGrams: servingGrams ?? null,
         calories: calories ?? 0,
@@ -125,7 +138,7 @@ router.post('/replace', requireAuth, async (req: AuthRequest, res: Response): Pr
         carbsG: carbsG ?? 0,
         fatG: fatG ?? 0,
         fibreG: fibreG ?? 0,
-        note: note || '',
+        note: cleanNote || '',
         isAiEstimate: isAiEstimate ?? false,
       },
       create: {
@@ -133,10 +146,10 @@ router.post('/replace', requireAuth, async (req: AuthRequest, res: Response): Pr
         date,
         dayIndex: dayIndex ?? 0,
         mealIndex,
-        foodName,
-        foodSource,
+        foodName: cleanFoodName,
+        foodSource: cleanFoodSource,
         foodExternalId: foodExternalId || null,
-        servingSize: servingSize || '1 serving',
+        servingSize: cleanServingSize || '1 serving',
         servingQty: servingQty ?? 1,
         servingGrams: servingGrams ?? null,
         calories: calories ?? 0,
@@ -144,7 +157,7 @@ router.post('/replace', requireAuth, async (req: AuthRequest, res: Response): Pr
         carbsG: carbsG ?? 0,
         fatG: fatG ?? 0,
         fibreG: fibreG ?? 0,
-        note: note || '',
+        note: cleanNote || '',
         isAiEstimate: isAiEstimate ?? false,
       },
     });
@@ -287,7 +300,7 @@ router.get('/additional', requireAuth, async (req: AuthRequest, res: Response): 
 });
 
 // POST /api/meals/additional
-router.post('/additional', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/additional', requireAuth, perUserLimiter({ windowMs: 60_000, max: 60, keyPrefix: 'meals-additional' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const {
@@ -298,8 +311,13 @@ router.post('/additional', requireAuth, async (req: AuthRequest, res: Response):
       note, isAiEstimate,
     } = req.body;
 
-    // Validate required fields
-    if (!date || !mealCategory || !foodName || !foodSource) {
+    // Validate required fields (with length caps to prevent 1MB notes)
+    const cleanFoodName    = validateFoodName(foodName);
+    const cleanFoodSource  = validateFoodSource(foodSource) ?? '';
+    const cleanServingSize = validateServingSize(servingSize);
+    const cleanNote        = validateMealNote(note);
+    const cleanMealTime    = validateMealTime(mealTime);
+    if (!date || !mealCategory || !cleanFoodName || !cleanFoodSource) {
       res.status(400).json({ error: 'Missing required fields: date, mealCategory, foodName, foodSource' }); return;
     }
     if (!VALID_MEAL_CATEGORIES.includes(mealCategory)) {
@@ -321,11 +339,11 @@ router.post('/additional', requireAuth, async (req: AuthRequest, res: Response):
         userId,
         date,
         mealCategory,
-        mealTime: mealTime || null,
-        foodName,
-        foodSource,
+        mealTime: cleanMealTime || null,
+        foodName: cleanFoodName,
+        foodSource: cleanFoodSource,
         foodExternalId: foodExternalId || null,
-        servingSize: servingSize || '1 serving',
+        servingSize: cleanServingSize || '1 serving',
         servingQty,
         servingGrams: servingGrams ?? null,
         calories: calories ?? 0,
@@ -333,7 +351,7 @@ router.post('/additional', requireAuth, async (req: AuthRequest, res: Response):
         carbsG: carbsG ?? 0,
         fatG: fatG ?? 0,
         fibreG: fibreG ?? 0,
-        note: note || '',
+        note: cleanNote || '',
         isAiEstimate: isAiEstimate ?? false,
       },
     });
@@ -384,7 +402,7 @@ router.delete('/additional/:id', requireAuth, async (req: AuthRequest, res: Resp
 });
 
 // PATCH /api/meals/additional/:id
-router.patch('/additional/:id', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/additional/:id', requireAuth, perUserLimiter({ windowMs: 60_000, max: 60, keyPrefix: 'meals-additional-patch' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const { id } = req.params;
@@ -398,14 +416,16 @@ router.patch('/additional/:id', requireAuth, async (req: AuthRequest, res: Respo
     if (mealCategory !== undefined && !VALID_MEAL_CATEGORIES.includes(mealCategory)) {
       res.status(400).json({ error: 'Invalid mealCategory' }); return;
     }
+    const cleanMealTime = mealTime !== undefined ? validateMealTime(mealTime) : undefined;
+    const cleanNote     = note !== undefined ? validateMealNote(note) : undefined;
 
     const updated = await prisma.additionalMealLog.update({
       where: { id },
       data: {
         ...(servingQty !== undefined && { servingQty }),
-        ...(note !== undefined && { note }),
+        ...(cleanNote !== undefined && { note: cleanNote }),
         ...(mealCategory !== undefined && { mealCategory }),
-        ...(mealTime !== undefined && { mealTime }),
+        ...(cleanMealTime !== undefined && { mealTime: cleanMealTime }),
       },
     });
 

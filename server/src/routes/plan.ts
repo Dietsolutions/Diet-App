@@ -4,6 +4,7 @@ import { callLLM } from '../services/llmClient';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { MEAL_PLAN } from '../data/mealPlan';
 import { regenerateShoppingList } from '../utils/shoppingListUtils';
+import { perUserLimiter } from '../middleware/perUserLimiter';
 
 const router = Router();
 
@@ -112,7 +113,7 @@ router.get('/meal-prep-guide', requireAuth, async (req: AuthRequest, res: Respon
 });
 
 // ── POST /api/plan/replace-meal — generate 4 AI meal alternatives ────────────
-router.post('/replace-meal', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/replace-meal', requireAuth, perUserLimiter({ windowMs: 60_000, max: 30, keyPrefix: 'plan-replace-meal' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const { dayIndex, mealIndex, currentMeal, instructions, hints, rules } = req.body;
@@ -231,7 +232,7 @@ Generate 4 varied, realistic options. Vary cuisines where possible.`;
 });
 
 // ── PATCH /api/plan/replace-meal — save selected option into MealPlanDay ─────
-router.patch('/replace-meal', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/replace-meal', requireAuth, perUserLimiter({ windowMs: 60_000, max: 30, keyPrefix: 'plan-replace-meal' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const { dayIndex, mealIndex, meal } = req.body;
@@ -289,7 +290,7 @@ router.patch('/replace-meal', requireAuth, async (req: AuthRequest, res: Respons
 // Called when the user taps START MY PLAN on PlanOverviewScreen.
 // Triggers one definitive shopping list regeneration covering all accumulated
 // meal changes (individual PATCHes may have already fired partial regens).
-router.post('/confirm-overview', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/confirm-overview', requireAuth, perUserLimiter({ windowMs: 60_000, max: 10, keyPrefix: 'plan-confirm-overview' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
 
@@ -368,7 +369,7 @@ router.get('/review/:mealPlanId', requireAuth, async (req: AuthRequest, res: Res
 
 // ── POST /api/plan/regenerate-single-meal ─────────────────────────────────────
 // Generates 3 AI alternatives for a specific meal.
-router.post('/regenerate-single-meal', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/regenerate-single-meal', requireAuth, perUserLimiter({ windowMs: 60_000, max: 10, keyPrefix: 'plan-regen-meal' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const { mealPlanId, dayIndex, mealIndex, instructions, hints } = req.body;
@@ -495,7 +496,7 @@ Respond ONLY with valid JSON (no markdown):
 
 // ── PATCH /api/plan/select-meal ───────────────────────────────────────────────
 // Saves a selected replacement meal into MealPlanDay (no locking).
-router.patch('/select-meal', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/select-meal', requireAuth, perUserLimiter({ windowMs: 60_000, max: 30, keyPrefix: 'plan-select-meal' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const { mealPlanId, dayIndex, mealIndex, newMeal } = req.body;
@@ -545,11 +546,11 @@ router.patch('/select-meal', requireAuth, async (req: AuthRequest, res: Response
 // ── POST /api/plan/confirm-review ─────────────────────────────────────────────
 // Called when user taps CONFIRM PLAN on PlanReviewScreen.
 // Activates the plan, marks it reviewed, sets onboardingDone, syncs shopping.
-router.post('/confirm-review', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/confirm-review', requireAuth, perUserLimiter({ windowMs: 60_000, max: 10, keyPrefix: 'plan-confirm-review' }), async (req: AuthRequest, res: Response): Promise<void> => {
   const userId = req.userId!;
   const { mealPlanId } = req.body;
 
-  console.log('[confirm-review] start — planId:', mealPlanId, 'userId:', userId);
+  console.log('[confirm-review] start — planId:', mealPlanId);
 
   try {
     if (!mealPlanId) {
@@ -560,7 +561,7 @@ router.post('/confirm-review', requireAuth, async (req: AuthRequest, res: Respon
     const plan = await prisma.mealPlan.findFirst({ where: { id: mealPlanId, userId } });
 
     if (!plan) {
-      console.error('[confirm-review] plan not found — planId:', mealPlanId, 'userId:', userId);
+      console.error('[confirm-review] plan not found — planId:', mealPlanId);
       res.status(404).json({ error: 'plan_not_found', message: 'Plan not found or does not belong to this account.' });
       return;
     }

@@ -24,6 +24,7 @@ import {
   CN_FAST_TRACK_THRESHOLD,
 } from '../services/macroValidation';
 import { logMealValidation, MealValidationEntry } from '../services/macroValidationLogger';
+import { perUserLimiter } from '../middleware/perUserLimiter';
 
 const router = Router();
 
@@ -947,7 +948,7 @@ CRITICAL RULES FOR MACRO DISTRIBUTION:
 }
 
 // POST /api/ai/generate-meal-plan (SSE streaming)
-router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/generate-meal-plan', requireAuth, perUserLimiter({ windowMs: 60_000, max: 5, keyPrefix: 'ai-generate-meal-plan' }), async (req: AuthRequest, res: Response): Promise<void> => {
   const userId = req.userId!;
 
   if (!checkRateLimit(userId)) {

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { SHOPPING_LIST } from '../data/shoppingList';
+import { perUserLimiter } from '../middleware/perUserLimiter';
 
 const router = Router();
 
@@ -78,7 +79,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response): Promise<vo
 });
 
 // POST /api/shopping/:key/toggle
-router.post('/:key/toggle', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:key/toggle', requireAuth, perUserLimiter({ windowMs: 60_000, max: 60, keyPrefix: 'shopping-toggle' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const { key } = req.params;
@@ -130,7 +131,7 @@ router.delete('/reset', requireAuth, async (req: AuthRequest, res: Response): Pr
 });
 
 // POST /api/shopping/people-count
-router.post('/people-count', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/people-count', requireAuth, perUserLimiter({ windowMs: 60_000, max: 10, keyPrefix: 'shopping-people-count' }), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.userId!;
     const { peopleCount } = req.body;

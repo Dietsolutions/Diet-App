@@ -852,16 +852,18 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req: Request, res:
           text: `Click this link to reset your password: ${resetUrl}\n\nThis link expires in 1 hour.\n\nIf you did not request this, you can ignore this email.`,
           html: `<p>Click the link below to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>This link expires in 1 hour.</p><p>If you did not request this, you can ignore this email.</p>`,
         });
-        console.log(`[Password Reset] Email sent to ${email}`);
+        console.log('[Password Reset] Email dispatched');
       } catch (mailErr) {
-        console.error(`[Password Reset] Failed to send email to ${email}:`, (mailErr as Error).message);
+        console.error('[Password Reset] SMTP send failed:', (mailErr as Error).message);
         res.status(500).json({ error: 'Failed to send email. SMTP configuration may be incorrect.' });
         return;
       }
     } else {
-      console.log(`[Password Reset] Token for ${email}: ${token}`);
-      console.log(`[Password Reset] URL: ${resetUrl}`);
-      console.log(`[Password Reset] SMTP not configured — token logged to console only`);
+      // SECURITY: never log the plaintext token or the full reset URL.
+      // A Vercel log reader would be able to replay the link and reset
+      // any user's password. The dev-only hint below tells the developer
+      // to check their Mailtrap / local SMTP setup.
+      console.log('[Password Reset] SMTP not configured — token generated but not delivered. Set SMTP_HOST etc. to enable email delivery.');
     }
 
     res.json({ success: true });
