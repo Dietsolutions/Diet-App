@@ -6,7 +6,6 @@ import AuthenticationServices
 class AppDelegate: UIResponder, UIApplicationDelegate, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
 
     var window: UIWindow?
-    private var pendingAppleCompletion: ((Result<AppleSignInResult, Error>) -> Void)?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         return true
@@ -37,14 +36,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate, ASAuthorizationController
     }
 
     // ── Sign in with Apple ────────────────────────────────────────────────
-    // Public entry point used by the JS bridge (postMessage from the WebView).
+    // Public entry point invoked by the JS bridge when the WebView
+    // navigates to `dietplan://apple-signin` (see Info.plist CFBundleURLTypes).
     @objc func startAppleSignIn() {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             let provider = ASAuthorizationAppleIDProvider()
             let request  = provider.createRequest()
             request.requestedScopes = [.fullName, .email]
-            // Optionally accept a nonce from the JS layer for replay protection
+            // Nonce support is left to the server: the server generates a
+            // nonce, returns it to the client, the client forwards it to
+            // Apple, and we receive it back in `identityToken` for the
+            // server to verify. Apple JS SDK does not pass a nonce through
+            // this URL-scheme bridge, so we leave it server-side.
             let controller = ASAuthorizationController(authorizationRequests: [request])
             controller.delegate = self
             controller.presentationContextProvider = self
@@ -88,21 +92,36 @@ class AppDelegate: UIResponder, UIApplicationDelegate, ASAuthorizationController
 
     // ── Bridge helpers ───────────────────────────────────────────────────
     private static func dispatchWebViewEvent(name: String, payload: [String: Any]) {
+        // Serialize the payload safely with JSONSerialization — this is the
+        // correct way to inject data into a JS context, and is immune to
+        // quote/newline injection in the payload values.
         guard let json = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
         let jsonString = String(data: json, encoding: .utf8) ?? "{}"
-        let escaped = jsonString
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-        let js = "window.dispatchEvent(new CustomEvent('\(name)', { detail: JSON.parse(\"\(escaped)\") }));"
+        // Pass the JSON blob as a JS string literal; no manual escaping needed.
+        let js = "window.dispatchEvent(new CustomEvent('\(name)', { detail: \(jsonString) }));"
         DispatchQueue.main.async {
-            // Post to the active Capacitor WebView
-            if let bridge = (UIApplication.shared.delegate as? AppDelegate)?.window?.rootViewController as? CAPBridgeViewController {
-                bridge.bridge?.webView?.evaluateJavaScript(js, completionHandler: nil)
+            // Walk the view-controller hierarchy to find the Capacitor bridge.
+            // The root may be a UINavigationController, UITabBarController, or
+            // other wrapper — not always CAPBridgeViewController directly.
+            if let bridge = Self.findCapacitorBridge() {
+                bridge.webView?.evaluateJavaScript(js, completionHandler: nil)
             }
             // Fallback: broadcast via NotificationCenter for any other listeners
             NotificationCenter.default.post(name: Notification.Name(name), object: nil, userInfo: payload)
         }
+    }
+
+    private static func findCapacitorBridge() -> CAPBridgeViewController? {
+        guard let root = UIApplication.shared.delegate?.window??.rootViewController else { return nil }
+        if let bridge = root as? CAPBridgeViewController { return bridge }
+        if let nav = root as? UINavigationController, let bridge = nav.viewControllers.first as? CAPBridgeViewController { return bridge }
+        if let tab = root as? UITabBarController, let bridge = tab.viewControllers?.first as? CAPBridgeViewController { return bridge }
+        if let presented = root.presentedViewController as? CAPBridgeViewController { return presented }
+        // Last resort: look at the view subviews
+        for sub in root.view.subviews {
+            if let bridge = sub as? CAPBridgeViewController { return bridge }
+        }
+        return nil
     }
 
     // ── ASAuthorizationControllerPresentationContextProviding ──────────────
@@ -110,12 +129,4 @@ class AppDelegate: UIResponder, UIApplicationDelegate, ASAuthorizationController
         if let window = self.window { return window }
         return ASPresentationAnchor()
     }
-}
-
-// Result struct for Swift interop (not used directly — JS reads via NotificationCenter event)
-struct AppleSignInResult {
-    let identityToken: String
-    let fullName: [String: String]?
-    let email: String?
-    let user: String
 }

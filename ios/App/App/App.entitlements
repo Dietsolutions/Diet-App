@@ -6,10 +6,13 @@
 	<array>
 		<string>Default</string>
 	</array>
-	<key>com.apple.developer.associated-domains</key>
-	<array>
-		<string>applinks:dietplan.app</string>
-		<string>applinks:www.dietplan.app</string>
-	</array>
+	<!--
+	  Note: associated-domains/applinks is intentionally NOT declared here.
+	  Universal Links require a signed apple-app-site-association (AASA) file
+	  served from https://dietplan.app/.well-known/apple-app-site-association.
+	  Without it, iOS silently disables the entitlement and App Review flags
+	  the listing. To enable Universal Links later, host the AASA file and
+	  re-add the `com.apple.developer.associated-domains` array here.
+	-->
 </dict>
 </plist>
