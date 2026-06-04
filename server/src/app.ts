@@ -50,25 +50,37 @@ const OPTIONAL_ENV = [
 
 /**
  * Build a CORS allowlist from environment variables. In production we accept:
- *  - the explicit CLIENT_URL
- *  - any *.vercel.app preview deploy that matches the project (regex match)
+ *  - the explicit CLIENT_URL / FRONTEND_URL
+ *  - any preview deploy for *this* Vercel project (e.g. diet-app-*.vercel.app
+ *    for project "diet-app" or ai-dpt-*.vercel.app for "ai-dpt")
  *  - localhost (so the dev frontend can talk to a deployed API if needed)
+ *
+ * NOT allowed in production:
+ *  - capacitor://localhost / http://localhost (universal iOS/Android WebView
+ *    origins — would let any installed Capacitor app call this API)
+ *  - a regex matching *.vercel.app (would let ANY Vercel user call the API)
  */
 function buildCorsOptions(): cors.CorsOptions {
+  const isProd = process.env.NODE_ENV === 'production';
+
   const explicit = new Set<string>([
     'http://localhost:5173',
     'http://127.0.0.1:5173',
-    // Capacitor iOS WebView origin (default)
-    'http://localhost',
-    'capacitor://localhost',
-    // Capacitor Android WebView origin
-    'https://localhost',
   ]);
   if (process.env.CLIENT_URL) explicit.add(process.env.CLIENT_URL);
   if (process.env.FRONTEND_URL) explicit.add(process.env.FRONTEND_URL);
 
-  // Allow any *.vercel.app preview belonging to this deployment.
-  const vercelPreviewRegex = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
+  // Optional Capacitor custom URL (configured in capacitor.config.ts as
+  // `server.url`). If set, that exact origin is allowed so the WebView can
+  // be pinned to your backend. If unset, capacitor:// and http://localhost
+  // are *not* allowed (in production).
+  if (process.env.VITE_API_URL) explicit.add(process.env.VITE_API_URL);
+
+  // Per-project preview regex. VERCEL_PROJECT_NAME is automatically set by
+  // Vercel on every deploy. Production stays strict.
+  const vercelPreviewRegex = process.env.VERCEL_PROJECT_NAME
+    ? new RegExp(`^https:\\/\\/${process.env.VERCEL_PROJECT_NAME}-[a-z0-9-]+\\.vercel\\.app$`, 'i')
+    : null;
 
   return {
     credentials: true,
@@ -76,7 +88,9 @@ function buildCorsOptions(): cors.CorsOptions {
       // Same-origin (no Origin header) — always allow.
       if (!origin) return callback(null, true);
       if (explicit.has(origin)) return callback(null, true);
-      if (vercelPreviewRegex.test(origin)) return callback(null, true);
+      if (vercelPreviewRegex?.test(origin)) return callback(null, true);
+      // In dev, allow common origins freely.
+      if (!isProd && /localhost|127\.0\.0\.1|192\.168\./.test(origin)) return callback(null, true);
       return callback(new Error(`Origin ${origin} not allowed by CORS`));
     }
   };

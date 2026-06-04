@@ -1,5 +1,5 @@
 import prisma from './lib/prisma';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 
 const SEED_USERNAME = process.env.SEED_USERNAME || 'harshit';
 const SEED_PASSWORD = process.env.SEED_PASSWORD || 'harshit123';

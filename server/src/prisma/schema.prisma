@@ -23,6 +23,10 @@ model User {
   name           String?
   avatar         String?
   onboardingDone Boolean   @default(false)
+  // True for the Play/App Store reviewer demo account auto-created in
+  // production. The account is rate-limited separately and cannot be used
+  // to escalate privileges, but the flag is useful for audit logs.
+  isReview       Boolean   @default(false)
   createdAt      DateTime  @default(now())
 
   mealLogs       MealLog[]
@@ -395,12 +399,15 @@ model PasswordResetToken {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
+  // SHA-256 hex of the random token sent in the reset email. The plaintext
+  // token never touches the database — if an attacker exfiltrates the
+  // `password_reset_tokens` table, they cannot replay any reset link.
+  tokenHash String   @unique
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime @default(now())
 
-  @@index([token])
+  @@index([tokenHash])
   @@index([userId])
   @@map("password_reset_tokens")
 }

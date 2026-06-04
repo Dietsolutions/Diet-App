@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
@@ -11,6 +11,13 @@ import { logSecurityEvent } from '../utils/securityLogger';
 
 function sanitizeText(text: string): string {
   return text.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+
+// SHA-256 hex of a token. We store only the hash of password-reset tokens
+// in the database so that a DB read leak (e.g. via SQLi, backup dump, or
+// compromised replica) does not let the attacker replay any reset link.
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
 const router = Router();
@@ -39,23 +46,82 @@ function createTransporter() {
 const REVIEW_USERNAME = process.env.REVIEW_USERNAME;
 const REVIEW_PASSWORD = process.env.REVIEW_PASSWORD;
 
+// Minimal-but-complete UserProfile for the review account. Field set
+// matches the UserProfile schema's required columns (no nullable defaults).
+function REVIEW_PROFILE_DATA(userId: string) {
+  return {
+    userId,
+    name: 'Reviewer',
+    age: 30,
+    gender: 'prefer_not_to_say',
+    country: 'India',
+    city: 'Bengaluru',
+    heightCm: 170,
+    weightKg: 70,
+    targetWeightKg: 65,
+    mealPreference: 'vegetarian',
+    primaryGoal: 'maintain',
+    activityLevel: 'moderate',
+    // Macro targets for maintenance at 70 kg / moderate activity. These
+    // are also visible to the reviewer as concrete numbers in the UI.
+    tdee: 2200,
+    targetCalories: 2200,
+    proteinTarget: 110,
+    fatTarget: 73,
+    carbTarget: 275,
+    fibreTarget: 30,
+  };
+}
+
 async function ensureReviewAccount(): Promise<void> {
   if (!REVIEW_USERNAME || !REVIEW_PASSWORD) return;
   if (process.env.NODE_ENV !== 'production') return;
-  try {
-    const existing = await prisma.user.findUnique({ where: { username: REVIEW_USERNAME } });
-    if (existing) return;
-    const passwordHash = await bcrypt.hash(REVIEW_PASSWORD, 12);
-    await prisma.user.create({
-      data: {
-        username: REVIEW_USERNAME,
-        passwordHash,
-        onboardingDone: true,
-      },
-    });
-    console.log(`[Auth] Review account created: ${REVIEW_USERNAME}`);
-  } catch (err) {
-    console.warn('[Auth] Could not create review account:', (err as Error).message);
+  // Retry with backoff so transient Neon cold-start failures don't leave
+  // the reviewer unable to log in.
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const existing = await prisma.user.findUnique({ where: { username: REVIEW_USERNAME } });
+      if (existing) {
+        // Mark existing review account (idempotent).
+        if (!existing.isReview) {
+          await prisma.user.update({ where: { id: existing.id }, data: { isReview: true } });
+        }
+        // Make sure the UserProfile row exists (in case the account predates this code).
+        const profile = await prisma.userProfile.findUnique({ where: { userId: existing.id } });
+        if (!profile) {
+          await prisma.userProfile.create({
+            data: REVIEW_PROFILE_DATA(existing.id),
+          });
+        }
+        return;
+      }
+      const passwordHash = await bcrypt.hash(REVIEW_PASSWORD, 12);
+      const user = await prisma.user.create({
+        data: {
+          username: REVIEW_USERNAME,
+          passwordHash,
+          onboardingDone: true,
+          isReview: true,
+        },
+      });
+
+      // Create a complete UserProfile so the app shows real content for the reviewer.
+      await prisma.userProfile.create({
+        data: REVIEW_PROFILE_DATA(user.id),
+      });
+      console.log(`[Auth] Review account created: ${REVIEW_USERNAME}`);
+      return;
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (attempt === MAX_ATTEMPTS) {
+        console.error(`[Auth] Could not create review account after ${MAX_ATTEMPTS} attempts: ${msg}`);
+        return;
+      }
+      // Exponential backoff: 200ms, 400ms, 800ms, 1600ms, 3200ms
+      const delay = 200 * Math.pow(2, attempt - 1);
+      await new Promise(r => setTimeout(r, delay));
+    }
   }
 }
 if (REVIEW_USERNAME && REVIEW_PASSWORD && process.env.NODE_ENV === 'production') {
@@ -213,9 +279,8 @@ router.post('/login', loginLimiter, async (req: Request, res: Response): Promise
     const token = issueToken(user.id);
     setAuthCookie(res, token);
 
-    // Return token in body as well — iOS Safari PWA fallback (sessionStorage)
+    // The httpOnly cookie set above is the canonical auth channel.
     res.json({
-      token,
       user: {
         id: user.id,
         username: user.username,
@@ -263,7 +328,12 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response): Promi
       return;
     }
 
-    // Case-insensitive uniqueness check — usernames stored lowercase
+    // Case-insensitive uniqueness check — usernames stored lowercase.
+    // We check optimistically to give a clean 409 for the common case, but
+    // a TOCTOU race between two concurrent signups for the same username
+    // is still possible. The unique constraint + Prisma P2002 catch
+    // below handles that case so the second request gets a clean 409 too
+    // (not a 500).
     const normalisedUsername = cleanUsername.toLowerCase();
     const existing = await prisma.user.findUnique({ where: { username: normalisedUsername } });
     if (existing) {
@@ -274,22 +344,34 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response): Promi
     // Hash password with bcrypt (saltRounds: 12)
     const passwordHash = await bcrypt.hash(cleanPassword, 12);
 
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        username: normalisedUsername,
-        passwordHash,
-        onboardingDone: false
+    // Create user. If a concurrent signup won the race, Prisma throws
+    // P2002 (unique constraint violation) — we translate to 409 instead
+    // of a 500.
+    let user;
+    try {
+      user = await prisma.user.create({
+        data: {
+          username: normalisedUsername,
+          passwordHash,
+          onboardingDone: false
+        }
+      });
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        res.status(409).json({ error: 'username_taken', message: 'This username is already taken' });
+        return;
       }
-    });
+      throw err;
+    }
 
     // Issue JWT using the same flow as login
     const token = issueToken(user.id);
     setAuthCookie(res, token);
 
-    // Return token in body as well — iOS Safari PWA fallback (sessionStorage)
+    // The httpOnly cookie set above is the canonical auth channel.
+    // We still return a non-secret user object in the body so the client
+    // can hydrate state without an extra /me round-trip.
     res.status(201).json({
-      token,
       user: {
         id: user.id,
         username: user.username,
@@ -369,12 +451,13 @@ const APPLE_ISSUER    = 'https://appleid.apple.com';
 let appleJwksCache: { keys: any[]; fetchedAt: number } | null = null;
 const APPLE_JWKS_TTL_MS = 24 * 60 * 60 * 1000;
 
-async function getAppleJwks(): Promise<any[]> {
-  if (appleJwksCache && Date.now() - appleJwksCache.fetchedAt < APPLE_JWKS_TTL_MS) {
+async function getAppleJwks(forceRefresh = false): Promise<any[]> {
+  if (!forceRefresh && appleJwksCache && Date.now() - appleJwksCache.fetchedAt < APPLE_JWKS_TTL_MS) {
     return appleJwksCache.keys;
   }
   const res = await fetch(APPLE_JWKS_URL);
-  const data = await res.json() as { keys: any[] };
+  if (!res.ok) throw new Error(`Apple JWKS fetch failed: ${res.status}`);
+  const data = (await res.json()) as { keys: any[] };
   appleJwksCache = { keys: data.keys, fetchedAt: Date.now() };
   return data.keys;
 }
@@ -433,15 +516,22 @@ async function verifyAppleIdentityToken(identityToken: string): Promise<AppleCla
 
   const claims = JSON.parse(base64UrlDecode(parts[1]).toString('utf8')) as AppleClaims;
 
-  // Find the matching JWKS key
-  const keys = await getAppleJwks();
-  const key = keys.find((k: any) => k.kid === header.kid);
-  if (!key) throw new Error('No matching JWKS key for kid ' + header.kid);
+  // Find the matching JWKS key. If not found in cache, force-refresh once
+  // (Apple may have rotated keys since the last fetch).
+  let keys = await getAppleJwks();
+  let key = keys.find((k: any) => k.kid === header.kid);
+  if (!key) {
+    keys = await getAppleJwks(true);
+    key = keys.find((k: any) => k.kid === header.kid);
+    if (!key) throw new Error('No matching JWKS key for kid ' + header.kid);
+  }
   if (key.kty !== 'EC' || key.crv !== 'P-256' || !key.x || !key.y) {
     throw new Error('JWKS key is not P-256 EC');
   }
 
-  // Build a Node KeyObject from the JWK
+  // Build a Node KeyObject from the JWK. The JWK object must NOT include
+  // a 'd' (private) component — Node's createPublicKey treats that as an
+  // error in some versions. Build the JWK explicitly without 'd'.
   const crypto = await import('crypto');
   const pubKey = crypto.createPublicKey({
     key: {
@@ -449,7 +539,6 @@ async function verifyAppleIdentityToken(identityToken: string): Promise<AppleCla
       crv: 'P-256',
       x: base64UrlDecode(key.x),
       y: base64UrlDecode(key.y),
-      d: undefined as any,
     } as any,
     format: 'jwk',
   });
@@ -504,12 +593,17 @@ router.post('/apple/callback', async (req: Request, res: Response): Promise<void
     // Apple only sends the user's email on the FIRST sign-in. On subsequent sign-ins,
     // the iOS app must supply it from its local cache (we accept `providedEmail`).
     const appleEmail = (claims.email || providedEmail || '').toLowerCase();
+    // Apple's email_verified claim may be a boolean or the string "true"/"false".
+    // Treat only strict `true` as verified. Anything else → do NOT auto-link.
+    const emailVerified = claims.email_verified === true || claims.email_verified === 'true';
 
     // Find or create the user. Look up by appleId first.
     let user = await prisma.user.findUnique({ where: { appleId: appleUserId } });
 
-    // If no appleId match, try to link to an existing account with the same email.
-    if (!user && appleEmail) {
+    // If no appleId match, attempt to link to an existing account with the
+    // same email — BUT only if the Apple-asserted email is verified. This
+    // prevents account takeover via the email-auto-link vector.
+    if (!user && appleEmail && emailVerified) {
       const byEmail = await prisma.user.findUnique({ where: { email: appleEmail } });
       if (byEmail) {
         user = await prisma.user.update({
@@ -536,7 +630,6 @@ router.post('/apple/callback', async (req: Request, res: Response): Promise<void
     const token = issueToken(user.id);
     setAuthCookie(res, token);
     res.json({
-      token,
       user: { id: user.id, username: user.username, email: user.email, name: user.name, avatar: user.avatar, onboardingDone: user.onboardingDone }
     });
   } catch (err) {
@@ -607,6 +700,7 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
     const googleUser = (await userInfoRes.json()) as {
       id: string;
       email?: string;
+      verified_email?: boolean;
       name?: string;
       picture?: string;
     };
@@ -616,12 +710,23 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
       return;
     }
 
+    // Google marks the email verified when it is. The userinfo endpoint
+    // returns verified_email as a boolean. If false, do NOT auto-link to
+    // an existing account by email — the request might be impersonation.
+    const emailVerified = googleUser.verified_email === true;
+
     // Find or create user
     let user = await prisma.user.findUnique({ where: { googleId: googleUser.id } });
 
     if (!user) {
       user = await prisma.user.findUnique({ where: { email: googleUser.email } });
       if (user) {
+        if (!emailVerified) {
+          // Refuse to link unverified Google account to existing email.
+          // The user must sign in with the original method to claim it.
+          res.redirect(`${FRONTEND_URL}?error=google_email_not_verified`);
+          return;
+        }
         // Link google to existing account
         user = await prisma.user.update({
           where: { id: user.id },
@@ -643,8 +748,11 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
     const token = issueToken(user.id);
     setAuthCookie(res, token);
 
-    // Pass token in URL for iOS Safari PWA fallback — frontend reads + removes it
-    res.redirect(`${FRONTEND_URL}?_at=${encodeURIComponent(token)}`);
+    // Do NOT put the JWT in the redirect URL — Vercel edge logs capture
+    // full request URLs, and the token would leak via Referer headers to
+    // any third-party resource loaded by the SPA. The httpOnly cookie set
+    // above is sufficient — the client picks up the session via
+    // /api/auth/me on next render.
   } catch (err) {
     console.error('Google OAuth error:', err);
     res.redirect(`${FRONTEND_URL}?error=google_auth_error`);
@@ -724,8 +832,11 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req: Request, res:
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
+    // Store the SHA-256 hash of the token, not the token itself, so a
+    // DB compromise cannot grant the attacker any reset capability.
+    const tokenHash = hashToken(token);
     await prisma.passwordResetToken.create({
-      data: { userId: user.id, token, expiresAt }
+      data: { userId: user.id, tokenHash, expiresAt }
     });
 
     const resetUrl = `${FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
@@ -765,7 +876,7 @@ router.get('/check-reset-token', async (req: Request, res: Response): Promise<vo
     const { token } = req.query;
     if (!token || typeof token !== 'string') { res.json({ valid: false }); return; }
 
-    const resetToken = await prisma.passwordResetToken.findUnique({ where: { token } });
+    const resetToken = await prisma.passwordResetToken.findUnique({ where: { tokenHash: hashToken(token) } });
     if (!resetToken) { res.json({ valid: false }); return; }
     if (resetToken.usedAt) { res.json({ valid: false, reason: 'already_used' }); return; }
     if (resetToken.expiresAt < new Date()) { res.json({ valid: false, reason: 'expired' }); return; }
@@ -783,7 +894,7 @@ router.post('/reset-password', resetPasswordLimiter, async (req: Request, res: R
     if (!token || !password) { res.status(400).json({ error: 'Token and password required' }); return; }
     if (password.length < 6) { res.status(400).json({ error: 'Password must be at least 6 characters' }); return; }
 
-    const resetToken = await prisma.passwordResetToken.findUnique({ where: { token } });
+    const resetToken = await prisma.passwordResetToken.findUnique({ where: { tokenHash: hashToken(token) } });
     if (!resetToken) { res.status(400).json({ error: 'Invalid or expired token' }); return; }
     if (resetToken.usedAt) { res.status(400).json({ error: 'Token already used' }); return; }
     if (resetToken.expiresAt < new Date()) { res.status(400).json({ error: 'Token expired' }); return; }

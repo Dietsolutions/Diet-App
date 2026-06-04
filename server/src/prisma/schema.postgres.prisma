@@ -26,6 +26,7 @@ model User {
   name           String?
   avatar         String?
   onboardingDone Boolean   @default(false)
+  isReview       Boolean   @default(false)
   createdAt      DateTime  @default(now())
 
   mealLogs       MealLog[]
@@ -35,6 +36,7 @@ model User {
   mealPlans      MealPlan[]
   generatedShoppingLists GeneratedShoppingList[]
   weightLogs     WeightLog[]
+  passwordResetTokens PasswordResetToken[]
 }
 
 model WeightLog {
@@ -157,4 +159,21 @@ model PlanWeek {
   userId        String
   weekStartDate String
   user          User   @relation(fields: [userId], references: [id])
+}
+
+// SHA-256 hex of the random token sent in the reset email. The plaintext
+// token never touches the database — if an attacker exfiltrates the
+// `password_reset_tokens` table, they cannot replay any reset link.
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@map("password_reset_tokens")
 }

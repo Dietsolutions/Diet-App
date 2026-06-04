@@ -2,31 +2,54 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { logSecurityEvent } from '../utils/securityLogger';
 
-// Use the explicit env var when set. Fall back to the legacy hardcoded value so
-// existing sessions (signed with that value) remain valid after deploy.
-// A module-level throw here would crash the serverless cold-start and return 500
-// on *every* request — never throw or call process.exit at module scope.
-const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    console.error('[CRITICAL] JWT_SECRET env var is not set. Set it in your Vercel environment variables.');
-    console.error('[CRITICAL] Using dev-only fallback — sessions will fail to verify after next deploy.');
-  } else {
-    console.warn('[DEV] JWT_SECRET not set — using dev-only fallback. Set JWT_SECRET in production.');
+// Reject the dev fallback and any secret shorter than 32 bytes in production.
+// In dev, a 32+ char secret is recommended but a 16+ char string still works.
+function resolveSecret(): string {
+  const raw = process.env.JWT_SECRET;
+  const isProd = process.env.NODE_ENV === 'production';
+  if (!raw) {
+    if (isProd) {
+      // Throw at module load — this kills the function cold start. Better
+      // than letting the service sign tokens with a known public string.
+      throw new Error(
+        '[CRITICAL] JWT_SECRET is not set in production. ' +
+        'Set it in Vercel Project → Settings → Environment Variables.'
+      );
+    }
+    console.warn('[DEV] JWT_SECRET not set — generating ephemeral dev secret for this process.');
+    // Each cold start gets a fresh dev secret — sessions do not persist.
+    return require('crypto').randomBytes(48).toString('base64');
   }
-  return 'dev-jwt-secret-not-for-production';
-})();
+  if (isProd && raw.length < 32) {
+    throw new Error(
+      `[CRITICAL] JWT_SECRET is too short (${raw.length} chars). Use at least 32 bytes. ` +
+      'Run `openssl rand -base64 48` to generate one.'
+    );
+  }
+  if (isProd && /^change-?me|^dev-jwt|^secret$|^test$|^default$/i.test(raw)) {
+    throw new Error(
+      '[CRITICAL] JWT_SECRET matches a known placeholder. ' +
+      'Set a unique secret in Vercel Project → Settings → Environment Variables.'
+    );
+  }
+  return raw;
+}
+
+const JWT_SECRET = resolveSecret();
 
 export interface AuthRequest extends Request {
   userId?: string;
 }
 
 export function requireAuth(req: AuthRequest, res: Response, next: NextFunction): void {
-  // Primary: httpOnly cookie (works on Chrome, Android, desktop Safari)
+  // Primary: httpOnly cookie (works on Chrome, Android, desktop Safari, and
+  // the Capacitor WebView on the same origin).
   let token = req.cookies?.token;
 
-  // Fallback: Authorization header (iOS Safari PWA standalone / private mode)
-  // iOS PWA contexts don't always share cookies with Safari, so the client
-  // stores the token in sessionStorage and sends it as a Bearer token.
+  // Fallback: Authorization header. This is kept for clients that legitimately
+  // cannot share httpOnly cookies (e.g. iOS Safari PWA in private mode).
+  // The client should prefer cookies; using Authorization is a documented
+  // fallback only.
   if (!token) {
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
