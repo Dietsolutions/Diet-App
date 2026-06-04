@@ -10,6 +10,7 @@
     "prisma:migrate": "prisma migrate deploy --schema=src/prisma/schema.prisma",
     "prisma:migrate:dev": "prisma migrate dev --schema=src/prisma/schema.prisma",
     "prisma:studio": "prisma studio --schema=src/prisma/schema.prisma",
+    "db:apply-neon": "echo 'See NEON_MIGRATION_README.md. This script is a no-op because the Neon DB is unreachable from this dev env.'",
     "seed:indian": "tsx src/scripts/seedIndianFoodDatabases.ts",
     "seed:kaggle": "tsx src/scripts/seedKaggleIndianFoods.ts",
     "query:validation": "tsx src/scripts/queryValidationData.ts",
