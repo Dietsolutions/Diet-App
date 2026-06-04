@@ -1,40 +1,27 @@
 /**
- * iOS Safari PWA auth token fallback.
+ * Auth token storage shim — cookie-only.
  *
- * iOS standalone PWA contexts don't reliably share httpOnly cookies with the
- * main Safari browser session. We store the JWT in sessionStorage and send it
- * as an Authorization: Bearer header so every API request works regardless of
- * cookie availability.
+ * As of Batch 5 we no longer mirror the JWT in sessionStorage. The httpOnly
+ * cookie set by the server is the only auth channel. This eliminates the
+ * XSS-token-theft surface entirely.
  *
- * Security notes:
- *  - sessionStorage is cleared when the PWA tab is closed (unlike localStorage)
- *  - httpOnly cookies are still the primary auth mechanism; this is a fallback
- *  - The server accepts both cookie AND Authorization header (auth middleware)
+ * The exported functions are kept as no-ops so that any leftover call site
+ * (e.g. from a half-merged code path) compiles and runs without error, but
+ * they no longer read or write any storage. If you find a caller using
+ * these, that caller is dead code and can be removed.
  */
 
-const KEY = 'app_at'; // auth token key
+const STORAGE_REMOVED_MSG = '[auth] storeToken/getStoredToken/clearStoredToken are no-ops. Auth is httpOnly cookie only.';
 
-/** Store token in sessionStorage (safe on iOS even in private mode) */
-export function storeToken(token: string): void {
-  try {
-    sessionStorage.setItem(KEY, token);
-  } catch {
-    // sessionStorage unavailable (extremely rare) — cookie fallback still works
-  }
+export function storeToken(_token: string): void {
+  if (typeof console !== 'undefined') console.warn(STORAGE_REMOVED_MSG);
 }
 
-/** Retrieve token from sessionStorage */
 export function getStoredToken(): string | null {
-  try {
-    return sessionStorage.getItem(KEY);
-  } catch {
-    return null;
-  }
+  if (typeof console !== 'undefined') console.warn(STORAGE_REMOVED_MSG);
+  return null;
 }
 
-/** Clear stored token (on logout) */
 export function clearStoredToken(): void {
-  try {
-    sessionStorage.removeItem(KEY);
-  } catch {}
+  if (typeof console !== 'undefined') console.warn(STORAGE_REMOVED_MSG);
 }

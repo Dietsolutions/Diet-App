@@ -10,30 +10,22 @@
  * deployed to a different origin (e.g. preview environments).
  */
 import axios from 'axios';
-import { getStoredToken } from './auth';
 
 const RAW_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 /**
  * Configure axios defaults once so every call in every hook automatically
  * uses the correct base URL and sends credentials (cookies).
+ *
+ * Auth is httpOnly cookie only — we deliberately do NOT attach a
+ * sessionStorage JWT as Authorization header. That would re-introduce
+ * the XSS-token-theft surface that this whole batch of changes is
+ * closing. The server sets the cookie on login and the browser
+ * automatically includes it on same-origin requests.
  */
 axios.defaults.baseURL = RAW_BASE || undefined;
 axios.defaults.withCredentials = true;
 axios.defaults.timeout = 15000;
-
-/**
- * iOS Safari PWA fallback: attach stored JWT as Authorization header.
- * The server accepts both httpOnly cookie AND this header, so the first
- * mechanism that delivers a valid token wins.
- */
-axios.interceptors.request.use((config) => {
-  const token = getStoredToken();
-  if (token && config.headers) {
-    config.headers['Authorization'] = `Bearer ${token}`;
-  }
-  return config;
-});
 
 /**
  * Global response interceptor: handle 401 (session expired), network errors.

@@ -5,7 +5,6 @@ import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
 import { apiUrl } from '../lib/api';
 import { isNative, platform, signInWithApple } from '../lib/capacitor';
-import { storeToken } from '../lib/auth';
 import { identifyUser } from '../lib/analytics';
 import { useAuthStore } from '../store/authStore';
 import { s2 } from '../theme/tokens';
@@ -158,6 +157,13 @@ export function AuthScreen() {
   const [errors, setErrors] = useState<Errors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successBurst, setSuccessBurst] = useState(false);
+
+  // ── Forgot-password modal state ─────────────────────────────────────────
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotError, setForgotError] = useState<string | null>(null);
 
   const confirmTouchedRef = useRef(false);
   const usernameInputRef  = useRef<HTMLInputElement>(null);
@@ -316,7 +322,6 @@ export function AuthScreen() {
         fullName: payload.fullName,
         email: payload.email,
       }, { withCredentials: true });
-      if (res.data?.token) storeToken(res.data.token);
       setUser(res.data.user);
       identifyUser(res.data.user.id);
       setSuccessBurst(true);
@@ -327,6 +332,42 @@ export function AuthScreen() {
       setIsSubmitting(false);
     }
   };
+
+  const handleForgotSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setForgotError(null);
+    const email = forgotEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setForgotError('Please enter a valid email address.');
+      return;
+    }
+    setForgotSubmitting(true);
+    try {
+      await axios.post('/api/auth/forgot-password', { email }, { withCredentials: true });
+      setForgotSent(true);
+    } catch (err: any) {
+      // Server returns { success: true } for both known and unknown emails
+      // to avoid leaking which accounts exist. We surface a generic message
+      // even on network errors to be safe.
+      setForgotSent(true);
+      if (err?.response?.data?.error && err.response.data.error !== 'rate_limit') {
+        // Only swallow non-rate-limit errors silently. Rate-limit shows
+        // a clear message.
+        void err;
+      } else if (err?.response?.data?.error === 'rate_limit') {
+        setForgotError('Too many reset requests. Please try again in an hour.');
+      }
+    } finally {
+      setForgotSubmitting(false);
+    }
+  };
+
+  const closeForgot = useCallback(() => {
+    setShowForgot(false);
+    setForgotEmail('');
+    setForgotError(null);
+    setForgotSent(false);
+  }, []);
 
   const isSignup = mode === 'signup';
 
@@ -540,7 +581,7 @@ export function AuthScreen() {
             <div style={{ textAlign: 'right', marginTop: 8 }}>
               <button
                 type="button"
-                onClick={() => { window.location.href = apiUrl('/forgot-password'); }}
+                onClick={() => setShowForgot(true)}
                 style={{
                   background: 'none', border: 'none',
                   fontFamily: s2.sans, fontSize: 12, color: s2.textDim,
@@ -652,6 +693,116 @@ export function AuthScreen() {
           </a>
         </div>
       </div>
+
+      {/* ── Forgot-password modal ────────────────────────────────────────── */}
+      {showForgot && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="forgot-title"
+          onClick={(e) => { if (e.target === e.currentTarget) closeForgot(); }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div style={{
+            width: '100%', maxWidth: 380,
+            background: s2.surface, border: `1px solid ${s2.line}`,
+            borderRadius: 16, padding: 24,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          }}>
+            {forgotSent ? (
+              <>
+                <h2 id="forgot-title" style={{ fontFamily: s2.sans, fontSize: 22, color: s2.text, margin: '0 0 12px' }}>
+                  Check your email
+                </h2>
+                <p style={{ fontFamily: s2.sans, fontSize: 14, color: s2.textDim, lineHeight: 1.5, margin: '0 0 20px' }}>
+                  If an account exists for <strong style={{ color: s2.text }}>{forgotEmail}</strong>,
+                  we've sent a password-reset link. The link expires in 1 hour.
+                </p>
+                <button
+                  type="button"
+                  onClick={closeForgot}
+                  style={{
+                    width: '100%', padding: '12px 0',
+                    background: s2.bg, color: s2.text,
+                    border: `1px solid ${s2.line}`,
+                    borderRadius: 8, cursor: 'pointer',
+                    fontFamily: s2.sans, fontSize: 14, fontWeight: 600,
+                  }}
+                >
+                  Done
+                </button>
+              </>
+            ) : (
+              <form onSubmit={handleForgotSubmit}>
+                <h2 id="forgot-title" style={{ fontFamily: s2.sans, fontSize: 22, color: s2.text, margin: '0 0 8px' }}>
+                  Reset password
+                </h2>
+                <p style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, lineHeight: 1.5, margin: '0 0 20px' }}>
+                  Enter the email on your account and we'll send you a reset link.
+                </p>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  autoFocus
+                  required
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  style={{
+                    width: '100%', padding: '12px 14px',
+                    background: s2.bg, color: s2.text,
+                    border: `1px solid ${forgotError ? '#c33' : s2.line}`,
+                    borderRadius: 8, outline: 'none',
+                    fontFamily: s2.sans, fontSize: 14,
+                    boxSizing: 'border-box',
+                    marginBottom: forgotError ? 6 : 16,
+                  }}
+                />
+                {forgotError && (
+                  <p style={{ fontFamily: s2.sans, fontSize: 12, color: '#c33', margin: '0 0 12px' }}>
+                    {forgotError}
+                  </p>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={closeForgot}
+                    style={{
+                      flex: 1, padding: '12px 0',
+                      background: 'transparent', color: s2.textDim,
+                      border: `1px solid ${s2.line}`,
+                      borderRadius: 8, cursor: 'pointer',
+                      fontFamily: s2.sans, fontSize: 14, fontWeight: 500,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={forgotSubmitting}
+                    style={{
+                      flex: 2, padding: '12px 0',
+                      background: forgotSubmitting ? s2.line : s2.text,
+                      color: s2.bg,
+                      border: 'none',
+                      borderRadius: 8, cursor: forgotSubmitting ? 'wait' : 'pointer',
+                      fontFamily: s2.sans, fontSize: 14, fontWeight: 600,
+                      opacity: forgotSubmitting ? 0.6 : 1,
+                    }}
+                  >
+                    {forgotSubmitting ? 'SENDING…' : 'SEND RESET LINK'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

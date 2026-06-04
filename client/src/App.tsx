@@ -3,8 +3,8 @@ import axios from 'axios';
 import { useAuth } from './hooks/useAuth';
 import { useAppStore } from './store/appStore';
 import { usePlan } from './hooks/usePlan';
-import { storeToken } from './lib/auth';
 import { AuthScreen } from './components/AuthScreen';
+import { ResetPasswordScreen } from './components/ResetPasswordScreen';
 import { AppBar } from './components/AppBar';
 import { BottomNav } from './components/BottomNav';
 import { IOSInstallBanner } from './components/IOSInstallBanner';
@@ -59,13 +59,14 @@ export default function App() {
   // Load plan data when user is logged in and onboarded
   usePlan();
 
-  // ── iOS Safari PWA: read ?_at= token from URL (Google OAuth redirect fallback) ──
+  // ── Strip legacy ?_at= token from URL (kept for one deploy for back-compat) ──
+  // The server no longer puts the JWT in the OAuth redirect URL, but any
+  // user who was emailed a deep link containing ?_at=... might still hit
+  // it. We just clean the URL — the httpOnly cookie set by the server is
+  // the canonical auth channel, so we never read the token out of the URL.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const at = params.get('_at');
-    if (at) {
-      storeToken(at);
-      // Remove token from URL so it's not visible / logged in server referer headers
+    if (params.has('_at')) {
       params.delete('_at');
       const newSearch = params.toString();
       const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
@@ -122,6 +123,11 @@ export default function App() {
   }
 
   if (!user) {
+    // Show the reset-password screen if the user landed on /reset-password
+    // from a reset email. This works whether or not they're logged in.
+    if (window.location.pathname === '/reset-password' && window.location.search.includes('token=')) {
+      return <ResetPasswordScreen />;
+    }
     return (
       <ErrorBoundary fallback={
         <div style={{ minHeight: '100dvh', background: s2.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 20px' }}>

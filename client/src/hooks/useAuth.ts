@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
-import { storeToken, clearStoredToken } from '../lib/auth';
 import { identifyUser, resetUser } from '../lib/analytics';
 
 export function useAuth() {
@@ -11,7 +10,6 @@ export function useAuth() {
     axios.get('/api/auth/me', { withCredentials: true })
       .then((res) => setUser(res.data.user))
       .catch(() => {
-        clearStoredToken();
         setUser(null);
       })
       .finally(() => setLoading(false));
@@ -19,8 +17,6 @@ export function useAuth() {
 
   const login = async (username: string, password: string) => {
     const res = await axios.post('/api/auth/login', { username, password }, { withCredentials: true });
-    // Store token for iOS Safari PWA fallback (sent as Authorization header)
-    if (res.data.token) storeToken(res.data.token);
     setUser(res.data.user);
     // Identify user in PostHog — no PII, only internal ID
     identifyUser(res.data.user.id);
@@ -33,7 +29,6 @@ export function useAuth() {
       { username, password, confirmPassword },
       { withCredentials: true }
     );
-    if (res.data.token) storeToken(res.data.token);
     setUser(res.data.user);
     // New user — identify so their onboarding funnel is tracked from the start
     identifyUser(res.data.user.id);
@@ -42,7 +37,6 @@ export function useAuth() {
 
   const logout = async () => {
     await axios.post('/api/auth/logout', {}, { withCredentials: true });
-    clearStoredToken();
     resetUser();
     setUser(null);
   };
