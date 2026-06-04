@@ -44,7 +44,9 @@ const config: CapacitorConfig = {
 
   // Android-specific
   android: {
-    allowMixedContent: true,
+    // Mixed content (HTTPS page loading HTTP subresources) is a security
+    // regression and a Play pre-launch flag. Keep it off in release.
+    allowMixedContent: false,
     captureInput: true,
     webContentsDebuggingEnabled: false,
     backgroundColor: '#0F1117',

@@ -3,5 +3,7 @@
     <string name="app_name">Diet Plan &amp; Tracker</string>
     <string name="title_activity_main">Diet Plan &amp; Tracker</string>
     <string name="package_name">com.dietplan.tracker</string>
-    <string name="custom_url_scheme">com.dietplan.tracker</string>
+    <!-- Matches iOS native URL scheme used for Apple Sign-In bridge
+         (see AppDelegate.swift and client/src/lib/capacitor.ts). -->
+    <string name="custom_url_scheme">dietplan</string>
 </resources>
