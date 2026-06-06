@@ -4,6 +4,10 @@
  *     Source: github.com/lindsayjaacks/Indian-Nutrient-Databank-INDB-
  *     Columns (per 100g): food_code, food_name, energy_kcal, protein_g, carb_g, fat_g, fibre_g
  *     Also has: servings_unit, unit_serving_energy_kcal (used to compute serving grams)
+ *     NOTE: the xlsx file is not bundled in the repo (license + size); the seed
+ *     script skips with a warning if the file is missing at the expected path.
+ *     The xlsx parser dependency was removed (no patched version available);
+ *     INDB recipes are not in the production data path.
  *
  *  2. @ifct2017/compositions/index.csv — 542 raw Indian ingredients (ICMR-NIN IFCT 2017)
  *     Energy is in kJ at column index 7 — divide by 4.184 to get kcal.
@@ -16,7 +20,6 @@
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
-import XLSX from 'xlsx';
 
 const prisma = new PrismaClient();
 
@@ -50,77 +53,14 @@ async function seedINDB(): Promise<number> {
   const xlsxPath = path.join(__dirname, '../data/indian-food/INDB.xlsx');
 
   if (!fs.existsSync(xlsxPath)) {
-    console.warn('[INDB] INDB.xlsx not found at', xlsxPath);
+    console.warn('[INDB] INDB.xlsx not found at', xlsxPath, '— skipping INDB seed.');
     return 0;
   }
 
-  const wb   = XLSX.readFile(xlsxPath);
-  const ws   = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json<any>(ws, { defval: '' });
-
-  console.log(`[INDB] ${rows.length} rows found in INDB.xlsx`);
-
-  const records: Parameters<typeof prisma.indianRecipe.upsert>[0]['create'][] = [];
-
-  for (const row of rows) {
-    const code = String(row.food_code || '').trim();
-    const name = String(row.food_name || '').trim();
-    if (!code || !name) continue;
-
-    const cal100 = parseNum(row.energy_kcal);
-    const prot   = parseNum(row.protein_g);
-    const carb   = parseNum(row.carb_g);
-    const fat    = parseNum(row.fat_g);
-    const fibre  = parseNum(row.fibre_g);
-
-    // Skip rows with zero macros (likely header repeats or empty)
-    if (cal100 === 0 && prot === 0 && carb === 0) continue;
-
-    // Estimate serving grams from per-serving kcal and per-100g kcal
-    const unitKcal  = parseNum(row.unit_serving_energy_kcal);
-    const servingG  = (cal100 > 0 && unitKcal > 0)
-      ? Math.round((unitKcal / cal100) * 100)
-      : 100;
-
-    const servingUnit = String(row.servings_unit || '').trim();
-    const servingName = servingUnit
-      ? `1 ${servingUnit} (~${servingG}g)`
-      : `1 serving (${servingG}g)`;
-
-    records.push({
-      recipeCode:      code,
-      recipeName:      name,
-      aliases:         null,
-      caloriesPer100g: r1(cal100),
-      proteinPer100g:  r1(prot),
-      carbsPer100g:    r1(carb),
-      fatPer100g:      r1(fat),
-      fibrePer100g:    r1(fibre),
-      servingGrams:    servingG,
-      servingName,
-      source:          'INDB',
-      dataSource:      'ICMR-NIN IFCT 2017 via INDB',
-    });
-  }
-
-  // Upsert in batches of 100
-  let count = 0;
-  for (let i = 0; i < records.length; i += 100) {
-    const batch = records.slice(i, i + 100);
-    await Promise.all(
-      batch.map(r =>
-        prisma.indianRecipe.upsert({
-          where:  { recipeCode: r.recipeCode },
-          create: r,
-          update: r,
-        })
-      )
-    );
-    count += batch.length;
-    process.stdout.write(`\r[INDB] Seeded ${count} / ${records.length} recipes`);
-  }
-  console.log(`\n[INDB] Done.`);
-  return count;
+  console.warn('[INDB] INDB.xlsx present but xlsx dependency was removed.');
+  console.warn('[INDB] To re-enable INDB seeding, add xlsx@>=0.20.3 (or another parser)');
+  console.warn('[INDB] and re-introduce the read step here. Skipping.');
+  return 0;
 }
 
 // ── Step 2: Seed ICMR-NIN raw ingredients from @ifct2017/compositions ──────

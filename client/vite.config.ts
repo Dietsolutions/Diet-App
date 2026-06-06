@@ -39,8 +39,10 @@ export default defineConfig(({ mode }) => {
           clientsClaim: true,
           // Remove stale caches from old SW versions on activation.
           cleanupOutdatedCaches: true,
-          // Allow up to 4 MB per file in the precache.
-          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+          // Allow up to 12 MB per file in the precache. The Recharts bundle
+          // alone is ~9 MB; the previous 4 MB ceiling forced workbox to
+          // throw a build error after a successful bundle.
+          maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
           runtimeCaching: [
             // ── Navigate requests: NetworkFirst ─────────────────────────────
@@ -95,9 +97,15 @@ export default defineConfig(({ mode }) => {
       sourcemap: false,
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom'],
-            charts: ['recharts'],
+          // Function form is required by Vite 8's rolldown bundler; the
+          // object form was a rollup-only feature. Returns the same vendor/
+          // charts split but is portable across both bundlers.
+          manualChunks(id: string): string | undefined {
+            if (id.includes('node_modules')) {
+              if (id.includes('recharts') || id.includes('d3-')) return 'charts';
+              if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'vendor';
+            }
+            return undefined;
           },
         },
       },
