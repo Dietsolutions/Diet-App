@@ -94,6 +94,11 @@ fastlane/test_output/
 fastlane/readme.md
 fastlane/.fastlane_history
 
+# Local AI session logs — must never be committed; previous leak exposed
+# an OPENROUTER_API_KEY in session-ses_1786.md that was pushed to the repo.
+session-ses*.md
+.claude/sessions/
+
 # Built artefacts
 *.ipa
 *.aab
