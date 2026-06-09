@@ -317,19 +317,23 @@ export function computeProportionalScaleFactor(
   return { scaleFactor, calFactor, protFactor, carbFactor, blendedRaw };
 }
 
-// ── Count-to-gram normaliser for CN queries ───────────────────────────────────
-// Indian bread items are often described as "2 rotis" in the Claude output.
-// CN cannot look up "2 rotis" — it needs "80g whole wheat roti". This converts
-// count-based descriptions to gram-only ONLY for the CN query string; the
-// original ingredients stored in the plan and shown in the app are never changed.
+// ── CN ingredient normaliser ──────────────────────────────────────────────────
+// CalorieNinjas tokenises ingredient names and applies default serving weights,
+// so passing "80g whole wheat roti" returns ~900 kcal (treats each token as a
+// full serving) instead of the correct ~240 kcal. The normaliser converts
+// ingredients to the simplest form CN understands — ONLY for the CN query;
+// ingredient strings stored in the plan and shown in the app are never changed.
 
 const UNIT_GRAM_MAP: Record<string, number> = {
   'whole wheat roti': 40,
+  'multigrain roti':  40,
   'wheat roti':       40,
   'roti':             40,
   'chapati':          40,
   'chapatti':         40,
   'phulka':           30,
+  'stuffed paratha':  80,
+  'aloo paratha':     100,
   'paratha':          60,
   'naan':             90,
   'puri':             25,
@@ -338,48 +342,138 @@ const UNIT_GRAM_MAP: Record<string, number> = {
   'idli':             40,
   'dosa':             80,
   'uttapam':          90,
+  'bread slice':      30,
+  'bread':            30,
 };
 
-export function normaliseIngredientForCN(ingredient: string): string {
-  const lower = ingredient.toLowerCase();
+// Sorted longest-first so "whole wheat roti" matches before bare "roti"
+const PER_UNIT_GRAM_KEYS = Object.keys(UNIT_GRAM_MAP).sort((a, b) => b.length - a.length);
 
-  // Pattern: optional leading count e.g. "2 whole wheat rotis (80g)" or "2 rotis"
-  // Group 1 = count, Group 2 = food description, Group 3 = optional gram hint
-  const countPattern = /^(\d+(?:\.\d+)?)\s+(.+?)(?:\s*\((\d+(?:\.\d+)?)g\))?$/i;
-  const match        = ingredient.match(countPattern);
-  if (!match) return ingredient;    // no leading count — return unchanged
+// Direct name overrides — maps what the LLM outputs to what CN understands
+const CN_NAME_SIMPLIFY: Record<string, string> = {
+  'whole wheat roti':    'roti',
+  'whole wheat chapati': 'chapati',
+  'whole wheat chapatti':'chapatti',
+  'multigrain roti':     'roti',
+  'wheat roti':          'roti',
+  'brown bread':         'wheat bread',
+  'whole wheat bread':   'wheat bread',
+  'sourdough bread':     'bread',
+  'full-fat milk':       'milk',
+  'full fat milk':       'milk',
+  'skimmed milk':        'skim milk',
+  'low-fat milk':        'skim milk',
+  'low fat milk':        'skim milk',
+  'toned milk':          'milk',
+  'double toned milk':   'skim milk',
+  'homemade paneer':     'paneer',
+  'low-fat paneer':      'paneer',
+  'low fat paneer':      'paneer',
+  'low fat curd':        'yogurt',
+  'low-fat curd':        'yogurt',
+  'curd':                'yogurt',
+  'dahi':                'yogurt',
+};
 
-  const count     = parseFloat(match[1]);
-  const foodDesc  = match[2].trim();
-  const hintGrams = match[3] ? parseFloat(match[3]) : null;
+// Descriptor prefixes to strip when no direct override matches
+const STRIP_DESCRIPTORS = [
+  'double toned', 'whole wheat', 'whole-wheat',
+  'multigrain', 'multi-grain',
+  'low-fat', 'low fat',
+  'full-fat', 'full fat',
+  'homemade', 'fresh', 'organic', 'plain',
+  'skimmed', 'toned',
+];
 
-  // If the string already contains a gram hint in parentheses, use it
-  // "2 whole wheat rotis (80g)" → "160g whole wheat roti"
-  if (hintGrams) {
-    const totalGrams = Math.round(hintGrams * count);
-    const cleanName  = foodDesc
-      .replace(/rotis?\s*$/i, 'roti')
-      .replace(/chapatis?\s*$/i, 'chapati')
-      .replace(/chapattis?\s*$/i, 'chapatti')
-      .replace(/idlis?\s*$/i, 'idli')
-      .replace(/parathas?\s*$/i, 'paratha')
-      .replace(/puris?\s*$/i, 'puri')
-      .replace(/naans?\s*$/i, 'naan')
-      .replace(/dosas?\s*$/i, 'dosa')
-      .trim();
-    return `${totalGrams}g ${cleanName}`;
-  }
+export function isBreadItem(lower: string): boolean {
+  return PER_UNIT_GRAM_KEYS.some(k => lower.includes(k));
+}
 
-  // No gram hint — check if food name matches a known item in UNIT_GRAM_MAP
-  for (const [keyword, gramsPerUnit] of Object.entries(UNIT_GRAM_MAP)) {
-    if (lower.includes(keyword)) {
-      const totalGrams = Math.round(count * gramsPerUnit);
-      return `${totalGrams}g ${keyword}`;
+export function simplifyFoodName(raw: string): string {
+  // Singularise common Indian bread plurals before any lookup
+  const singularised = raw.toLowerCase().trim()
+    .replace(/\brotis\b/g,     'roti')
+    .replace(/\bchapatis\b/g,  'chapati')
+    .replace(/\bchapattis\b/g, 'chapatti')
+    .replace(/\bidlis\b/g,     'idli')
+    .replace(/\bparathas\b/g,  'paratha')
+    .replace(/\bpuris\b/g,     'puri')
+    .replace(/\bnaans\b/g,     'naan')
+    .replace(/\bdosas\b/g,     'dosa');
+
+  // Direct override wins
+  if (CN_NAME_SIMPLIFY[singularised]) return CN_NAME_SIMPLIFY[singularised];
+
+  // Strip a leading descriptor phrase (one pass)
+  let simplified = singularised;
+  for (const desc of STRIP_DESCRIPTORS) {
+    if (simplified.startsWith(desc + ' ')) {
+      simplified = simplified.slice(desc.length + 1).trim();
+      break;
     }
   }
 
-  // No match — return unchanged to avoid corrupting unrecognised ingredients
-  return ingredient;
+  return simplified;
+}
+
+export function normaliseIngredientForCN(ingredient: string): string {
+  const trimmed = ingredient.trim();
+
+  // ── Path 1: already has explicit grams — simplify name only ─────────────────
+  // "80g whole wheat roti" → "80g roti"   "100g homemade paneer" → "100g paneer"
+  const gramsMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*g\s+(.+)$/i);
+  if (gramsMatch) {
+    const grams      = gramsMatch[1];
+    const foodDesc   = gramsMatch[2].trim();
+    const simplified = simplifyFoodName(foodDesc);
+    return simplified !== foodDesc.toLowerCase()
+      ? `${grams}g ${simplified}`
+      : trimmed;
+  }
+
+  // ── Path 2: already has explicit ml — simplify name only ────────────────────
+  // "300ml full-fat milk" → "300ml milk"
+  const mlMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*ml\s+(.+)$/i);
+  if (mlMatch) {
+    const ml         = mlMatch[1];
+    const foodDesc   = mlMatch[2].trim();
+    const simplified = simplifyFoodName(foodDesc);
+    return simplified !== foodDesc.toLowerCase()
+      ? `${ml}ml ${simplified}`
+      : trimmed;
+  }
+
+  // ── Path 3: count + bracket gram hint ────────────────────────────────────────
+  // "2 whole wheat rotis (80g)" → "160g roti"
+  const countHintMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+(.+?)\s*\((\d+(?:\.\d+)?)g\)$/i);
+  if (countHintMatch) {
+    const count      = parseFloat(countHintMatch[1]);
+    const foodDesc   = countHintMatch[2].trim();
+    const hintGrams  = parseFloat(countHintMatch[3]);
+    const totalGrams = Math.round(count * hintGrams);
+    const simplified = simplifyFoodName(foodDesc);
+    return `${totalGrams}g ${simplified}`;
+  }
+
+  // ── Path 4: count + known bread/unit item (no hint) ──────────────────────────
+  // "2 rotis" → "80g roti"   "3 whole wheat rotis" → "120g roti"
+  const countMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+(.+)$/i);
+  if (countMatch) {
+    const count    = parseFloat(countMatch[1]);
+    const foodDesc = countMatch[2].trim().toLowerCase();
+    for (const key of PER_UNIT_GRAM_KEYS) {
+      if (foodDesc.includes(key)) {
+        const totalGrams = Math.round(count * UNIT_GRAM_MAP[key]);
+        const simplified = simplifyFoodName(key);
+        return `${totalGrams}g ${simplified}`;
+      }
+    }
+    // Non-bread count (e.g. "2 eggs") — CN handles these fine as-is
+    return trimmed;
+  }
+
+  // ── Path 5: fallback — return unchanged ─────────────────────────────────────
+  return trimmed;
 }
 
 export function normaliseIngredientsForCN(ingredients: string[]): string[] {
