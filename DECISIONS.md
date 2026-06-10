@@ -738,3 +738,59 @@ Prints:
 | `server/src/routes/ai.ts` | Imported `FailedAttempt`. Added correction fields to `MealLogData`. Added `previousAttempts[]`, `lastCorrectionReason`, `lastCorrectedMeal` vars. Push to `previousAttempts` before each correction. Pass `attemptNumber`+`previousAttempts` to `buildMealCorrectionPrompt`. Capture `lastCorrectedMeal` after parse. Populate correction logData fields. Wire `MealValidationEntry.correction` in write block. |
 | `server/src/scripts/queryAttemptDetail.ts` | New file — diagnostic query script. |
 | `server/package.json` | Added `"query:attempts": "tsx src/scripts/queryAttemptDetail.ts"`. |
+
+## 17. Dashboard v4 gap fixes — post-scale normalisation, ml→g in main pipeline, Path 3 hint semantics, duplicate-generation guard (2026-06-10)
+
+### Context
+
+`MacroValidation_Dashboard_v4` (fix-validation tab) audited a validation run and flagged
+items B1–B8 plus six action items. Cross-checking against this repo's code showed most
+were already fixed here — the audited run came from an older deployed build (B1 mealIndex,
+B3 >35% boundary, B5 proportional macro split, B6 multi-macro routing, B7 weighted blend,
+and AI5 plan-level fast-track persistence are all present and wired). Three real gaps
+remained in the code; all fixed below.
+
+### Fix 1 — Post-scale CN recheck was sent raw, unnormalised ingredients
+
+The initial CN call went through `normaliseIngredientsForCN`, but the post-scale recheck
+in `validateAndFinaliseMeal` passed `scaledIngredients` straight to CN. A scaled string
+like "2 whole wheat rotis (96g)" hit the same default-serving-weight inflation the
+normaliser exists to prevent — producing false `scaling_sanity_failed` outcomes and
+needless regeneration escalations. Both CN calls now go through a shared
+`prepareCnIngredients()` helper.
+
+### Fix 2 — ml→g conversion missing from the main pipeline
+
+`normaliseMl` ("10ml ghee" → "9g ghee"; CN reads unparseable ml as 100g ≈ 900 kcal) only
+ran in the legacy `verifyDayMacros` path. The main pipeline never applied it. Now exported
+from `calorieNinjasService` and folded into `prepareCnIngredients()` (normaliser first,
+then ml→g).
+
+### Fix 3 — Path 3 bracket-hint semantics (count × hint double-counting)
+
+Path 3 of the normaliser multiplied count × bracket grams ("2 whole wheat rotis (80g)" →
+160g). But the generation prompt's convention is total weight ("2 eggs (100g)" = 100g
+total), and the dashboard's own D7M4 evidence confirms it: Claude's 381 kcal meal estimate
+only adds up with 80g of roti, not 160g. Path 3 now disambiguates: items with a known
+per-unit weight in `UNIT_GRAM_MAP` use whichever reading (per-unit vs total) sits closer
+to the hint; unknown items read the hint as total. "3 idlis (40g)" → 120g (per-unit),
+"2 whole wheat rotis (80g)" → 80g (total). Tests extended 14 → 16, all passing.
+
+### Fix 4 — Duplicate plan generation guard (action item 6)
+
+Two byte-identical plans at the same timestamp = concurrent duplicate generation (the
+route had no idempotency guard; the in-memory daily rate limit allows 3/day). Added an
+in-flight `Set<userId>` guard on `/generate-meal-plan`: concurrent request → 409
+`generation_in_progress`, checked before the monthly counter increments so a double-fire
+doesn't burn quota. Cleanup via `res.once('close')` so it fires on success, error, and
+client abort. In-memory, so best-effort on serverless — but warm-instance duplicates (the
+common case) are stopped.
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | Path 3 hint disambiguation (total vs per-unit). |
+| `server/src/services/calorieNinjasService.ts` | Exported `normaliseMl`. |
+| `server/src/routes/ai.ts` | `prepareCnIngredients()` helper used on both CN calls; in-flight duplicate-generation guard. |
+| `server/src/scripts/testNormalisation.ts` | Path 3 tests updated for new semantics + 2 new cases (16/16). |

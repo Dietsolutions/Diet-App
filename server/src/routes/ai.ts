@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { calculateBMI, calculateTDEE } from '../utils/tdee';
-import { getMealMacrosFromCalorieNinjas } from '../services/calorieNinjasService';
+import { getMealMacrosFromCalorieNinjas, normaliseMl } from '../services/calorieNinjasService';
 import { callLLM } from '../services/llmClient';
 import {
   computeDeviation,
@@ -24,7 +24,6 @@ import {
   CN_FAST_TRACK_THRESHOLD,
 } from '../services/macroValidation';
 import { logMealValidation, MealValidationEntry } from '../services/macroValidationLogger';
-import { perUserLimiter } from '../middleware/perUserLimiter';
 
 const router = Router();
 
@@ -36,6 +35,13 @@ const CN_ENABLED = !!process.env.CALORIE_NINJAS_API_KEY;
 
 // Rate limit: 3 calls per user per day (in-memory, dev/legacy guard)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+// In-flight generation guard — blocks concurrent duplicate generations for the
+// same user (double-click, client retry, duplicate SSE fire). In-memory, so on
+// serverless this is best-effort: parallel invocations landing on different
+// instances can still slip through, but warm-instance duplicates (the common
+// case behind byte-identical twin plans at the same timestamp) are stopped.
+const activeGenerations = new Set<string>();
 
 function checkRateLimit(userId: string): boolean {
   const now = Date.now();
@@ -79,6 +85,14 @@ async function checkAndIncrementGenerationLimit(userId: string): Promise<{
   });
 
   return { allowed: true, used: usage.count + 1, limit: MONTHLY_REGEN_LIMIT, resetsOn: '' };
+}
+
+// Full CN query preparation: count→gram + name simplification (normaliser),
+// then ml→g conversion. CN reads "10ml ghee" as 100g ghee (~900 kcal) — the
+// same inflation class as the roti bug, so both steps must run on EVERY CN
+// query, including the post-scale recheck.
+function prepareCnIngredients(ingredients: string[]): string[] {
+  return normaliseIngredientsForCN(ingredients).map(normaliseMl);
 }
 
 function getMealTypes(mealsPerDay: number): string[] {
@@ -381,7 +395,7 @@ async function validateAndFinaliseMeal(params: {
     // The original ingredients array shown in the app is never changed.
     const originalIngredients = Array.isArray(currentMeal.ingredients)
       ? currentMeal.ingredients : [];
-    const cnIngredients = normaliseIngredientsForCN(
+    const cnIngredients = prepareCnIngredients(
       originalIngredients.length > 0
         ? originalIngredients
         : [currentMeal.description || currentMeal.name],
@@ -486,9 +500,12 @@ async function validateAndFinaliseMeal(params: {
         ` blend=${blendedRaw.toFixed(3)} → clamped=${sf.toFixed(3)}`,
       );
 
+      // Recheck MUST go through the same normalisation as the initial call —
+      // scaled strings still contain count-based items ("2 whole wheat rotis
+      // (96g)") that CN mis-reads at default serving weights if sent raw.
       const cnRecheck = await getMealMacrosFromCalorieNinjas(
         currentMeal.name,
-        scaledIngredients.length > 0 ? scaledIngredients : [currentMeal.name],
+        prepareCnIngredients(scaledIngredients.length > 0 ? scaledIngredients : [currentMeal.name]),
       );
       await new Promise(r => setTimeout(r, 50));
 
@@ -948,13 +965,26 @@ CRITICAL RULES FOR MACRO DISTRIBUTION:
 }
 
 // POST /api/ai/generate-meal-plan (SSE streaming)
-router.post('/generate-meal-plan', requireAuth, perUserLimiter({ windowMs: 60_000, max: 5, keyPrefix: 'ai-generate-meal-plan' }), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   const userId = req.userId!;
 
   if (!checkRateLimit(userId)) {
     res.status(429).json({ error: 'Rate limit exceeded. Maximum 3 meal plan generations per day.' });
     return;
   }
+
+  // Reject concurrent duplicates BEFORE the monthly counter increments, so a
+  // double-fire doesn't burn the user's quota. Cleanup is on response close,
+  // which fires on success, error, and client abort alike.
+  if (activeGenerations.has(userId)) {
+    res.status(409).json({
+      error:   'generation_in_progress',
+      message: 'A meal plan generation is already running for your account. Please wait for it to finish.',
+    });
+    return;
+  }
+  activeGenerations.add(userId);
+  res.once('close', () => activeGenerations.delete(userId));
 
   // Monthly limit: only applies to regeneration by users who have completed onboarding.
   // First-time generation (onboardingDone = false) is always allowed.

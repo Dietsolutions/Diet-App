@@ -444,13 +444,28 @@ export function normaliseIngredientForCN(ingredient: string): string {
   }
 
   // ── Path 3: count + bracket gram hint ────────────────────────────────────────
-  // "2 whole wheat rotis (80g)" → "160g roti"
+  // "2 whole wheat rotis (80g)" → "80g roti"   "3 idlis (40g)" → "120g idli"
+  // The bracket weight is ambiguous: per-unit ("1 roti (40g)") or total
+  // ("2 eggs (100g)" — the convention in the generation prompt). When the item
+  // has a known per-unit weight, whichever reading sits closer wins; otherwise
+  // the hint is read as total, matching the prompt convention.
   const countHintMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+(.+?)\s*\((\d+(?:\.\d+)?)g\)$/i);
   if (countHintMatch) {
     const count      = parseFloat(countHintMatch[1]);
     const foodDesc   = countHintMatch[2].trim();
     const hintGrams  = parseFloat(countHintMatch[3]);
-    const totalGrams = Math.round(count * hintGrams);
+
+    const lowerDesc = foodDesc.toLowerCase();
+    const unitKey   = PER_UNIT_GRAM_KEYS.find(k => lowerDesc.includes(k));
+    let totalGrams: number;
+    if (unitKey) {
+      const perUnit = UNIT_GRAM_MAP[unitKey];
+      totalGrams = Math.abs(hintGrams - perUnit) < Math.abs(hintGrams - count * perUnit)
+        ? Math.round(hintGrams * count)   // hint ≈ one unit → per-unit weight
+        : Math.round(hintGrams);          // hint ≈ count × unit → already total
+    } else {
+      totalGrams = Math.round(hintGrams); // unknown item → prompt convention: total
+    }
     const simplified = simplifyFoodName(foodDesc);
     return `${totalGrams}g ${simplified}`;
   }
