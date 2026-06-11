@@ -191,7 +191,21 @@ export function AuthScreen() {
     setUsernameChecking(true);
     try {
       const res = await axios.get('/api/auth/check-username', { params: { username: value } });
-      if (lastCheckedRef.current === value) setUsernameAvailable(!!res.data.available);
+      if (lastCheckedRef.current === value) {
+        // Only trust an explicit boolean from a JSON response. In the native
+        // (Capacitor) build a missing/incorrect VITE_API_URL makes this request
+        // resolve to the WebView's own SPA host, which returns index.html with
+        // status 200 — res.data is then an HTML string with no `available` field.
+        // The old `!!res.data.available` coerced that undefined to false, showing
+        // "Already taken" for every username. Treat anything that isn't an
+        // explicit boolean as "unknown"; the server enforces uniqueness on signup.
+        const data = res.data;
+        const available =
+          data && typeof data === 'object' && typeof data.available === 'boolean'
+            ? data.available
+            : null;
+        setUsernameAvailable(available);
+      }
     } catch {
       if (lastCheckedRef.current === value) setUsernameAvailable(null);
     } finally {
@@ -244,7 +258,8 @@ export function AuthScreen() {
       try { await login(username.trim(), password); }
       catch (err: any) {
         const data = err?.response?.data;
-        if (data?.error === 'database_unavailable') setErrors({ general: data.message || 'Database is waking up. Please wait a moment and try again.' });
+        if (err?.code === 'API_UNREACHABLE') setErrors({ general: err.message });
+        else if (data?.error === 'database_unavailable') setErrors({ general: data.message || 'Database is waking up. Please wait a moment and try again.' });
         else setErrors({ general: data?.message || 'Invalid username or password' });
       }
       finally { setIsSubmitting(false); }
@@ -283,6 +298,8 @@ export function AuthScreen() {
         setErrors({ general: data.message });
       } else if (data?.error === 'database_unavailable') {
         setErrors({ general: data.message || 'Database is waking up. Please wait a moment and try again.' });
+      } else if (err?.code === 'API_UNREACHABLE') {
+        setErrors({ general: err.message });
       } else {
         setErrors({ general: data?.message || 'Something went wrong. Please try again.' });
       }
