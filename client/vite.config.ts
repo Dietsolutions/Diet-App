@@ -1,6 +1,10 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -78,6 +82,12 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_API_URL': JSON.stringify(apiUrl),
     },
 
+    resolve: {
+      alias: {
+        '@shared': resolve(__dirname, '../api'),
+      },
+    },
+
     server: {
       port: 5173,
       proxy: {
@@ -95,6 +105,7 @@ export default defineConfig(({ mode }) => {
       // on iOS Safari 18 (a fully modern engine that needs zero legacy polyfills).
       target: ['es2020', 'safari13', 'chrome87', 'firefox78'],
       sourcemap: false,
+      chunkSizeWarningLimit: 12000, // country-state-city (onboarding) is ~8.7 MB, lazy-loaded for new users only
       rollupOptions: {
         output: {
           // Function form is required by Vite 8's rolldown bundler; the

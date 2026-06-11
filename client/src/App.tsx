@@ -13,6 +13,11 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { TabId } from './types';
 import { s2 } from './theme/tokens';
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
 // ── Lazy-load all heavy screens ──────────────────────────────────────────────
 // Onboarding is lazy because it imports country-state-city (7.7 MB city.json).
 // Loading it eagerly bundled that data into the main chunk and triggered
@@ -20,12 +25,13 @@ import { s2 } from './theme/tokens';
 // JS engine's expression-tree evaluation of the inlined JSON literal.
 // Lazy-loading means country-state-city is only fetched for new users who
 // haven't completed onboarding — existing users never pay this cost.
-const Onboarding  = lazy(() => import('./components/Onboarding').then(m => ({ default: m.Onboarding })));
-const MealsTab    = lazy(() => import('./components/MealsTab').then(m => ({ default: m.MealsTab })));
-const TrackerTab  = lazy(() => import('./components/TrackerTab').then(m => ({ default: m.TrackerTab })));
-const ShoppingTab = lazy(() => import('./components/ShoppingTab').then(m => ({ default: m.ShoppingTab })));
-const TipsTab     = lazy(() => import('./components/TipsTab').then(m => ({ default: m.TipsTab })));
-const ProfileTab  = lazy(() => import('./components/ProfileTab').then(m => ({ default: m.ProfileTab })));
+const Onboarding       = lazy(() => import('./components/Onboarding').then(m => ({ default: m.Onboarding })));
+const MealsTab         = lazy(() => import('./components/MealsTab').then(m => ({ default: m.MealsTab })));
+const TrackerTab       = lazy(() => import('./components/TrackerTab').then(m => ({ default: m.TrackerTab })));
+const ShoppingTab      = lazy(() => import('./components/ShoppingTab').then(m => ({ default: m.ShoppingTab })));
+const TipsTab          = lazy(() => import('./components/TipsTab').then(m => ({ default: m.TipsTab })));
+const ProfileTab       = lazy(() => import('./components/ProfileTab').then(m => ({ default: m.ProfileTab })));
+const BrowseRecipesTab = lazy(() => import('./components/BrowseRecipesTab').then(m => ({ default: m.BrowseRecipesTab })));
 
 /** Tab-level loading fallback — just an empty dark surface so there's no flash */
 function TabFallback() {
@@ -98,8 +104,8 @@ export default function App() {
 
   const handleInstall = async () => {
     if (!installPrompt) return;
-    // @ts-ignore
-    await installPrompt.prompt();
+    const promptEvent = installPrompt as BeforeInstallPromptEvent;
+    await promptEvent.prompt();
     setShowInstallBanner(false);
   };
 
@@ -233,6 +239,7 @@ export default function App() {
               {activeTab === 'shopping' && <ShoppingTab />}
               {activeTab === 'tips' && <TipsTab />}
               {activeTab === 'profile' && <ProfileTab />}
+              {activeTab === 'recipes' && <BrowseRecipesTab />}
             </Suspense>
           </ErrorBoundary>
         </main>

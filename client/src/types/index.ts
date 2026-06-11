@@ -66,7 +66,7 @@ export interface ShoppingCategoryData {
   items: ShoppingItemData[];
 }
 
-export type TabId = 'meals' | 'tracker' | 'shopping' | 'tips' | 'profile';
+export type TabId = 'meals' | 'tracker' | 'shopping' | 'tips' | 'profile' | 'recipes';
 
 // Onboarding types
 export interface OnboardingData {
@@ -344,6 +344,47 @@ export interface MealCookingInstructions {
   audioScript?: string | null;       // narration text (kept for reference)
   audioDuration?: number | null;
   audioGeneratedAt?: string | null;
-  audioProviderUsed?: string | null; // "elevenlabs"|"unreal_speech"|"openai"|"playht"
+  audioProviderUsed?: string | null; // "elevenlabs"|"unreal_speech"|"playht"
   generatedAt: string;
+}
+
+// ── Browse Recipes ────────────────────────────────────────────────────────────
+
+export interface Recipe {
+  id: string;
+  name: string;
+  mealType: string;
+  dietType: string;
+  cuisineType: string;
+  description: string;
+  ingredients: string[];
+  time?: string | null;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fibre: number;
+  prepTime?: string | null;
+  sourceCount: number;
+  likeCount: number;
+  likedByMe: boolean;
+  createdAt: string;
+}
+
+export interface RecipeFilters {
+  mealType: string;
+  dietType: string;
+  q: string;
+  sortBy: string;
+  sortDir: string;
+  minCal?: number;
+  maxCal?: number;
+  minProtein?: number;
+  maxProtein?: number;
+  minCarbs?: number;
+  maxCarbs?: number;
+  minFat?: number;
+  maxFat?: number;
+  minFibre?: number;
+  maxFibre?: number;
 }

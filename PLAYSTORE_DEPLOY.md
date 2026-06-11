@@ -63,7 +63,7 @@ After saving, **redeploy** the Vercel project so the new envs take effect.
 Already exists at `server/.env` (gitignored) with your real values. Make sure these are present:
 - `DATABASE_URL`, `DIRECT_URL`
 - `JWT_SECRET`
-- `ANTHROPIC_API_KEY` (or `OPENROUTER_API_KEY` if you use that)
+- `ANTHROPIC_API_KEY`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`
 - `SMTP_*` + `EMAIL_FROM` (so password reset works locally)
 - `CLIENT_URL=http://localhost:5173`, `FRONTEND_URL=http://localhost:5173`

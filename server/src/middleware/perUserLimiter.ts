@@ -16,7 +16,7 @@
  * Usage:
  *   router.post('/expensive', requireAuth, perUserLimiter({ windowMs: 60_000, max: 5 }), handler);
  */
-import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator, RateLimitRequestHandler } from 'express-rate-limit';
 import { AuthRequest } from './auth';
 
 export interface PerUserLimiterOptions {
@@ -34,9 +34,10 @@ export function perUserLimiter(opts: PerUserLimiterOptions): RateLimitRequestHan
     legacyHeaders: false,
     keyGenerator: (req) => {
       const ar = req as AuthRequest;
+      const ip = ipKeyGenerator(req.ip ?? 'unknown');
       return opts.keyPrefix
-        ? `${opts.keyPrefix}:${ar.userId ?? `ip:${req.ip}`}`
-        : (ar.userId ?? `ip:${req.ip}`);
+        ? `${opts.keyPrefix}:${ar.userId ?? `ip:${ip}`}`
+        : (ar.userId ?? `ip:${ip}`);
     },
     handler: (_req, res) => {
       res.status(429).json({

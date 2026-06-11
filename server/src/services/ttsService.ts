@@ -1,8 +1,8 @@
 // ttsService.ts — Server-side TTS generation.
-// Priority order: ElevenLabs → Unreal Speech → OpenAI → Play.ht
+// Priority order: ElevenLabs → Unreal Speech → Play.ht
 // First env key that is present wins.
 
-export type TTSProvider = 'elevenlabs' | 'unreal_speech' | 'openai' | 'playht';
+export type TTSProvider = 'elevenlabs' | 'unreal_speech' | 'playht';
 
 /** Returns the audio as a Buffer (mp3) and the provider used. */
 export async function generateAudio(
@@ -16,17 +16,13 @@ export async function generateAudio(
     const buffer = await generateWithUnrealSpeech(script);
     return { buffer, provider: 'unreal_speech' };
   }
-  if (process.env.OPENAI_API_KEY) {
-    const buffer = await generateWithOpenAI(script);
-    return { buffer, provider: 'openai' };
-  }
   if (process.env.PLAYHT_API_KEY && process.env.PLAYHT_USER_ID) {
     const buffer = await generateWithPlayHT(script);
     return { buffer, provider: 'playht' };
   }
   throw new Error(
     'No TTS API key configured. Add ELEVENLABS_API_KEY, UNREAL_SPEECH_API_KEY, ' +
-    'OPENAI_API_KEY, or PLAYHT_API_KEY + PLAYHT_USER_ID to environment variables.',
+    'or PLAYHT_API_KEY + PLAYHT_USER_ID to environment variables.',
   );
 }
 
@@ -116,28 +112,6 @@ async function generateWithUnrealSpeech(script: string): Promise<Buffer> {
     buffers.push(await generateUnrealSpeechChunk(chunk));
   }
   return Buffer.concat(buffers);
-}
-
-// ── OpenAI TTS ────────────────────────────────────────────────────────────────
-
-async function generateWithOpenAI(script: string): Promise<Buffer> {
-  const res = await fetch('https://api.openai.com/v1/audio/speech', {
-    method: 'POST',
-    headers: {
-      Authorization:  `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'tts-1',
-      input: script,
-      voice: 'nova',
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => res.status.toString());
-    throw new Error(`OpenAI TTS error ${res.status}: ${errText}`);
-  }
-  return Buffer.from(await res.arrayBuffer());
 }
 
 // ── Play.ht ───────────────────────────────────────────────────────────────────

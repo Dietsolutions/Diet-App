@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay, parseISO, addMonths, subMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
 import { DayTrackerState } from '../types';
 
 interface CalendarProps {
@@ -37,7 +37,6 @@ export function Calendar({ weekStart, weekData, selectedDate, onSelectDate }: Ca
     return weekData.find(d => d.date === dateStr);
   };
 
-  const isPlanDay = (date: Date) => planDates.includes(format(date, 'yyyy-MM-dd'));
   const isToday = (date: Date) => isSameDay(date, today);
   const isSelected = (date: Date) => selectedDate === format(date, 'yyyy-MM-dd');
 

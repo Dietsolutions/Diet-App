@@ -19,7 +19,6 @@
 
 const MAX_SHORT = 100;
 const MAX_NAME = 100;
-const MAX_TEXT = 500;
 const MAX_NOTE = 500;
 const MAX_URL = 500;
 const MAX_SERVING = 100;

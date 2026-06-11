@@ -8,13 +8,12 @@ import { isNative, platform, signInWithApple } from '../lib/capacitor';
 import { identifyUser } from '../lib/analytics';
 import { useAuthStore } from '../store/authStore';
 import { s2 } from '../theme/tokens';
-import { HairLabel, Btn } from './ui';
+import { HairLabel } from './ui';
+import { validateUsername as sharedValidateUsername, validatePassword as sharedValidatePassword } from '@shared/validation';
 
 type AuthMode = 'login' | 'signup';
 type Strength = 'weak' | 'good' | 'strong';
 
-const USERNAME_REGEX = /^[A-Za-z0-9_]+$/;
-const RESERVED = new Set(['admin', 'root', 'system', 'support', 'help', 'dietplan', 'api', 'null', 'undefined']);
 
 function getPasswordStrength(password: string): Strength {
   let score = 0;
@@ -30,19 +29,13 @@ function getPasswordStrength(password: string): Strength {
 }
 
 function validateUsernameFormat(username: string): string | null {
-  if (/\s/.test(username))             return 'Username cannot contain spaces';
-  if (username.length < 3 || username.length > 20) return 'Username must be 3–20 characters';
-  if (!USERNAME_REGEX.test(username))  return 'Only letters, numbers and _ allowed';
-  if (RESERVED.has(username.toLowerCase())) return 'This username is not available';
-  return null;
+  const result = sharedValidateUsername(username);
+  return result.valid ? null : (result.message ?? null);
 }
 
 function validatePassword(password: string, username: string): string | null {
-  if (password.length < 6)  return 'Password must be at least 6 characters';
-  if (password.length > 72) return 'Password is too long';
-  if (/^\d+$/.test(password)) return 'Password cannot be all numbers';
-  if (username && password.toLowerCase() === username.toLowerCase()) return 'Password cannot be your username';
-  return null;
+  const result = sharedValidatePassword(password, username);
+  return result.valid ? null : (result.message ?? null);
 }
 
 interface Errors {

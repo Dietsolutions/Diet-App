@@ -11,49 +11,9 @@ import {
   validateMealNote,
   validateServingSize,
   validateMealTime,
-  validateCustomInstr,
 } from '../utils/validation';
 
 const router = Router();
-
-// ── Audio script builder (DEPRECATED for TTS use) ─────────────────────────
-// DO NOT call this in the audio generation path — existing.ingredients and
-// existing.steps may be in a non-English language (Hindi, Kannada, etc.).
-// Use buildEnglishAudioScript() instead, which calls Claude with the original
-// English plan meal data.
-// This function is kept only in case it is useful for non-TTS purposes.
-function buildAudioScript(existing: {
-  mealName:   string;
-  totalTime:  string;
-  servings:   number | null;
-  ingredients: unknown;
-  steps:       unknown;
-}): string {
-  try {
-    const ingredients   = (existing.ingredients as any[]) || [];
-    const steps         = (existing.steps       as any[]) || [];
-    const audioServings = existing.servings ?? 1;
-    const servingsPhrase = audioServings === 1 ? 'one person' : `${audioServings} people`;
-    const parts: string[] = [];
-
-    parts.push(`Let's cook ${existing.mealName} for ${servingsPhrase}. Total time: ${existing.totalTime}.`);
-    parts.push(`Here's what you'll need for ${audioServings === 1 ? 'one serving' : `${audioServings} servings`}.`);
-    ingredients.forEach((i: any) => {
-      const part = `${i.quantity ?? ''} ${i.unit ?? ''} ${i.name ?? ''}`.trim();
-      if (part) parts.push(`${part}.`);
-    });
-    parts.push("Let's begin.");
-    steps.forEach((step: any) => {
-      parts.push(`Step ${step.stepNumber}: ${step.title}. ${step.instruction}`);
-    });
-    parts.push(`Your ${existing.mealName} for ${servingsPhrase} is ready. Enjoy your meal.`);
-
-    return parts.filter(Boolean).join(' ');
-  } catch (err) {
-    console.error('[buildAudioScript] Failed to build audio script:', err);
-    return '';
-  }
-}
 
 // ── English-only audio script builder (TTS-safe) ──────────────────────────
 // Calls Claude with the original English plan meal object (always in English)
@@ -485,8 +445,7 @@ router.post('/instructions/generate', requireAuth, async (req: AuthRequest, res:
     const meal = mealsArr[mealIndex];
     if (!meal) { res.status(404).json({ error: 'Meal not found at that index' }); return; }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY;
-    if (!apiKey) { res.status(500).json({ error: 'AI service not configured' }); return; }
+    if (!process.env.ANTHROPIC_API_KEY) { res.status(500).json({ error: 'AI service not configured' }); return; }
 
     const ingredientsList = Array.isArray(meal.ingredients) ? meal.ingredients.join('\n') : 'Based on the meal name and description';
     const servingsLabel   = servings === 1 ? '1 person (single serving)' : `${servings} people`;
@@ -600,7 +559,7 @@ Respond ONLY with valid JSON matching this exact structure:
 });
 
 // POST /api/meals/instructions/generate-audio
-// Generates a real .mp3 via TTS (ElevenLabs / Unreal Speech / OpenAI / Play.ht),
+// Generates a real .mp3 via TTS (ElevenLabs / Unreal Speech / Play.ht),
 // stores it in Vercel Blob, and saves the public URL.
 // Reuses an existing file if the same user already has audio for this meal name.
 router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -721,7 +680,7 @@ router.post('/instructions/generate-audio', requireAuth, async (req: AuthRequest
     res.json({ instructions: instrForClient });
   } catch (err: any) {
     console.error('Generate audio error:', err?.message || err);
-    res.status(500).json({ error: err?.message || 'Failed to generate audio. Please try again.' });
+    res.status(500).json({ error: 'Failed to generate audio. Please try again.' });
   }
 });
 

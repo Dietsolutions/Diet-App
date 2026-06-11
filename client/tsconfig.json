@@ -12,6 +12,10 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["../api/*"]
+    },
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true

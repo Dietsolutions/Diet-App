@@ -42,7 +42,9 @@ model User {
   cookingInstructions MealCookingInstructions[]
   planGenerationUsage PlanGenerationUsage[]
   macroValidationLogs MacroValidationLog[]
-  passwordResetTokens PasswordResetToken[]
+  passwordResetTokens     PasswordResetToken[]
+  refreshTokens           RefreshToken[]
+  deletionConfirmTokens   DeletionConfirmToken[]
 }
 
 model WeightLog {
@@ -369,7 +371,7 @@ model MealCookingInstructions {
   audioScript      String?   // text sent to TTS (kept for re-generation)
   audioDuration    Int?      // seconds
   audioGeneratedAt DateTime?
-  audioProviderUsed String?  // "elevenlabs" | "unreal_speech" | "openai" | "playht"
+  audioProviderUsed String?  // "elevenlabs" | "unreal_speech" | "playht"
 
   generatedAt  DateTime @default(now())
 
@@ -410,6 +412,77 @@ model PasswordResetToken {
   @@index([tokenHash])
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+model DeletionConfirmToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@map("deletion_confirm_tokens")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+model Recipe {
+  id            String   @id @default(cuid())
+  name          String
+  mealType      String
+  dietType      String   @default("veg")
+  cuisineType   String   @default("indian")
+  description   String   @default("")
+  ingredients   String   @default("[]")
+  time          String?
+  calories      Float    @default(0)
+  protein       Float    @default(0)
+  carbs         Float    @default(0)
+  fat           Float    @default(0)
+  fibre         Float    @default(0)
+  prepTime      String?
+  sourceCount   Int      @default(1)
+  likeCount     Int      @default(0)
+  dedupeKey     String   @unique
+  createdAt     DateTime @default(now())
+
+  likes RecipeLike[]
+
+  @@index([mealType])
+  @@index([dietType])
+  @@index([calories])
+  @@index([likeCount])
+  @@index([sourceCount])
+  @@map("recipes")
+}
+
+model RecipeLike {
+  id        String   @id @default(cuid())
+  userId    String
+  recipeId  String
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, recipeId])
+  @@index([userId])
+  @@index([recipeId])
+  @@map("recipe_likes")
 }
 
 model MacroValidationLog {

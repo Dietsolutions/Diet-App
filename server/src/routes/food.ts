@@ -22,6 +22,7 @@ import { getMealMacrosFromCalorieNinjas } from '../services/calorieNinjasService
 import { FoodResult } from '../services/foodTypes';
 import { perUserLimiter } from '../middleware/perUserLimiter';
 import { logSecurityEvent } from '../utils/securityLogger';
+import { getCachedSearch, setCachedSearch } from '../lib/searchCache';
 
 const router = Router();
 
@@ -225,7 +226,14 @@ router.get('/search', requireAuth, perUserLimiter({ windowMs: 60_000, max: 30, k
     // Passive cache cleanup (best-effort)
     cleanExpiredCache();
 
-    // Cache check
+    // In-memory cache check (fastest — no DB round-trip)
+    const memoryCached = getCachedSearch(query);
+    if (memoryCached) {
+      res.json({ results: (memoryCached as FoodResult[]).slice(0, limit), cached: true });
+      return;
+    }
+
+    // DB cache check
     const normalizedQuery = query.toLowerCase();
     const cached = await prisma.foodSearchCache.findUnique({
       where: { query_source: { query: normalizedQuery, source: 'combined' } },
@@ -242,7 +250,10 @@ router.get('/search', requireAuth, perUserLimiter({ windowMs: 60_000, max: 30, k
       console.log(`[Food search] "${query}" → ${results.length} results from: ${sources.join(', ')}`);
     }
 
-    // Cache: 2 days when AI estimates present, 7 days otherwise
+    // In-memory cache write (fast path for subsequent requests)
+    setCachedSearch(query, results);
+
+    // DB cache: 2 days when AI estimates present, 7 days otherwise
     const ttlDays  = usedAI ? 2 : 7;
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000);
     try {
@@ -277,7 +288,7 @@ router.post('/ai-estimate', requireAuth, async (req: AuthRequest, res: Response)
       return;
     }
 
-    if (!process.env.OPENROUTER_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+    if (!process.env.ANTHROPIC_API_KEY) {
       res.status(500).json({ error: 'AI service not configured' });
       return;
     }

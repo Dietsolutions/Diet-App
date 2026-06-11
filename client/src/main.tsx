@@ -1,3 +1,32 @@
+// ── Sentry error tracking ─────────────────────────────────────────────────────
+// Initialised before React mounts so render crashes are captured.
+import * as Sentry from '@sentry/react';
+
+const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN || '';
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: import.meta.env.MODE,
+    tracesSampleRate: 0.1,           // 10% of sessions get performance traces
+    replaysSessionSampleRate: 0,     // no session replays (privacy)
+    replaysOnErrorSampleRate: 0.1,   // capture replay on 10% of errors
+    integrations: [],
+    beforeSend(event) {
+      // Strip PostHog API key if it leaks into an error context
+      if (event.extra) {
+        const sanitized: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(event.extra)) {
+          sanitized[k] = typeof v === 'string' && v.length > 100 ? '[truncated]' : v;
+        }
+        event.extra = sanitized;
+      }
+      return event;
+    },
+  });
+} else if (import.meta.env.DEV) {
+  console.warn('[Sentry] VITE_SENTRY_DSN not set — errors will not be tracked');
+}
+
 // ── iOS Safari polyfills — must run before any other import ──────────────────
 // Minimal set: only patch what iOS 13–15.3 genuinely lacks.
 // iOS 18 is a fully modern engine — these guards ensure we never overwrite
@@ -133,6 +162,9 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, BoundaryState
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[RootErrorBoundary]', error, info);
+    if (SENTRY_DSN) {
+      Sentry.captureException(error, { contexts: { react: { componentStack: info.componentStack } } });
+    }
   }
 
   render() {

@@ -6,7 +6,6 @@ import { useAuth } from '../hooks/useAuth';
 import { apiUrl } from '../lib/api';
 import { useAppStore } from '../store/appStore';
 import { useWeightStore } from '../store/weightStore';
-import { UserProfile } from '../types';
 import { MealPlanCustomiser } from './MealPlanCustomiser';
 import { PlanReviewScreen } from './PlanReviewScreen';
 import { WeightStatsHeader } from './weight/WeightStatsHeader';
@@ -16,7 +15,7 @@ import { WeightLogModal } from './weight/WeightLogModal';
 import { WeightLogList } from './weight/WeightLogList';
 import { ErrorBoundary } from './ErrorBoundary';
 import { s2 } from '../theme/tokens';
-import { HairLabel, Card, Bar, Btn } from './ui';
+import { HairLabel, Card, Btn } from './ui';
 import { track, trackPage } from '../lib/analytics';
 
 // ── Plan history item type ──────────────────────────────────────────────────

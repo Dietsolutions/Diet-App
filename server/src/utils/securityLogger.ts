@@ -15,7 +15,8 @@ type SecurityEvent =
   | 'invalid_token'
   | 'ownership_violation'
   | 'validation_failed'
-  | 'ai_fallback_rate_limited';
+  | 'ai_fallback_rate_limited'
+  | 'account_locked';
 
 interface SecurityContext {
   userId?: string;

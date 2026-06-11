@@ -212,7 +212,7 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 17)
    npm run cap:sync
    ```
    This copies `client/dist/` into `ios/App/App/public/` and `android/app/src/main/assets/public/`, refreshes plugin lists, and re-applies `capacitor.config.ts` to both projects.
-4. **Verify no secrets leaked.** The web build will inline any `VITE_*` env vars. `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `JWT_SECRET`, `DATABASE_URL` must NOT be prefixed with `VITE_` — they belong in `server/.env` only.
+4. **Verify no secrets leaked.** The web build will inline any `VITE_*` env vars. `ANTHROPIC_API_KEY`, `JWT_SECRET`, `DATABASE_URL` must NOT be prefixed with `VITE_` — they belong in `server/.env` only.
 
 ---
 

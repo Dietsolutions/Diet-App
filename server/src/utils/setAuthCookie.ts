@@ -1,41 +1,65 @@
 import { Response, CookieOptions } from 'express';
+import { REFRESH_TOKEN_EXPIRY_MS } from './refreshToken';
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
+
+const isProd = () => process.env.NODE_ENV === 'production';
 
 /**
- * Set the JWT auth cookie.
- *
- * On Vercel the API and frontend share the same origin thanks to the rewrites
- * in vercel.json (`/api/* → /api/index`), so we use SameSite=Lax everywhere.
- * Lax is the browser default and works correctly for same-origin requests and
- * top-level navigations (e.g. Google OAuth callback redirect).
- *
- * `secure: true` is set in production because Vercel always serves over HTTPS.
- * Using `SameSite=None` (the old setting) would require Secure and can break
- * on some browsers/versions, and is only needed for *cross-origin* cookies
- * which we don't have.
+ * Set the access token (short-lived JWT) cookie.
+ * Path: '/' — all routes require auth.
  */
 export function setAuthCookie(res: Response, token: string): void {
-  const isProd = process.env.NODE_ENV === 'production';
-
   const options: CookieOptions = {
     httpOnly: true,
-    secure: isProd,
+    secure: isProd(),
     sameSite: 'lax',
-    maxAge: THIRTY_DAYS_MS,
-    path: '/'
+    maxAge: FIFTEEN_MINUTES_MS,
+    path: '/',
   };
 
   res.cookie('token', token, options);
 }
 
-export function clearAuthCookie(res: Response): void {
-  const isProd = process.env.NODE_ENV === 'production';
-
-  res.clearCookie('token', {
+/**
+ * Set the refresh token (long-lived, DB-backed) cookie.
+ * Path: '/api/auth' — only auth endpoints can read it.
+ */
+export function setRefreshCookie(res: Response, token: string): void {
+  const options: CookieOptions = {
     httpOnly: true,
-    secure: isProd,
+    secure: isProd(),
     sameSite: 'lax',
-    path: '/'
-  });
+    maxAge: REFRESH_TOKEN_EXPIRY_MS,
+    path: '/api/auth',
+  };
+
+  res.cookie('refreshToken', token, options);
+}
+
+export function clearAuthCookie(res: Response): void {
+  const options: CookieOptions = {
+    httpOnly: true,
+    secure: isProd(),
+    sameSite: 'lax',
+    path: '/',
+  };
+
+  res.clearCookie('token', options);
+}
+
+export function clearRefreshCookie(res: Response): void {
+  const options: CookieOptions = {
+    httpOnly: true,
+    secure: isProd(),
+    sameSite: 'lax',
+    path: '/api/auth',
+  };
+
+  res.clearCookie('refreshToken', options);
+}
+
+export function clearAllAuthCookies(res: Response): void {
+  clearAuthCookie(res);
+  clearRefreshCookie(res);
 }
