@@ -241,8 +241,10 @@ const LIQUID_DENSITY: Array<[RegExp, number]> = [
 /**
  * Convert "10ml ghee" → "9g ghee", "200ml milk" → "206g milk", etc.
  * Leaves non-ml ingredients unchanged.
+ * Exported so the main validation pipeline (routes/ai.ts) applies the same
+ * ml→g conversion as verifyDayMacros — CN defaults unparseable ml to 100g.
  */
-function normaliseMl(ingredient: string): string {
+export function normaliseMl(ingredient: string): string {
   const mlMatch = ingredient.match(/^(\d+(?:\.\d+)?)\s*ml\s+(.+)$/i);
   if (!mlMatch) return ingredient;
 

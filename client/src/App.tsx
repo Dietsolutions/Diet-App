@@ -236,6 +236,7 @@ export default function App() {
             <Suspense fallback={<TabFallback />}>
               {activeTab === 'meals' && <MealsTab />}
               {activeTab === 'tracker' && <TrackerTab />}
+              {activeTab === 'recipes' && <BrowseRecipesTab />}
               {activeTab === 'shopping' && <ShoppingTab />}
               {activeTab === 'tips' && <TipsTab />}
               {activeTab === 'profile' && <ProfileTab />}

@@ -161,8 +161,9 @@ export function createApp(): Express {
   app.use('/api/meals', mealsRoutes);
   app.use('/api/recipes', recipesRoutes);
   app.use('/api/water', waterRoutes);
+  app.use('/api/recipes', recipesRoutes);
   app.use(pagesRoutes);
-  app.use(publicRecipeRouter);
+  app.use(publicRecipeRouter);   // public read-only share view: GET /recipe/:id
 
   // 404 for unknown /api routes
   app.use('/api', (_req: Request, res: Response) => {

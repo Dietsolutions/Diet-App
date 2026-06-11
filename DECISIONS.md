@@ -738,3 +738,165 @@ Prints:
 | `server/src/routes/ai.ts` | Imported `FailedAttempt`. Added correction fields to `MealLogData`. Added `previousAttempts[]`, `lastCorrectionReason`, `lastCorrectedMeal` vars. Push to `previousAttempts` before each correction. Pass `attemptNumber`+`previousAttempts` to `buildMealCorrectionPrompt`. Capture `lastCorrectedMeal` after parse. Populate correction logData fields. Wire `MealValidationEntry.correction` in write block. |
 | `server/src/scripts/queryAttemptDetail.ts` | New file — diagnostic query script. |
 | `server/package.json` | Added `"query:attempts": "tsx src/scripts/queryAttemptDetail.ts"`. |
+
+## 17. Dashboard v4 gap fixes — post-scale normalisation, ml→g in main pipeline, Path 3 hint semantics, duplicate-generation guard (2026-06-10)
+
+### Context
+
+`MacroValidation_Dashboard_v4` (fix-validation tab) audited a validation run and flagged
+items B1–B8 plus six action items. Cross-checking against this repo's code showed most
+were already fixed here — the audited run came from an older deployed build (B1 mealIndex,
+B3 >35% boundary, B5 proportional macro split, B6 multi-macro routing, B7 weighted blend,
+and AI5 plan-level fast-track persistence are all present and wired). Three real gaps
+remained in the code; all fixed below.
+
+### Fix 1 — Post-scale CN recheck was sent raw, unnormalised ingredients
+
+The initial CN call went through `normaliseIngredientsForCN`, but the post-scale recheck
+in `validateAndFinaliseMeal` passed `scaledIngredients` straight to CN. A scaled string
+like "2 whole wheat rotis (96g)" hit the same default-serving-weight inflation the
+normaliser exists to prevent — producing false `scaling_sanity_failed` outcomes and
+needless regeneration escalations. Both CN calls now go through a shared
+`prepareCnIngredients()` helper.
+
+### Fix 2 — ml→g conversion missing from the main pipeline
+
+`normaliseMl` ("10ml ghee" → "9g ghee"; CN reads unparseable ml as 100g ≈ 900 kcal) only
+ran in the legacy `verifyDayMacros` path. The main pipeline never applied it. Now exported
+from `calorieNinjasService` and folded into `prepareCnIngredients()` (normaliser first,
+then ml→g).
+
+### Fix 3 — Path 3 bracket-hint semantics (count × hint double-counting)
+
+Path 3 of the normaliser multiplied count × bracket grams ("2 whole wheat rotis (80g)" →
+160g). But the generation prompt's convention is total weight ("2 eggs (100g)" = 100g
+total), and the dashboard's own D7M4 evidence confirms it: Claude's 381 kcal meal estimate
+only adds up with 80g of roti, not 160g. Path 3 now disambiguates: items with a known
+per-unit weight in `UNIT_GRAM_MAP` use whichever reading (per-unit vs total) sits closer
+to the hint; unknown items read the hint as total. "3 idlis (40g)" → 120g (per-unit),
+"2 whole wheat rotis (80g)" → 80g (total). Tests extended 14 → 16, all passing.
+
+### Fix 4 — Duplicate plan generation guard (action item 6)
+
+Two byte-identical plans at the same timestamp = concurrent duplicate generation (the
+route had no idempotency guard; the in-memory daily rate limit allows 3/day). Added an
+in-flight `Set<userId>` guard on `/generate-meal-plan`: concurrent request → 409
+`generation_in_progress`, checked before the monthly counter increments so a double-fire
+doesn't burn quota. Cleanup via `res.once('close')` so it fires on success, error, and
+client abort. In-memory, so best-effort on serverless — but warm-instance duplicates (the
+common case) are stopped.
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | Path 3 hint disambiguation (total vs per-unit). |
+| `server/src/services/calorieNinjasService.ts` | Exported `normaliseMl`. |
+| `server/src/routes/ai.ts` | `prepareCnIngredients()` helper used on both CN calls; in-flight duplicate-generation guard. |
+| `server/src/scripts/testNormalisation.ts` | Path 3 tests updated for new semantics + 2 new cases (16/16). |
+
+## 18. Browse Recipes tab — community recipe library from validated plan meals (2026-06-11)
+
+### What was built
+
+A new "Recipes" tab that turns every meal the AI has generated across all users'
+plans into a searchable, filterable, likeable recipe library, with a
+save-to-plan action that swaps a library recipe into a chosen day/meal slot of
+the user's own plan. No new content creation — the library is extracted from
+existing MealPlanDay.meals blobs and grows automatically as plans are generated.
+
+### Dedupe strategy (the make-or-break detail)
+
+`dedupeKey = canonicalName | mealType | calorieBucket(50)`
+
+1. **canonicaliseRecipeName**: lowercase → strip punctuation → drop filler words
+   (with/and/served/fresh/homemade/style/…) → drop preparation words
+   (grilled/steamed/chopped/…) unless that empties the name → sort tokens
+   alphabetically → join. "Grilled Chicken Salad with Veggies" → "chicken salad veggies".
+2. **mealType** is collapsed to the four library slots (morning_snack/evening_snack → snack),
+   so a snack and a dinner version of the same dish stay distinct.
+3. **calorieBucket** rounds to the nearest 50 kcal — 288/291/305 collapse to 300; 288 vs 388 stay apart.
+4. **Macro similarity guard**: a meal merges into an existing recipe only if protein,
+   carbs AND fat are each within ±20%; otherwise it becomes a distinct variant
+   (dedupeKey suffix `|v2`…`|v5`, max 5 variants per key).
+5. **Merge keeps the best representative**: longest ingredient list wins; macros are
+   the running mean across merged instances (converges on the median given the ±20%
+   gate has already excluded outliers — exact medians would need every historical
+   instance stored); sourceCount increments and becomes the popularity signal.
+
+### Backfill results (run against Neon, 2026-06-11)
+
+- 51 MealPlanDay rows → **187 raw meals** extracted (0 unparseable blobs)
+- 199 validation log rows cross-referenced for per-meal verdicts
+- **28 filtered out** for bad/unverified macros
+- 133 unique canonical names → 144 composite keys
+- **127 recipes created + 6 variants** (macro guard kept near-collisions distinct) = **133 total**
+- 26 meals merged into existing recipes
+- Largest merge cluster: "Fish rice curry" ×4
+
+### Quality filter
+
+- Validation verdict available: ingest only `accepted_cn` / `accepted_after_scaling`;
+  reject `attempts_exhausted`, `scaling_sanity_failed`, `correction_parse_failed`,
+  `cn_failure`, `partial_match_failure`, `cn_fast_track_failure`.
+- No verdict (pre-pipeline plans, cn_unavailable): sanity filter — calories 50–1500,
+  macros present and non-negative, macro-derived calories (4P+4C+9F) within ±40% of stated.
+
+### Diet type inference
+
+Keyword scan over name + ingredients: non-veg keywords (chicken/fish/mutton/prawn/…)
+win first; then `\begg` regex (so "paneer bhurji" stays veg, "egg bhurji" is egg);
+default veg. Verified on live data: Fish rice curry → non_veg, Poha egg scramble → egg,
+Curd apple snack → veg.
+
+### Sharing
+
+`GET /api/recipes/:id/share` returns `{url, text, title}`. The URL points to a
+**public read-only HTML view** at `GET /recipe/:id` (no auth, noindex, dark-themed,
+served by `publicRecipeRouter` mounted without the /api prefix). Client uses the
+Web Share API on mobile with clipboard fallback on desktop.
+
+### Save-to-plan
+
+`POST /api/recipes/:id/save-to-plan {mealPlanId, dayIndex, mealIndex}`:
+ownership check first (404 on foreign plans — verified), replacement meal **keeps the
+slot's canonical type and mealIndex** (the vlog↔plan join key — the §15 bug class),
+day totals recomputed from the final meal set. **CN validation is skipped by design**:
+library recipes already passed the quality filter, and re-validating could silently
+change the macros the user just previewed. Meal-type mismatch (e.g. dinner recipe →
+lunch slot) returns `typeMismatch: true` and the UI shows a non-blocking
+"this is usually a {type}" note at the confirm step.
+
+### Schema note
+
+The Prisma schema engine binary is SIGKILLed by macOS Gatekeeper on this machine,
+so the migration (`20260611000000_add_recipe_library`, idempotent SQL) was applied
+via the query engine and recorded in `_prisma_migrations` manually — `migrate deploy`
+on Vercel/CI will see it as already applied.
+
+### Verification
+
+Server + client `tsc --noEmit` clean; vite production build clean; live smoke test
+against Neon covered: 401 gating, list/sort/filter/search, like (idempotent double-like,
+unlike), detail, share payload, public share view (200), save-to-plan (slot type kept,
+mealIndex present, totals 759.3 = 300 + 459.3 exact), foreign-plan rejection.
+Test user and synthetic plan deleted afterwards; library state: 133 recipes, 0 likes.
+
+### Files
+
+| File | Change |
+|---|---|
+| `server/src/prisma/schema.prisma` | `Recipe` + `RecipeLike` models, User relation, indexes on mealType/dietType/calories/protein/fibre/likeCount/sourceCount/createdAt, unique dedupeKey |
+| `server/src/prisma/migrations/20260611000000_add_recipe_library/` | Idempotent migration SQL |
+| `server/src/services/recipeService.ts` | New — canonicalisation, dedupe, diet inference, quality filter, ingestion with merge/variant logic |
+| `server/src/scripts/backfillRecipes.ts` | New — backfill with stage-by-stage merge statistics |
+| `server/src/routes/recipes.ts` | New — list/detail/like/share/save-to-plan + public share view |
+| `server/src/routes/ai.ts` | Fire-and-forget recipe ingestion after plan save, gated by per-meal finalOutcome |
+| `server/src/app.ts` | Mounted `/api/recipes` + public recipe router |
+| `client/src/types/index.ts` | `recipes` TabId, `Recipe` + `RecipeFilters` interfaces |
+| `client/src/hooks/useRecipes.ts` | New — useRecipes (debounced 350ms, paginated, stale-response guard), useRecipe, useToggleLike (optimistic + rollback), useShareRecipe, useSaveRecipeToPlan (refreshes cached plan) |
+| `client/src/components/BrowseRecipesTab.tsx` | New — card grid, meal/diet chips, macro range panel, sort, search, detail overlay with macro bars, save-to-plan modal (day → slot → before/after preview) |
+| `client/src/components/BottomNav.tsx` | Added RECIPES tab |
+| `client/src/App.tsx` | Lazy import + render branch |
+
+Reminder: run `cap sync` before the next mobile build so the WebView picks up the new tab.
