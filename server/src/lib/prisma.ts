@@ -23,3 +23,4 @@ export async function reconnectPrisma(): Promise<void> {
 
 export { prisma };
 export default prisma;
+// CI trigger
