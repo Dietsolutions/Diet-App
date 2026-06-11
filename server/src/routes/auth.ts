@@ -6,8 +6,10 @@ import rateLimit from 'express-rate-limit';
 import nodemailer from 'nodemailer';
 import { prisma } from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { setAuthCookie, clearAuthCookie } from '../utils/setAuthCookie';
+import { setAuthCookie, setRefreshCookie, clearAllAuthCookies } from '../utils/setAuthCookie';
+import { generateRefreshToken, revokeAllUserRefreshTokens } from '../utils/refreshToken';
 import { logSecurityEvent } from '../utils/securityLogger';
+
 
 function sanitizeText(text: string): string {
   return text.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
@@ -21,6 +23,52 @@ function hashToken(token: string): string {
 }
 
 const router = Router();
+
+// ── Account Lockout ───────────────────────────────────────────────────────
+// Per-username lockout to prevent credential-stuffing across IPs.
+// In-memory Map is fine for ~30 users; replace with Redis when scaling up.
+const LOCKOUT_THRESHOLD = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+
+interface LockoutEntry {
+  count: number;
+  lockedUntil: number;
+}
+
+const loginLockouts = new Map<string, LockoutEntry>();
+
+function getLockoutRemainingMs(username: string): number {
+  const entry = loginLockouts.get(username);
+  if (!entry) return 0;
+  const remaining = entry.lockedUntil - Date.now();
+  if (remaining <= 0) {
+    loginLockouts.delete(username);
+    return 0;
+  }
+  return remaining;
+}
+
+function recordFailedAttempt(username: string): boolean {
+  const now = Date.now();
+  const entry = loginLockouts.get(username) || { count: 0, lockedUntil: 0 };
+  // If lock expired, reset
+  if (entry.lockedUntil && entry.lockedUntil <= now) {
+    entry.count = 0;
+    entry.lockedUntil = 0;
+  }
+  entry.count += 1;
+  if (entry.count >= LOCKOUT_THRESHOLD) {
+    entry.lockedUntil = now + LOCKOUT_DURATION_MS;
+    loginLockouts.set(username, entry);
+    return true;
+  }
+  loginLockouts.set(username, entry);
+  return false;
+}
+
+function resetFailedAttempts(username: string): void {
+  loginLockouts.delete(username);
+}
 
 // ── SMTP / Email ──────────────────────────────────────────────────────────
 const SMTP_HOST = process.env.SMTP_HOST || '';
@@ -128,50 +176,27 @@ if (REVIEW_USERNAME && REVIEW_PASSWORD && process.env.NODE_ENV === 'production')
   ensureReviewAccount();
 }
 
-// Reserved usernames that cannot be registered
+const USERNAME_REGEX = /^[A-Za-z0-9_]{3,20}$/;
 const RESERVED_USERNAMES = new Set([
-  'admin', 'root', 'system', 'support', 'help',
-  'dietplan', 'api', 'null', 'undefined'
+  'admin', 'root', 'superuser', 'system', 'support', 'help', 'info',
+  'dietplan', 'api', 'null', 'undefined', 'true', 'false', 'nan',
 ]);
 
-// Username format: 3-20 chars, letters/numbers/underscore only
-const USERNAME_REGEX = /^[A-Za-z0-9_]{3,20}$/;
-
 function validateUsername(username: string): { valid: boolean; message?: string } {
-  if (typeof username !== 'string' || username.length === 0) {
-    return { valid: false, message: 'Username is required' };
-  }
-  if (/\s/.test(username)) {
-    return { valid: false, message: 'Username cannot contain spaces' };
-  }
-  if (username.length < 3 || username.length > 20) {
-    return { valid: false, message: 'Username must be 3–20 characters' };
-  }
-  if (!USERNAME_REGEX.test(username)) {
-    return { valid: false, message: 'Only letters, numbers and _ allowed' };
-  }
-  if (RESERVED_USERNAMES.has(username.toLowerCase())) {
-    return { valid: false, message: 'This username is not available' };
-  }
+  if (typeof username !== 'string' || username.length === 0) return { valid: false, message: 'Username is required' };
+  if (/\s/.test(username)) return { valid: false, message: 'Username cannot contain spaces' };
+  if (username.length < 3 || username.length > 20) return { valid: false, message: 'Username must be 3\u201320 characters' };
+  if (!USERNAME_REGEX.test(username)) return { valid: false, message: 'Only letters, numbers and _ allowed' };
+  if (RESERVED_USERNAMES.has(username.toLowerCase())) return { valid: false, message: 'This username is not available' };
   return { valid: true };
 }
 
 function validatePassword(password: string, username: string): { valid: boolean; message?: string } {
-  if (typeof password !== 'string' || password.length === 0) {
-    return { valid: false, message: 'Password is required' };
-  }
-  if (password.length < 6) {
-    return { valid: false, message: 'Password must be at least 6 characters' };
-  }
-  if (password.length > 72) {
-    return { valid: false, message: 'Password is too long' };
-  }
-  if (/^\d+$/.test(password)) {
-    return { valid: false, message: 'Password cannot be all numbers' };
-  }
-  if (username && password.toLowerCase() === username.toLowerCase()) {
-    return { valid: false, message: 'Password cannot be your username' };
-  }
+  if (typeof password !== 'string' || password.length === 0) return { valid: false, message: 'Password is required' };
+  if (password.length < 6) return { valid: false, message: 'Password must be at least 6 characters' };
+  if (password.length > 72) return { valid: false, message: 'Password is too long' };
+  if (/^\d+$/.test(password)) return { valid: false, message: 'Password cannot be all numbers' };
+  if (username && password.toLowerCase() === username.toLowerCase()) return { valid: false, message: 'Password cannot be your username' };
   return { valid: true };
 }
 
@@ -229,7 +254,18 @@ function issueToken(userId: string): string {
     throw new Error('JWT_SECRET not set');
   }
   const secret = process.env.JWT_SECRET || 'dev-jwt-secret-not-for-production';
-  return jwt.sign({ userId }, secret, { expiresIn: '30d' });
+  return jwt.sign({ userId }, secret, { expiresIn: '15m' });
+}
+
+async function issueTokenPair(userId: string): Promise<{ accessToken: string; refreshToken: string }> {
+  const accessToken = issueToken(userId);
+  const refreshToken = await generateRefreshToken(userId);
+  return { accessToken, refreshToken };
+}
+
+function setTokenCookies(res: Response, accessToken: string, refreshToken: string): void {
+  setAuthCookie(res, accessToken);
+  setRefreshCookie(res, refreshToken);
 }
 
 // POST /api/auth/login (username + password)
@@ -246,6 +282,23 @@ router.post('/login', loginLimiter, async (req: Request, res: Response): Promise
 
     // Case-insensitive lookup (usernames are stored lowercase for new accounts)
     const normalisedUsername = cleanUsername.toLowerCase();
+
+    // Check per-account lockout before verifying credentials
+    const lockMs = getLockoutRemainingMs(normalisedUsername);
+    if (lockMs > 0) {
+      const remainingMinutes = Math.ceil(lockMs / 60000);
+      logSecurityEvent('account_locked', {
+        ip: req.ip,
+        path: req.path,
+        username: normalisedUsername,
+        remainingMinutes,
+      });
+      res.status(429).json({
+        error: 'account_locked',
+        message: `Account temporarily locked due to too many failed attempts. Try again in ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`
+      });
+      return;
+    }
     let user = await prisma.user.findUnique({ where: { username: normalisedUsername } });
     // Fallback: check original case for legacy accounts stored with mixed case
     if (!user && normalisedUsername !== cleanUsername) {
@@ -272,14 +325,24 @@ router.post('/login', loginLimiter, async (req: Request, res: Response): Promise
         reason: 'wrong_password',
         userId: user.id,
       });
+      const locked = recordFailedAttempt(normalisedUsername);
+      if (locked) {
+        logSecurityEvent('account_locked', {
+          ip: req.ip,
+          path: req.path,
+          username: normalisedUsername,
+          durationMinutes: 15,
+        });
+      }
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
 
-    const token = issueToken(user.id);
-    setAuthCookie(res, token);
+    resetFailedAttempts(normalisedUsername);
 
-    // The httpOnly cookie set above is the canonical auth channel.
+    const { accessToken, refreshToken } = await issueTokenPair(user.id);
+    setTokenCookies(res, accessToken, refreshToken);
+
     res.json({
       user: {
         id: user.id,
@@ -364,13 +427,9 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response): Promi
       throw err;
     }
 
-    // Issue JWT using the same flow as login
-    const token = issueToken(user.id);
-    setAuthCookie(res, token);
+    const { accessToken, refreshToken } = await issueTokenPair(user.id);
+    setTokenCookies(res, accessToken, refreshToken);
 
-    // The httpOnly cookie set above is the canonical auth channel.
-    // We still return a non-secret user object in the body so the client
-    // can hydrate state without an extra /me round-trip.
     res.status(201).json({
       user: {
         id: user.id,
@@ -413,9 +472,41 @@ router.get('/check-username', checkUsernameLimiter, async (req: Request, res: Re
 });
 
 // POST /api/auth/logout
-router.post('/logout', (_req: Request, res: Response): void => {
-  clearAuthCookie(res);
+router.post('/logout', async (req: Request, res: Response): Promise<void> => {
+  const refreshTokenValue = req.cookies?.refreshToken;
+  if (refreshTokenValue) {
+    const tokenHash = crypto.createHash('sha256').update(refreshTokenValue, 'utf8').digest('hex');
+    await prisma.refreshToken.updateMany({
+      where: { tokenHash, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+  clearAllAuthCookies(res);
   res.json({ ok: true });
+});
+
+// POST /api/auth/refresh — rotate refresh token and issue new access token
+router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
+  const refreshTokenValue = req.cookies?.refreshToken;
+  if (!refreshTokenValue) {
+    res.status(401).json({ error: 'Refresh token required' });
+    return;
+  }
+
+  try {
+    const { rotateRefreshToken } = await import('../utils/refreshToken');
+    const result = await rotateRefreshToken(refreshTokenValue);
+    if (!result) {
+      clearAllAuthCookies(res);
+      res.status(401).json({ error: 'Invalid or expired refresh token' });
+      return;
+    }
+    setTokenCookies(res, result.accessToken, result.refreshToken);
+    res.json({ ok: true });
+  } catch {
+    clearAllAuthCookies(res);
+    res.status(500).json({ error: 'server_error' });
+  }
 });
 
 // GET /api/auth/me
@@ -465,10 +556,6 @@ async function getAppleJwks(forceRefresh = false): Promise<any[]> {
 function base64UrlDecode(input: string): Buffer {
   const pad = input.length % 4 === 0 ? 0 : 4 - (input.length % 4);
   return Buffer.from(input.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad), 'base64');
-}
-
-function base64UrlToBigInt(input: string): bigint {
-  return BigInt('0x' + base64UrlDecode(input).toString('hex'));
 }
 
 function ecdsaSigDerToRaw(sig: Buffer, keySizeBytes: number): Buffer {
@@ -627,8 +714,8 @@ router.post('/apple/callback', async (req: Request, res: Response): Promise<void
       });
     }
 
-    const token = issueToken(user.id);
-    setAuthCookie(res, token);
+    const { accessToken, refreshToken } = await issueTokenPair(user.id);
+    setTokenCookies(res, accessToken, refreshToken);
     res.json({
       user: { id: user.id, username: user.username, email: user.email, name: user.name, avatar: user.avatar, onboardingDone: user.onboardingDone }
     });
@@ -745,8 +832,8 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
       }
     }
 
-    const token = issueToken(user.id);
-    setAuthCookie(res, token);
+    const { accessToken, refreshToken } = await issueTokenPair(user.id);
+    setTokenCookies(res, accessToken, refreshToken);
 
     // Do NOT put the JWT in the redirect URL — Vercel edge logs capture
     // full request URLs, and the token would leak via Referer headers to
@@ -772,25 +859,110 @@ const deleteAccountLimiter = rateLimit({
   }
 });
 
+// ── Deletion confirmation tokens (DB-backed) ────────────────────────────────
+// For OAuth-only users (no passwordHash), a short-lived token is sent via
+// email and must be confirmed before the account is deleted. Tokens are stored
+// as SHA-256 hashes in the database, same pattern as PasswordResetToken.
+
 // ── Account Deletion ─────────────────────────────────────────────────────────
 router.delete('/delete-account', requireAuth, deleteAccountLimiter, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { password } = req.body;
+    const { password, deletionToken } = req.body;
     const user = await prisma.user.findUnique({ where: { id: req.userId! } });
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
 
     if (user.passwordHash) {
+      // Password-authenticated users must re-enter their password
       if (!password) { res.status(400).json({ error: 'Password required' }); return; }
       const valid = await bcrypt.compare(password, user.passwordHash);
       if (!valid) { res.status(403).json({ error: 'Invalid password' }); return; }
+    } else {
+      // OAuth-only users (Google/Apple) must provide a deletion confirmation token
+      if (!deletionToken) {
+        res.status(403).json({
+          error: 'deletion_token_required',
+          message: 'OAuth accounts require email confirmation. Use POST /api/auth/request-deletion to get a confirmation link.',
+        });
+        return;
+      }
+      const stored = await prisma.deletionConfirmToken.findUnique({ where: { tokenHash: hashToken(deletionToken) } });
+      if (!stored || stored.userId !== req.userId! || stored.expiresAt < new Date() || stored.usedAt) {
+        res.status(403).json({ error: 'Invalid or expired deletion token. Request a new one.' });
+        return;
+      }
+      await prisma.deletionConfirmToken.update({ where: { id: stored.id }, data: { usedAt: new Date() } });
     }
 
+    await revokeAllUserRefreshTokens(req.userId!);
     await prisma.user.delete({ where: { id: req.userId! } });
 
-    clearAuthCookie(res);
+    clearAllAuthCookies(res);
     res.json({ success: true });
   } catch (err) {
     console.error('Account deletion error:', err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// ── Request Deletion Confirmation (OAuth users) ──────────────────────────────
+// Generates a short-lived token and sends it to the user's registered email.
+// Rate-limited to 2 requests per user per hour (same as delete endpoint).
+router.post('/request-deletion', requireAuth, deleteAccountLimiter, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId! } });
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+    // Only needed for OAuth-only users
+    if (user.passwordHash) {
+      res.status(400).json({ error: 'Password users should use DELETE /api/auth/delete-account with password field.' });
+      return;
+    }
+
+    // Check SMTP is configured
+    const transporter = createTransporter();
+    if (!transporter || !user.email) {
+      res.status(400).json({
+        error: 'email_not_configured',
+        message: 'Account deletion requires email confirmation, but no email is on file or SMTP is not configured. Please contact support@dietplan.app.',
+      });
+      return;
+    }
+
+    // Generate short-lived token (15 minutes) — store SHA-256 hash
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(token);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    // Clean up expired tokens for this user before creating a new one
+    await prisma.deletionConfirmToken.deleteMany({
+      where: { userId: req.userId!, expiresAt: { lt: new Date() } }
+    });
+
+    await prisma.deletionConfirmToken.create({
+      data: { userId: req.userId!, tokenHash, expiresAt }
+    });
+
+    // Build confirmation link
+    const confirmUrl = `${FRONTEND_URL || 'http://localhost:5173'}/confirm-deletion?token=${token}`;
+
+    try {
+      await transporter.sendMail({
+        from: EMAIL_FROM,
+        to: user.email,
+        subject: 'Confirm Account Deletion — Diet Plan & Tracker',
+        text: `You requested to delete your Diet Plan & Tracker account.\n\nClick this link to confirm deletion — this link expires in 15 minutes:\n${confirmUrl}\n\nIf you did not request this, you can ignore this email. No changes have been made to your account.\n\n— Diet Plan & Tracker`,
+        html: `<p>You requested to delete your Diet Plan & Tracker account.</p><p>Click the link below to confirm deletion — this link expires in <strong>15 minutes</strong>:</p><p><a href="${confirmUrl}">${confirmUrl}</a></p><p>If you did not request this, you can ignore this email. No changes have been made to your account.</p><p>— Diet Plan & Tracker</p>`,
+      });
+    } catch (mailErr) {
+      // Leave the token record — it will expire naturally. No rollback needed.
+      console.error('[Account Deletion] Confirmation email failed:', (mailErr as Error).message);
+      res.status(500).json({ error: 'Failed to send confirmation email. Please try again or contact support.' });
+      return;
+    }
+
+    res.json({ success: true, message: 'Confirmation email sent. Check your inbox (and spam folder).' });
+  } catch (err) {
+    console.error('Account deletion request error:', err);
     res.status(500).json({ error: 'server_error' });
   }
 });

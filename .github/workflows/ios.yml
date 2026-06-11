@@ -1,39 +1,24 @@
 name: Build iOS
 
 on:
-  # Manual trigger from Actions tab
   workflow_dispatch:
     inputs:
       build_mode:
-        description: 'Build type'
+        description: 'Build mode (debug/release)'
         required: true
-        type: choice
-        default: release
-        options:
-          - release
-          - debug
+        default: 'release'
       upload_testflight:
-        description: 'Upload to TestFlight after build'
+        description: 'Upload to TestFlight'
         required: true
-        type: choice
         default: 'false'
-        options:
-          - 'true'
-          - 'false'
-
-  # Tag-driven releases (e.g. v1.0.0, v1.1.0-ios.2)
   push:
-    tags:
-      - 'v*.*.*'
-  # PR builds for QA
+    tags: ['v*']
   pull_request:
     paths:
       - 'ios/**'
       - 'client/**'
       - 'capacitor.config.ts'
       - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/ios.yml'
 
 concurrency:
   group: ios-${{ github.ref }}
@@ -41,152 +26,74 @@ concurrency:
 
 jobs:
   build:
-    name: Build & Sign iOS .ipa
-    runs-on: macos-14  # Apple silicon runner; Xcode 15+ pre-installed
-    timeout-minutes: 60
-
-    env:
-      # Defaults — override in repo Settings → Secrets
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+    runs-on: macos-15
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
           cache: 'npm'
 
-      - name: Setup Ruby (for CocoaPods + Fastlane)
-        uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.2'
+          ruby-version: '3.3'
           bundler-cache: true
 
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
-        with:
-          path: |
-            ios/Pods
-            ~/.cocoapods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock', 'ios/Podfile') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install --prefix server
+          npm install --prefix client --legacy-peer-deps
 
-      - name: Install root dependencies
-        run: npm install --no-audit --no-fund
+      - name: Build web app
+        run: npm run build
 
-      - name: Install server dependencies (for typecheck)
-        run: npm install --prefix server --legacy-peer-deps --no-audit --no-fund
-
-      - name: Install client dependencies
-        run: npm install --prefix client --no-audit --no-fund
-
-      - name: Build client (Vite)
-        run: npm run build --prefix client
-        env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
-
-      - name: Verify Capacitor sync
+      - name: Sync Capacitor
         run: npx cap sync ios
-        env:
-          CAPACITOR_ANDROID_STUDIO_PATH: ''
 
-      - name: Configure code signing
-        # Fastlane match fetches the iOS certificate + provisioning profile
-        # from a private git repo (or Google Cloud Storage). Repo is encrypted
-        # with MATCH_PASSWORD. Set MATCH_GIT_URL in repo secrets.
-        run: |
-          bundle exec fastlane match appstore \
-            --app_identifier com.dietplan.tracker \
-            --git_url "$MATCH_GIT_URL" \
-            --readonly \
-            --keychain_name temporary.keychain \
-            --keychain_password "$KEYCHAIN_PASSWORD" \
-            --platform ios
+      - name: Install CocoaPods
+        working-directory: ios/App
+        run: pod install
+
+      - name: Build and archive
         env:
-          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
-          MATCH_DEPLOYMENT_METHOD: 'git'
-        continue-on-error: false
-
-      - name: Install Pods
-        working-directory: ios
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
         run: |
-          # The project uses Swift Package Manager (see ios/App/CapApp-SPM/Package.swift)
-          # not CocoaPods. There is no Podfile. SPM dependencies are resolved
-          # automatically by xcodebuild below.
-          if [ -f "ios/Podfile" ]; then bundle exec pod install; fi
-
-      - name: Bump build number
-        # Auto-increment CURRENT_PROJECT_VERSION so each CI build has a unique
-        # build number. Apple rejects uploads with the same build number.
-        working-directory: ios
-        run: |
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER}" App/App/Info.plist
-
-      - name: Build .ipa
-        working-directory: ios
-        run: |
-          # SPM-based project: build via .xcodeproj (not .xcworkspace).
-          if [ -f "App.xcworkspace" ]; then
-            WS_FLAG="-workspace App.xcworkspace"
-          else
-            WS_FLAG="-project App.xcodeproj"
-          fi
-          xcodebuild \
-            $WS_FLAG \
+          cd ios
+          bundle exec fastlane match appstore --readonly
+          xcodebuild archive \
+            -workspace App/App.xcworkspace \
             -scheme App \
-            -configuration ${{ inputs.build_mode == 'debug' && 'Debug' || 'Release' }} \
-            -destination 'generic/platform=iOS' \
+            -configuration Release \
             -archivePath build/App.xcarchive \
-            CODE_SIGN_STYLE=manual \
-            CODE_SIGN_IDENTITY="iPhone Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="match AppStore com.dietplan.tracker" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            archive
-
-      - name: Export .ipa
-        working-directory: ios
-        run: |
-          xcodebuild \
-            -exportArchive \
+            -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }}
+          xcodebuild -exportArchive \
             -archivePath build/App.xcarchive \
-            -exportPath build \
-            -exportOptionsPlist build/ExportOptions.plist
+            -exportOptionsPlist App/exportOptions.plist \
+            -exportPath build/ \
+            -allowProvisioningUpdates
 
-      - name: Upload .ipa artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: diet-plan-ios-${{ inputs.build_mode == 'debug' && 'debug' || 'release' }}-${{ github.run_number }}
-          path: ios/build/*.ipa
-          if-no-files-found: error
-          retention-days: 30
+          name: diet-plan-ios-release-${{ github.run_number }}.ipa
+          path: ios/build/App.ipa
 
       - name: Upload to TestFlight
-        if: ${{ inputs.upload_testflight == 'true' || startsWith(github.ref, 'refs/tags/') }}
-        working-directory: ios
-        run: |
-          bundle exec fastlane pilot upload \
-            --ipa "build/Diet Plan & Tracker.ipa" \
-            --app_identifier com.dietplan.tracker \
-            --team_id "$APPLE_TEAM_ID" \
-            --skip_waiting_for_build_processing true
+        if: inputs.upload_testflight == 'true' || startsWith(github.ref, 'refs/tags/v')
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-
-  notify:
-    name: Notify on failure
-    needs: build
-    if: failure()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Post failure to PR / commit
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          echo "::error::iOS build failed. Check the build job logs."
+          xcrun altool --upload-app \
+            -f ios/build/App.ipa \
+            -u "${{ secrets.APPLE_ID }}" \
+            -p "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --type ios

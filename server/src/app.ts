@@ -14,8 +14,9 @@ import weightRoutes from './routes/weight';
 import foodRoutes from './routes/food';
 import mealsRoutes from './routes/meals';
 import waterRoutes from './routes/water';
-import pagesRoutes from './routes/pages';
 import recipesRoutes, { publicRecipeRouter } from './routes/recipes';
+import pagesRoutes from './routes/pages';
+import { requestTimeout } from './middleware/timeout';
 
 // ---------------------------------------------------------------------------
 // Startup env-var check — missing JWT_SECRET is fatal in production.
@@ -23,7 +24,7 @@ import recipesRoutes, { publicRecipeRouter } from './routes/recipes';
 const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'] as const;
 const OPTIONAL_ENV = [
   'DIRECT_URL', 'CLIENT_URL', 'FRONTEND_URL',
-  'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'CLAUDE_MODEL',
+  'ANTHROPIC_API_KEY', 'CLAUDE_MODEL',
   'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL',
   'USDA_API_KEY', 'AI_FOOD_ESTIMATE_DAILY_LIMIT',
   'NODE_ENV'
@@ -124,6 +125,12 @@ export function createApp(): Express {
     app.use(morgan('dev'));
   }
 
+  // ── Request Timeout ──────────────────────────────────────────────────────
+  // Prevents hung connections from consuming serverless instances.
+  // Set to 25s so the outer Vercel timeout (30s on Hobby) can return a clean
+  // response before the platform hard-kills the function.
+  app.use(requestTimeout(25_000));
+
   // Health check (used by Vercel + monitoring)
   app.get('/api/health', async (_req: Request, res: Response) => {
     let dbStatus = 'unknown';
@@ -152,6 +159,7 @@ export function createApp(): Express {
   app.use('/api/weight', weightRoutes);
   app.use('/api/food', foodRoutes);
   app.use('/api/meals', mealsRoutes);
+  app.use('/api/recipes', recipesRoutes);
   app.use('/api/water', waterRoutes);
   app.use('/api/recipes', recipesRoutes);
   app.use(pagesRoutes);

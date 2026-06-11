@@ -6,7 +6,7 @@ import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { AIFoodComponent } from '../types';
 import { s2 } from '../theme/tokens';
-import { HairLabel, Card, Btn } from './ui';
+import { HairLabel, Card } from './ui';
 
 interface Props {
   onBack: () => void;

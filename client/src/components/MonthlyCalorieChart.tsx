@@ -290,10 +290,6 @@ export function MonthlyCalorieChart() {
     : 0;
   const progressColor = getProgressColor(macroTot.consumed, macroTot.target);
 
-  const monthLabel = (() => {
-    try { return format(new Date(month + '-01T12:00:00'), 'MMMM yyyy').toUpperCase(); } catch { return month; }
-  })();
-
   const maxAbs = chartData.length > 0
     ? Math.max(...chartData.map(d => Math.abs(d.delta)), 10)
     : 10;

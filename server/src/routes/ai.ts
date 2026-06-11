@@ -5,22 +5,11 @@ import { calculateBMI, calculateTDEE } from '../utils/tdee';
 import { getMealMacrosFromCalorieNinjas, normaliseMl } from '../services/calorieNinjasService';
 import { callLLM } from '../services/llmClient';
 import {
-  computeDeviation,
-  computeProportionalScaleFactor,
-  applyScaleToIngredients,
-  normaliseIngredientsForCN,
-  checkMealAgainstTarget,
+  normaliseMealType,
   checkDayBudget,
   getMealMacroTargets,
-  buildMealCorrectionPrompt,
   buildDayLevelCorrectionPrompt,
-  normaliseMealType,
-  type FailedAttempt,
-  CANONICAL_MEAL_TYPES,
-  MEAL_WEIGHT_DISTRIBUTIONS,
   MAX_CLAUDE_ATTEMPTS_PER_DAY,
-  POST_SCALE_ACCEPT_PCT,
-  SCALING_SANITY_MAX_MULTIPLIER,
   CN_FAST_TRACK_THRESHOLD,
 } from '../services/macroValidation';
 import { logMealValidation, MealValidationEntry } from '../services/macroValidationLogger';
@@ -988,7 +977,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
   res.once('close', () => activeGenerations.delete(userId));
 
   // Monthly limit: only applies to regeneration by users who have completed onboarding.
-  // First-time generation (onboardingDone = false) is always allowed.
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { onboardingDone: true } });
   if (user?.onboardingDone) {
     const check = await checkAndIncrementGenerationLimit(userId);
@@ -1004,9 +992,8 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     }
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    res.status(500).json({ error: 'No LLM provider configured. Set OPENROUTER_API_KEY or ANTHROPIC_API_KEY in server/.env' });
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(500).json({ error: 'No LLM provider configured. Set ANTHROPIC_API_KEY in server/.env' });
     return;
   }
 
@@ -1031,20 +1018,13 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
   };
 
   // SSE heartbeat — declared outside try/catch so clearHeartbeat is always in scope.
-  // Keeps the Vercel/client SSE connection alive during the long CN pipeline;
-  // Vercel drops idle connections after ~25s without data.
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   const clearHeartbeat = () => {
     if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
   };
 
   try {
-    // LLM provider is auto-selected by callLLM (OpenRouter if OPENROUTER_API_KEY
-    // is set, else Anthropic). The client is no longer instantiated here.
-
     // ── Compute fresh targets BEFORE building the prompt ──────────────────────
-    // This ensures the per-meal targets injected into the Claude prompt are the
-    // same numbers used later in the CN validation pipeline.
     const freshTargets = calculateTDEE({
       weightKg:               profile.weightKg,
       heightCm:               profile.heightCm,
@@ -1099,9 +1079,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     console.log(`AI generation starting with model ${CLAUDE_MODEL}, planDuration=${planDuration}...`);
     sendEvent('progress', { step: 'Generating plan with AI...', tokens: 0 });
 
-    // Non-streaming LLM call via unified client (supports OpenRouter + Anthropic).
-    // The SSE heartbeat below keeps the connection alive during the long call.
-    // Per-meal progress events are emitted later in the CN validation loop.
     const aiText = await callLLM(userPrompt, {
       system: systemPrompt,
       maxTokens: maxTokens,
@@ -1130,8 +1107,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     }
 
     // ── Normalise meal type strings immediately after parse ───────────────────
-    // Claude may generate "Breakfast", "Lunch", "Morning Snack" etc.
-    // Normalise to canonical underscore-separated lowercase before any validation.
     {
       const mealsPerDayInPlan = planData.days?.[0]?.meals?.length ?? profile.mealsPerDay ?? 4;
       planData.days = (planData.days ?? []).map((day: any) => ({
@@ -1153,32 +1128,23 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       return;
     }
 
-    // Calorie check (warning only — pre-verification estimate)
     const avgCalories = planData.weekSummary?.avgCalories || 0;
     if (Math.abs(avgCalories - profile.targetCalories) > 100) {
       console.warn(`AI plan calories (${avgCalories}) differ from target (${profile.targetCalories}) by >100 kcal`);
     }
 
     // ── MACRO VERIFICATION PIPELINE ──────────────────────────────────────────
-    // New flow: per-meal deviation → scale or regenerate → secondary target check
-    // → day-level ±15% budget check → replace largest meal if needed.
-    // Attempt budget: 5 Claude regeneration calls per day (resets per day).
-    // Completely skipped when CALORIE_NINJAS_API_KEY is not set.
-
-    // dailyTargets = same fresh values computed before the prompt was built.
     const dailyTargets = promptDailyTargets;
 
     let cnChecksTotal      = 0;
     let cnCorrectionsTotal = 0;
 
-    // Pending validation log entries — populated inside the CN block, written after mealPlan.id is available.
-    // Hoisted here so TypeScript can see the type at the write site below.
     let pendingLogEntries: Array<{
       dayIdx:   number;
       mealIdx:  number;
       origMeal: any;
       logData:  MealLogData;
-      dayBudgetResult?: DayBudgetAnnotation;   // annotated after day loop completes
+      dayBudgetResult?: DayBudgetAnnotation;
       dayLevelExtra?: {
         wasDayLevelReplacement:    boolean;
         dayTotalBeforeReplacement: number;
@@ -1205,27 +1171,20 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         ` mealsPerDay=${mealsPerDay}, targetCalories=${dailyTargets.calories}`,
       );
 
-      // Initialise the pending log buffer for this plan
       pendingLogEntries = [];
 
-      // Plan-level slot failure tracker — persists across all days.
-      // Key: mealIndex (0-based).  Value: count of confirmed CN failures at that slot.
-      // Once a slot reaches CN_FAST_TRACK_THRESHOLD failures, all subsequent meals
-      // at that slot skip CN entirely and accept Claude's estimate directly.
       const cnSlotFailures: Record<number, number> = {};
 
       for (let dayIdx = 0; dayIdx < daysToValidate; dayIdx++) {
         const day            = planData.days[dayIdx];
-        const attemptsUsed   = { count: 0 };             // shared mutable counter for this day
-        const cnFailureCount: Record<number, number> = {};  // per-meal-index CN failure counter
+        const attemptsUsed   = { count: 0 };
+        const cnFailureCount: Record<number, number> = {};
 
-        // ── Step A: Normalise meal types on Claude output ────────────────────
         day.meals = (day.meals as any[]).map((meal: any, i: number) => ({
           ...meal,
           type: normaliseMealType(meal.type, i, mealsPerDay),
         }));
 
-        // ── Step B: Validate each meal sequentially ──────────────────────────
         const finalisedMeals: any[] = [];
 
         for (let mealIdx = 0; mealIdx < (day.meals as any[]).length; mealIdx++) {
@@ -1253,7 +1212,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
           );
         }
 
-        // ── Fix 8: Meal count guard — ensure every slot has a meal ──────────
         if (finalisedMeals.length !== mealsPerDay) {
           console.error(
             `[Plan] Day${dayIdx+1} has ${finalisedMeals.length} meals,` +
@@ -1270,7 +1228,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         cnCorrectionsTotal += attemptsUsed.count;
         day.meals = finalisedMeals;
 
-        // ── Step C: Day-level budget check ───────────────────────────────────
         const dayBudget = checkDayBudget(day.meals, dailyTargets);
 
         console.log(
@@ -1310,7 +1267,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 dayMeal.type, dayBudget.largestMealIndex, mealsPerDay,
               );
 
-              // Run full CN validation on the day-level replacement meal
               const dayResult = await validateAndFinaliseMeal({
                 originalMeal: dayMeal,
                 mealIndex:    dayBudget.largestMealIndex,
@@ -1325,7 +1281,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
 
               day.meals[dayBudget.largestMealIndex] = dayResult.meal;
 
-              // Re-check after replacement
               finalDayBudget = checkDayBudget(day.meals, dailyTargets);
               console.log(
                 `[DayBudget] Day${dayIdx+1} after replacement:` +
@@ -1335,7 +1290,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 console.log(`[DayBudget] Day${dayIdx+1} still unresolved — accepting best result`);
               }
 
-              // Log entry for the replaced meal
               pendingLogEntries.push({
                 dayIdx,
                 mealIdx:  dayBudget.largestMealIndex,
@@ -1356,7 +1310,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
           }
         }
 
-        // Recalculate day totals from finalised meals
         planData.days[dayIdx].meals         = day.meals;
         planData.days[dayIdx].totalCalories = day.meals.reduce((s: number, m: any) => s + (m.calories || 0), 0);
         planData.days[dayIdx].totalProtein  = day.meals.reduce((s: number, m: any) => s + (m.protein  || 0), 0);
@@ -1364,9 +1317,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         planData.days[dayIdx].totalFat      = day.meals.reduce((s: number, m: any) => s + (m.fat      || 0), 0);
         planData.days[dayIdx].totalFibre    = day.meals.reduce((s: number, m: any) => s + (m.fibre    || 0), 0);
 
-        // ── Fix 7: Annotate pending entries for this day with day totals ─────
-        // Now that the day is fully finalised (including any replacement), stamp
-        // every pending log entry for this day with the day-level budget result.
         const dayAnnotation: DayBudgetAnnotation = {
           dayTotalCalories: planData.days[dayIdx].totalCalories,
           dayTotalProtein:  planData.days[dayIdx].totalProtein,
@@ -1382,7 +1332,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         }
       }
 
-      // ── Plan-level slot failure summary ──────────────────────────────────
       const failedSlots = Object.entries(cnSlotFailures);
       if (failedSlots.length > 0) {
         console.log('[CN] Plan-level slot failure summary:');
@@ -1403,31 +1352,24 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       );
 
     } else {
-      // CalorieNinjas not configured — skip silently, use Claude estimates
       console.log('[Validation] CalorieNinjas not configured — skipping macro verification');
     }
     } catch (cnErr: any) {
-      // CN failure must NEVER kill the generation — fall back to Claude's original estimates
       console.error('[CalorieNinjas] Verification pipeline failed — skipping, using Claude estimates:', cnErr.message);
     } finally {
       clearHeartbeat();
     }
-    // ── END MACRO VERIFICATION ────────────────────────────────────────────────
 
     sendEvent('progress', { step: 'Saving your meal plan...' });
 
-    // Deactivate old meal plans
     await prisma.mealPlan.updateMany({
       where: { userId, isActive: true },
       data: { isActive: false }
     });
 
-    // weekStartDate = today (the day the plan was generated).
-    // Plans start from the actual generation date, not the Monday of the week.
     const weekStartDate = new Date();
     weekStartDate.setHours(0, 0, 0, 0);
 
-    // Create meal plan
     const mealPlan = await prisma.mealPlan.create({
       data: {
         userId,
@@ -1441,7 +1383,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       }
     });
 
-    // ── Write validation log entries now that mealPlan.id is available ───────
     if (pendingLogEntries && pendingLogEntries.length > 0) {
       const logTimeout = new Promise<void>(resolve => setTimeout(resolve, 8000));
       await Promise.race([
@@ -1489,7 +1430,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
 
               withinTolerance: logData.withinTolerance,
 
-              // Fix 4: day totals now populated from dayBudgetResult annotation
               dayTotals: dayBudgetResult ? {
                 calories:         dayBudgetResult.dayTotalCalories,
                 protein:          dayBudgetResult.dayTotalProtein,
@@ -1507,44 +1447,34 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
                 fibre:    logData.finalFibre,
               },
 
-              // Deviation routing
               deviationPct:           logData.deviationPct,
               deviationAction:        logData.deviationAction,
               partialMatchGuard:      logData.partialMatchGuard,
-              // Per-macro deviation
               calDeviationPct:        logData.calDeviationPct,
               protDeviationPct:       logData.protDeviationPct,
               carbDeviationPct:       logData.carbDeviationPct,
               fatDeviationPct:        logData.fatDeviationPct,
               triggerMacro:           logData.triggerMacro,
-              // Scaling
               scalingApplied:         logData.scalingApplied,
               scaleFactor:            logData.scaleFactor,
               postScaleCnCalories:    logData.postScaleCnCalories,
               postScaleDeviation:     logData.postScaleDeviation,
               scalingResolved:        logData.scalingResolved,
-              // Weighted blend components
               calScaleFactor:         logData.calScaleFactor,
               protScaleFactor:        logData.protScaleFactor,
               carbScaleFactor:        logData.carbScaleFactor,
               blendedScaleFactor:     logData.blendedScaleFactor,
-              // Meal target check
               mealTargetCheckPassed:  logData.mealTargetCheckPassed,
               mealTargetDeviationPct: logData.mealTargetDeviationPct,
-              // Attempt counter snapshot
               attemptsUsedAtThisMeal: logData.attemptsUsedAtThisMeal,
-              // Day-level correction
               wasDayLevelReplacement:    dayLevelExtra?.wasDayLevelReplacement   ?? false,
               dayTotalBeforeReplacement: dayLevelExtra?.dayTotalBeforeReplacement,
               dayTotalAfterReplacement:  dayLevelExtra?.dayTotalAfterReplacement,
-              // Extended pipeline observability
               initialDeviationAction:  logData.initialDeviationAction,
               cnIngredientsSentCount:  logData.cnIngredientsSentCount,
               scalingSanityFailed:     logData.scalingSanityFailed,
               dayMealCount:            planData.days[0]?.meals?.length ?? 4,
-              // Plan-level fast-track
               cnSlotFailCountAtSkip:   logData.cnSlotFailCountAtSkip,
-              // Per-meal correction detail
               correction: logData.correctionTriggered ? {
                 triggered:      true,
                 targetMealType: origMeal.type ?? 'unknown',
@@ -1572,7 +1502,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       ]);
     }
 
-    // Create all days in parallel
     await Promise.all(planData.days.map((dayData: any) =>
       prisma.mealPlanDay.create({
         data: {
@@ -1589,7 +1518,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       })
     ));
 
-    // Create shopping list
     const shoppingList = await prisma.generatedShoppingList.create({
       data: {
         userId,
@@ -1599,7 +1527,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       }
     });
 
-    // ── Feed validated meals into the recipe library (fire-and-forget) ───────
+<    // ── Feed validated meals into the recipe library (fire-and-forget) ───────
     // Per-meal finalOutcome from the validation pass gates ingestion: only
     // meals with trustworthy macros enter the library. Never blocks the
     // response — recipe ingestion failures are logged and swallowed.
@@ -1663,7 +1591,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     } else if (err?.status === 402 || err.message?.includes('insufficient_quota') || err.message?.includes('insufficient_credits')) {
       errorMsg = 'Service temporarily unavailable. Please try again later.';
     } else if (err?.status === 401 || err.message?.includes('auth')) {
-      errorMsg = 'AI API authentication failed. Check OPENROUTER_API_KEY or ANTHROPIC_API_KEY.';
+      errorMsg = 'AI API authentication failed. Check ANTHROPIC_API_KEY.';
     } else if (err?.status === 404 || err.message?.includes('not_found')) {
       errorMsg = `Model "${CLAUDE_MODEL}" not found. Check CLAUDE_MODEL env var.`;
     }

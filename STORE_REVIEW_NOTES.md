@@ -3,9 +3,10 @@
 ## App Store (iOS) Review Notes
 
 ### Reviewer Account
-- **Username:** `review`
-- **Password:** `Review@2026!`
+- **Username:** Set via `REVIEW_USERNAME` environment variable
+- **Password:** Set via `REVIEW_PASSWORD` environment variable
 - The review account has pre-generated meal plan data for testing.
+- Credentials are **never hardcoded** — set `REVIEW_USERNAME` and `REVIEW_PASSWORD` in Vercel env vars or local `.env`. The account auto-creates on first login when both env vars are set and `NODE_ENV=production`.
 
 ### Features to Review
 1. **Sign Up** — Create a new account with username + password

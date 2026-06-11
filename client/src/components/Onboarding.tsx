@@ -152,6 +152,11 @@ export function Onboarding({ onComplete, userName }: Props) {
 
   const totalSteps = 8;
   const genStartRef = useRef<number>(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+  }, [step]);
 
   // Fire once on mount
   useEffect(() => { track('onboarding_started'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -524,7 +529,7 @@ export function Onboarding({ onComplete, userName }: Props) {
         </div>
 
         {/* ── Step content ── */}
-        <div style={{ flex: 1, padding: '0 20px 100px', overflowY: 'auto' }}>
+        <div ref={scrollRef} style={{ flex: 1, padding: '0 20px 100px', overflowY: 'auto' }}>
           {step === 1 && <StepPersonal data={data} update={update} />}
           {step === 2 && <StepBody data={data} update={update} />}
           {step === 3 && <StepDiet data={data} update={update} toggleArr={toggleArrMax} />}

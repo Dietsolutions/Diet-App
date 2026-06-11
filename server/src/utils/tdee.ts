@@ -48,24 +48,8 @@ const INTENSITY_KG_PER_WEEK: Record<string, number> = {
   high:     0.75,   // ~825 kcal/day deficit
 };
 
-// Protein multipliers (g/kg body weight)
-const INTENSITY_PROTEIN: Record<string, number> = {
-  high:     2.2,
-  moderate: 2.0,
-  low:      1.8,
-};
-
-const RDA_PROTEIN_PER_KG: Record<string, number> = {
-  sedentary:         0.8,
-  lightly_active:    1.0,
-  moderately_active: 1.2,
-  very_active:       1.4,
-  extra_active:      1.6,
-};
-
 // Goals that drive calorie adjustment via dietIntensity
 const DEFICIT_GOALS = new Set(['lose_weight', 'gain_muscle']);
-const MAINTENANCE_GOALS = new Set(['maintain', 'improve_fitness', 'manage_health', 'eat_healthy']);
 
 // Conservative metabolic-effect adjustments per health condition.
 // Applied as a multiplier on TDEE (negative = lower effective burn).
@@ -87,7 +71,7 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
   const {
     weightKg, heightCm, age, activityLevel,
     dietIntensity, primaryGoal,
-    targetWeightKg, healthConditions, eatingWindowHours,
+    targetWeightKg, healthConditions,
   } = input;
   const gender = input.gender.toLowerCase();
 
@@ -277,10 +261,7 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
     // Offset the extra fat calories by reducing carbs (keeps total kcal stable)
     const fatKcalAdded  = (FAT_FLOOR_GRAMS - preFatTarget) * 9;
     carbTarget          = Math.max(50, carbTarget - Math.round(fatKcalAdded / 4));
-    console.log(
-      `[TDEE] Fat floor applied: ${preFatTarget}g → ${FAT_FLOOR_GRAMS}g/day;` +
-      ` carbs adjusted to ${carbTarget}g`,
-    );
+    // fat floor adjustment applied silently
   }
 
   // ── Re-apply safety floor + round to nearest 25 after all adjustments ────

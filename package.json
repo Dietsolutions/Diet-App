@@ -18,13 +18,21 @@
     "cap:open:ios": "cap open ios",
     "cap:open:android": "cap open android",
     "cap:build:ios": "npm run build --prefix client && cap sync ios && cap open ios",
-    "cap:build:android": "npm run build --prefix client && cap sync android && cap open android"
+    "cap:build:android": "npm run build --prefix client && cap sync android && cap open android",
+    "test": "npm test --prefix server",
+    "test:client": "npm test --prefix client",
+    "test:all": "npm test --prefix server && npm test --prefix client",
+    "typecheck": "tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p client/tsconfig.json",
+    "test:e2e": "npx playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ui": "npx playwright test --ui --config e2e/playwright.config.ts",
+    "screenshots": "node take-screenshots.js"
   },
   "devDependencies": {
     "@capacitor/android": "^8.3.4",
     "@capacitor/cli": "^8.3.4",
     "@capacitor/core": "^8.3.4",
     "@capacitor/ios": "^8.3.4",
+    "@playwright/test": "^1.60.0",
     "concurrently": "^9.2.1",
     "puppeteer": "^24.40.0"
   },
@@ -33,7 +41,8 @@
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.2",
-    "@vercel/node": "^4.0.0"
+    "@vercel/node": "^4.0.0",
+    "typescript": "^5.7.3"
   },
   "overrides": {
     "tar": "^7.5.11",

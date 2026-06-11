@@ -1,13 +1,9 @@
-// Browse Recipes API — list/filter/sort/search, detail, like toggle, share,
-// and save-to-plan. All endpoints behind auth except the public share view.
-
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
-// ── Sort whitelist ────────────────────────────────────────────────────────────
 const SORT_FIELDS: Record<string, string> = {
   likes:     'likeCount',
   popular:   'sourceCount',
@@ -69,13 +65,12 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response): Promise<vo
       prisma.recipe.count({ where }),
       prisma.recipe.findMany({
         where,
-        orderBy: [{ [sortField]: sortDir }, { id: 'asc' }],   // id tiebreak → stable pages
+        orderBy: [{ [sortField]: sortDir }, { id: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
     ]);
 
-    // likedByMe for just this page
     const likes = await prisma.recipeLike.findMany({
       where: { userId: req.userId!, recipeId: { in: recipes.map(r => r.id) } },
       select: { recipeId: true },
@@ -120,8 +115,6 @@ router.get('/:id', requireAuth, async (req: AuthRequest, res: Response): Promise
 });
 
 // ── POST /api/recipes/:id/like · DELETE /api/recipes/:id/like ────────────────
-// likeCount stays consistent because both writes happen in one transaction
-// and the unique constraint makes double-likes impossible.
 router.post('/:id/like', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const recipeId = req.params.id;
@@ -131,7 +124,7 @@ router.post('/:id/like', requireAuth, async (req: AuthRequest, res: Response): P
     });
     res.json({ liked: true });
   } catch (err: any) {
-    if (err?.code === 'P2002') { res.json({ liked: true }); return; }       // already liked
+    if (err?.code === 'P2002') { res.json({ liked: true }); return; }
     if (err?.code === 'P2003' || err?.code === 'P2025') { res.status(404).json({ error: 'Recipe not found' }); return; }
     console.error('[Recipes] Like failed:', err.message);
     res.status(500).json({ error: 'Failed to like recipe' });
@@ -149,7 +142,7 @@ router.delete('/:id/like', requireAuth, async (req: AuthRequest, res: Response):
     });
     res.json({ liked: false });
   } catch (err: any) {
-    if (err?.code === 'P2025') { res.json({ liked: false }); return; }      // wasn't liked
+    if (err?.code === 'P2025') { res.json({ liked: false }); return; }
     console.error('[Recipes] Unlike failed:', err.message);
     res.status(500).json({ error: 'Failed to unlike recipe' });
   }
@@ -176,10 +169,6 @@ router.get('/:id/share', requireAuth, async (req: AuthRequest, res: Response): P
 });
 
 // ── POST /api/recipes/:id/save-to-plan ───────────────────────────────────────
-// Replaces a specific day/meal slot in one of the user's own plans with this
-// recipe. Skips CN validation by design: library recipes already passed the
-// quality filter, and re-validating could silently change the macros the user
-// just previewed. Day totals are recomputed from the final meal set.
 router.post('/:id/save-to-plan', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { mealPlanId, dayIndex, mealIndex } = req.body ?? {};
@@ -191,7 +180,6 @@ router.post('/:id/save-to-plan', requireAuth, async (req: AuthRequest, res: Resp
     const recipe = await prisma.recipe.findUnique({ where: { id: req.params.id } });
     if (!recipe) { res.status(404).json({ error: 'Recipe not found' }); return; }
 
-    // Ownership check — never write to another user's plan
     const plan = await prisma.mealPlan.findFirst({
       where: { id: mealPlanId, userId: req.userId! },
       select: { id: true },
@@ -212,9 +200,6 @@ router.post('/:id/save-to-plan', requireAuth, async (req: AuthRequest, res: Resp
 
     const slot = meals[mealIndex] ?? {};
 
-    // Replacement keeps the slot's structural identity: mealIndex (the
-    // vlog↔plan join key — must always be present) and the slot's canonical
-    // type, so a breakfast recipe saved into a dinner slot stays "dinner".
     meals[mealIndex] = {
       mealIndex,
       type:        slot.type ?? recipe.mealType,
@@ -261,7 +246,6 @@ router.post('/:id/save-to-plan', requireAuth, async (req: AuthRequest, res: Resp
 export default router;
 
 // ── Public read-only share view (no auth) ─────────────────────────────────────
-// Mounted at app level without the /api prefix → GET /recipe/:id
 export const publicRecipeRouter = Router();
 
 publicRecipeRouter.get('/recipe/:id', async (req: Request, res: Response): Promise<void> => {

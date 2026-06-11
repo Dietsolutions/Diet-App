@@ -145,10 +145,7 @@ Proteins, Dairy, Vegetables, Fruits, Dry Goods, Pantry & Spices, Supplements`;
       await prisma.shoppingItem.createMany({ data: toCreate });
     }
 
-    console.log(
-      `regenerateShoppingList: done for mealPlanId=${mealPlanId} ` +
-      `(${parsed.categories.length} categories, ${toCreate.length} bought items restored)`
-    );
+    // shopping list regeneration complete (background, no-op log suppressed)
   } catch (err) {
     // Non-fatal — shopping regen is always background
     console.error(

@@ -1,6 +1,3 @@
-// BrowseRecipesTab — searchable, filterable library of every meal the AI has
-// generated across all plans. Strain v2 visual language throughout.
-
 import { useMemo, useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import { s2 } from '../theme/tokens';
@@ -11,7 +8,6 @@ import {
   DEFAULT_FILTERS,
 } from '../hooks/useRecipes';
 
-// ── Constants ────────────────────────────────────────────────────────────────
 const MEAL_TYPES = [
   { id: 'all',       label: 'ALL'       },
   { id: 'breakfast', label: 'BREAKFAST' },
@@ -48,7 +44,6 @@ const MACRO_RANGES = [
   { key: 'Fibre',   label: 'FIBRE',    max: 25,   step: 1,  color: s2.fibre   },
 ] as const;
 
-// ── Small bits ───────────────────────────────────────────────────────────────
 function DietDot({ dietType }: { dietType: string }) {
   const color = DIET_COLOR[dietType] ?? s2.textDim;
   return (
@@ -85,7 +80,6 @@ function LikeButton({ liked, count, onToggle, large }: {
   );
 }
 
-// ── Recipe card ──────────────────────────────────────────────────────────────
 function RecipeCard({ recipe, onOpen, onLike }: {
   recipe: Recipe; onOpen: () => void; onLike: () => void;
 }) {
@@ -124,7 +118,6 @@ function RecipeCard({ recipe, onOpen, onLike }: {
   );
 }
 
-// ── Macro range slider row ───────────────────────────────────────────────────
 function RangeRow({ label, color, max, step, minVal, maxVal, onMin, onMax }: {
   label: string; color: string; max: number; step: number;
   minVal?: number; maxVal?: number;
@@ -148,7 +141,6 @@ function RangeRow({ label, color, max, step, minVal, maxVal, onMin, onMax }: {
   );
 }
 
-// ── Save-to-plan modal ───────────────────────────────────────────────────────
 function SaveToPlanModal({ recipe, onClose, onSaved }: {
   recipe: Recipe; onClose: () => void; onSaved: () => void;
 }) {
@@ -281,7 +273,6 @@ function SaveToPlanModal({ recipe, onClose, onSaved }: {
   );
 }
 
-// ── Recipe detail overlay ────────────────────────────────────────────────────
 function RecipeDetail({ recipeId, onClose, onListPatch }: {
   recipeId: string;
   onClose: () => void;
@@ -341,7 +332,6 @@ function RecipeDetail({ recipeId, onClose, onListPatch }: {
             </p>
           )}
 
-          {/* Macro breakdown */}
           <Card padding={16}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 14 }}>
               <span style={{ fontFamily: s2.mono, fontSize: 28, fontWeight: 700, color: s2.accent }}>
@@ -367,7 +357,6 @@ function RecipeDetail({ recipeId, onClose, onListPatch }: {
             </div>
           </Card>
 
-          {/* Ingredients */}
           <div>
             <HairLabel style={{ marginBottom: 10 }}>INGREDIENTS</HairLabel>
             <Card padding={0}>
@@ -383,7 +372,6 @@ function RecipeDetail({ recipeId, onClose, onListPatch }: {
             </Card>
           </div>
 
-          {/* Actions */}
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <Btn primary style={{ flex: 1 }} onClick={() => setShowSave(true)}>SAVE TO MY PLAN</Btn>
             <Btn onClick={handleShare}>{shareState || 'SHARE'}</Btn>
@@ -414,7 +402,6 @@ function RecipeDetail({ recipeId, onClose, onListPatch }: {
   );
 }
 
-// ── Main tab ─────────────────────────────────────────────────────────────────
 export function BrowseRecipesTab() {
   const [filters, setFilters]       = useState<RecipeFilters>(DEFAULT_FILTERS);
   const [showMacros, setShowMacros] = useState(false);
@@ -435,7 +422,6 @@ export function BrowseRecipesTab() {
 
   return (
     <div style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 90 }}>
-      {/* Header */}
       <div style={{ padding: '18px 20px 0' }}>
         <HairLabel color={s2.accent}>COMMUNITY LIBRARY</HairLabel>
         <h1 style={{ fontFamily: s2.sans, fontSize: 22, fontWeight: 700, margin: '4px 0 2px' }}>
@@ -446,7 +432,6 @@ export function BrowseRecipesTab() {
         </div>
       </div>
 
-      {/* Search */}
       <div style={{ padding: '14px 20px 0' }}>
         <input
           value={filters.q}
@@ -461,7 +446,6 @@ export function BrowseRecipesTab() {
         />
       </div>
 
-      {/* Meal-type chips + diet toggle */}
       <div style={{ padding: '12px 20px 0', display: 'flex', gap: 6, overflowX: 'auto' }}>
         {MEAL_TYPES.map(t => (
           <button key={t.id} onClick={() => set({ mealType: t.id })} style={{
@@ -492,7 +476,6 @@ export function BrowseRecipesTab() {
         }}>MACROS {macroFiltersActive ? '●' : showMacros ? '▴' : '▾'}</button>
       </div>
 
-      {/* Macro range panel */}
       {showMacros && (
         <div style={{ margin: '12px 20px 0' }}>
           <Card padding={14} style={{ display: 'grid', gap: 12 }}>
@@ -525,7 +508,6 @@ export function BrowseRecipesTab() {
         </div>
       )}
 
-      {/* Sort */}
       <div style={{ padding: '12px 20px 0', display: 'flex', justifyContent: 'flex-end' }}>
         <select
           value={filters.sortBy}
@@ -544,7 +526,6 @@ export function BrowseRecipesTab() {
         </select>
       </div>
 
-      {/* Grid */}
       <div style={{
         padding: '14px 20px 0',
         display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12,
@@ -559,7 +540,6 @@ export function BrowseRecipesTab() {
         ))}
       </div>
 
-      {/* States */}
       {error && (
         <div style={{ padding: '24px 20px', textAlign: 'center', fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>
           {error}
@@ -586,7 +566,6 @@ export function BrowseRecipesTab() {
         </div>
       )}
 
-      {/* Detail overlay */}
       {openId && (
         <RecipeDetail recipeId={openId} onClose={() => setOpenId(null)} onListPatch={patchRecipe} />
       )}

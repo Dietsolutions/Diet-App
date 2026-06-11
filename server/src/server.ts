@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import app from './app';
 import { prisma, reconnectPrisma } from './lib/prisma';
 
@@ -31,8 +32,10 @@ async function keepAlive(): Promise<void> {
   }
 }
 
-app.listen(PORT, async () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0';
+
+app.listen(PORT, HOST, async () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
   await wakeDatabase();
   setInterval(keepAlive, 180_000);
 });

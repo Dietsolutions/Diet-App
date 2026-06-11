@@ -277,7 +277,9 @@ router.patch('/replace-meal', requireAuth, perUserLimiter({ windowMs: 60_000, ma
     });
 
     // Fire-and-forget shopping list sync — does not block the response
-    regenerateShoppingList(userId, activePlan.id).catch(() => {});
+    regenerateShoppingList(userId, activePlan.id).catch((err: any) => {
+      console.error('[shopping] sync failed after meal replace:', err?.message || err);
+    });
 
     res.json({ success: true, updatedMeal: meals[mealIndex] });
   } catch (err) {
@@ -305,7 +307,9 @@ router.post('/confirm-overview', requireAuth, perUserLimiter({ windowMs: 60_000,
     }
 
     // Fire-and-forget so the response is instant
-    regenerateShoppingList(userId, activePlan.id).catch(() => {});
+    regenerateShoppingList(userId, activePlan.id).catch((err: any) => {
+      console.error('[shopping] sync failed after confirm-overview:', err?.message || err);
+    });
 
     res.json({ success: true, mealPlanId: activePlan.id });
   } catch (err) {
@@ -534,7 +538,9 @@ router.patch('/select-meal', requireAuth, perUserLimiter({ windowMs: 60_000, max
     });
 
     // Fire-and-forget shopping list sync
-    regenerateShoppingList(userId, mealPlanId).catch(() => {});
+    regenerateShoppingList(userId, mealPlanId).catch((err: any) => {
+      console.error('[shopping] sync failed after select-meal:', err?.message || err);
+    });
 
     res.json({ success: true, updatedDay });
   } catch (err) {
@@ -607,7 +613,9 @@ router.post('/confirm-review', requireAuth, perUserLimiter({ windowMs: 60_000, m
     });
 
     // ── Step 5: Fire-and-forget shopping list sync ─────────────────────────
-    regenerateShoppingList(userId, plan.id).catch(() => {});
+    regenerateShoppingList(userId, plan.id).catch((err: any) => {
+      console.error('[shopping] sync failed after confirm-review:', err?.message || err);
+    });
 
     console.log('[confirm-review] success — planId:', plan.id);
     res.json({ success: true, mealPlanId: plan.id });

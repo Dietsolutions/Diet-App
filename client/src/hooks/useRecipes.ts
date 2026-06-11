@@ -1,6 +1,3 @@
-// Data hooks for the Browse Recipes tab — plain axios + local state, matching
-// the app's existing hook pattern (no React Query).
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { Recipe, RecipeFilters } from '../types';
@@ -33,10 +30,6 @@ function buildParams(filters: RecipeFilters, page: number): Record<string, strin
   return params;
 }
 
-/**
- * Paginated, debounced recipe list. Filter changes reset to page 1;
- * loadMore() appends the next page.
- */
 export function useRecipes(filters: RecipeFilters) {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [total, setTotal]     = useState(0);
@@ -54,7 +47,7 @@ export function useRecipes(filters: RecipeFilters) {
         params: buildParams(filtersArg, pageArg),
         withCredentials: true,
       });
-      if (seq !== requestSeq.current) return;   // stale response — newer request in flight
+      if (seq !== requestSeq.current) return;
       setTotal(res.data.total ?? 0);
       setPage(pageArg);
       setRecipes(prev => append ? [...prev, ...res.data.recipes] : res.data.recipes);
@@ -66,11 +59,10 @@ export function useRecipes(filters: RecipeFilters) {
     }
   }, []);
 
-  // Debounced refetch on any filter change (text + sliders share the debounce)
   useEffect(() => {
     const t = setTimeout(() => { fetchPage(filters, 1, false); }, DEBOUNCE_MS);
     return () => clearTimeout(t);
-  }, [JSON.stringify(filters), fetchPage]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(filters), fetchPage]);
 
   const loadMore = useCallback(() => {
     fetchPage(filters, page + 1, true);
@@ -78,7 +70,6 @@ export function useRecipes(filters: RecipeFilters) {
 
   const hasMore = recipes.length < total;
 
-  /** Patch one recipe in the cached list (used for optimistic like updates). */
   const patchRecipe = useCallback((id: string, patch: Partial<Recipe>) => {
     setRecipes(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
   }, []);
@@ -86,7 +77,6 @@ export function useRecipes(filters: RecipeFilters) {
   return { recipes, total, loading, error, hasMore, loadMore, patchRecipe };
 }
 
-/** Single recipe detail. */
 export function useRecipe(id: string | null) {
   const [recipe, setRecipe]   = useState<Recipe | null>(null);
   const [loading, setLoading] = useState(false);
@@ -105,10 +95,6 @@ export function useRecipe(id: string | null) {
   return { recipe, loading, setRecipe };
 }
 
-/**
- * Optimistic like toggle. Returns the new liked state immediately; reconciles
- * (rolls back) if the server call fails.
- */
 export function useToggleLike() {
   return useCallback(async (
     recipe: Pick<Recipe, 'id' | 'likedByMe' | 'likeCount'>,
@@ -124,12 +110,11 @@ export function useToggleLike() {
       if (liking) await axios.post(`/api/recipes/${recipe.id}/like`, {}, { withCredentials: true });
       else        await axios.delete(`/api/recipes/${recipe.id}/like`, { withCredentials: true });
     } catch {
-      applyPatch({ likedByMe: recipe.likedByMe, likeCount: recipe.likeCount });   // roll back
+      applyPatch({ likedByMe: recipe.likedByMe, likeCount: recipe.likeCount });
     }
   }, []);
 }
 
-/** Share helper: native share sheet on mobile, clipboard fallback on desktop. */
 export function useShareRecipe() {
   return useCallback(async (recipeId: string): Promise<'shared' | 'copied' | 'failed'> => {
     try {
@@ -140,8 +125,7 @@ export function useShareRecipe() {
           await navigator.share({ title, text, url });
           return 'shared';
         } catch (err: any) {
-          if (err?.name === 'AbortError') return 'shared';   // user dismissed the sheet
-          // fall through to clipboard
+          if (err?.name === 'AbortError') return 'shared';
         }
       }
       await navigator.clipboard.writeText(text);
@@ -152,10 +136,6 @@ export function useShareRecipe() {
   }, []);
 }
 
-/**
- * Save a recipe into a day/slot of the user's active plan, then refresh the
- * cached plan so MealsTab / TrackerTab show the change immediately.
- */
 export function useSaveRecipeToPlan() {
   const { setPlanDays, setMealsPerDay } = useAppStore();
   const [saving, setSaving] = useState(false);
@@ -169,7 +149,6 @@ export function useSaveRecipeToPlan() {
         { mealPlanId, dayIndex, mealIndex },
         { withCredentials: true },
       );
-      // Refresh the cached plan (same source as usePlan.loadPlan)
       try {
         const res = await axios.get('/api/plan', { withCredentials: true });
         const days = res.data.days;
