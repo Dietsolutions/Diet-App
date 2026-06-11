@@ -29,13 +29,15 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'npm run dev --prefix server',
+      command: 'npm run dev',
+      cwd: '../server',
       url: 'http://localhost:3001/health',
       reuseExistingServer: !process.env.CI,
       timeout: 15000,
     },
     {
-      command: 'npm run dev --prefix client',
+      command: 'npm run dev',
+      cwd: '../client',
       url: 'http://localhost:5173',
       reuseExistingServer: !process.env.CI,
       timeout: 30000,

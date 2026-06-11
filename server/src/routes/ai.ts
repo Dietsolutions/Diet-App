@@ -11,8 +11,18 @@ import {
   buildDayLevelCorrectionPrompt,
   MAX_CLAUDE_ATTEMPTS_PER_DAY,
   CN_FAST_TRACK_THRESHOLD,
+  normaliseIngredientsForCN,
+  checkMealAgainstTarget,
+  computeDeviation,
+  computeProportionalScaleFactor,
+  applyScaleToIngredients,
+  SCALING_SANITY_MAX_MULTIPLIER,
+  POST_SCALE_ACCEPT_PCT,
+  buildMealCorrectionPrompt,
+  CANONICAL_MEAL_TYPES,
 } from '../services/macroValidation';
-import { logMealValidation, MealValidationEntry } from '../services/macroValidationLogger';
+import { logMealValidation, type MealValidationEntry } from '../services/macroValidationLogger';
+import type { FailedAttempt } from '../services/macroValidation';
 import { ingestMeals, type IngestableMeal } from '../services/recipeService';
 
 const router = Router();
@@ -1527,7 +1537,7 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       }
     });
 
-<    // ── Feed validated meals into the recipe library (fire-and-forget) ───────
+    // ── Feed validated meals into the recipe library (fire-and-forget) ───────
     // Per-meal finalOutcome from the validation pass gates ingestion: only
     // meals with trustworthy macros enter the library. Never blocks the
     // response — recipe ingestion failures are logged and swallowed.
