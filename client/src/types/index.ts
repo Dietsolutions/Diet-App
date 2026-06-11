@@ -66,7 +66,42 @@ export interface ShoppingCategoryData {
   items: ShoppingItemData[];
 }
 
-export type TabId = 'meals' | 'tracker' | 'shopping' | 'tips' | 'profile';
+export type TabId = 'meals' | 'tracker' | 'shopping' | 'recipes' | 'tips' | 'profile';
+
+// ── Browse Recipes ───────────────────────────────────────────────────────────
+export interface Recipe {
+  id:          string;
+  name:        string;
+  mealType:    string;            // breakfast | lunch | snack | dinner
+  description: string;
+  ingredients: string[];
+  time:        string | null;
+  calories:    number;
+  protein:     number;
+  carbs:       number;
+  fat:         number;
+  fibre:       number;
+  cuisineType: string;
+  dietType:    'veg' | 'non_veg' | 'egg';
+  prepTime:    string | null;
+  sourceCount: number;
+  likeCount:   number;
+  likedByMe:   boolean;
+  createdAt:   string;
+}
+
+export interface RecipeFilters {
+  mealType:  string;              // 'all' | breakfast | lunch | snack | dinner
+  dietType:  string;              // 'all' | veg | non_veg | egg
+  q:         string;
+  sortBy:    string;              // likes | popular | protein | fibre | calories | newest
+  sortDir:   'asc' | 'desc';
+  minCal?:     number; maxCal?:     number;
+  minProtein?: number; maxProtein?: number;
+  minCarbs?:   number; maxCarbs?:   number;
+  minFat?:     number; maxFat?:     number;
+  minFibre?:   number; maxFibre?:   number;
+}
 
 // Onboarding types
 export interface OnboardingData {

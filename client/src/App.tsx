@@ -26,6 +26,7 @@ const TrackerTab  = lazy(() => import('./components/TrackerTab').then(m => ({ de
 const ShoppingTab = lazy(() => import('./components/ShoppingTab').then(m => ({ default: m.ShoppingTab })));
 const TipsTab     = lazy(() => import('./components/TipsTab').then(m => ({ default: m.TipsTab })));
 const ProfileTab  = lazy(() => import('./components/ProfileTab').then(m => ({ default: m.ProfileTab })));
+const BrowseRecipesTab = lazy(() => import('./components/BrowseRecipesTab').then(m => ({ default: m.BrowseRecipesTab })));
 
 /** Tab-level loading fallback — just an empty dark surface so there's no flash */
 function TabFallback() {
@@ -230,6 +231,7 @@ export default function App() {
             <Suspense fallback={<TabFallback />}>
               {activeTab === 'meals' && <MealsTab />}
               {activeTab === 'tracker' && <TrackerTab />}
+              {activeTab === 'recipes' && <BrowseRecipesTab />}
               {activeTab === 'shopping' && <ShoppingTab />}
               {activeTab === 'tips' && <TipsTab />}
               {activeTab === 'profile' && <ProfileTab />}

@@ -43,6 +43,7 @@ model User {
   planGenerationUsage PlanGenerationUsage[]
   macroValidationLogs MacroValidationLog[]
   passwordResetTokens PasswordResetToken[]
+  recipeLikes         RecipeLike[]
 }
 
 model WeightLog {
@@ -557,4 +558,61 @@ model MacroValidationLog {
   @@index([mealPlanId, dayIndex, mealIndex])
   @@index([createdAt])
   @@map("macro_validation_logs")
+}
+
+// ── Browse Recipes library ──────────────────────────────────────────────────
+// Canonical, deduplicated store of unique meals extracted from all users'
+// MealPlanDay.meals blobs. Anonymous — no user attribution on recipes.
+model Recipe {
+  id          String   @id @default(cuid())
+  name        String
+  mealType    String                       // breakfast | lunch | snack | dinner (canonical)
+  description String   @default("")
+  ingredients String   @default("[]")      // JSON array of ingredient strings
+  time        String?                      // e.g. "8:00 AM" from the source meal
+
+  calories    Float
+  protein     Float
+  carbs       Float
+  fat         Float
+  fibre       Float    @default(0)
+
+  cuisineType String   @default("Indian")
+  dietType    String   @default("veg")     // veg | non_veg | egg (inferred from ingredients)
+  prepTime    String?
+
+  sourceCount Int      @default(1)         // how many plan meals merged into this recipe
+  likeCount   Int      @default(0)         // denormalised for sorting
+
+  // canonicalName|mealType|calorieBucket(50)  (+ "|vN" suffix for macro-guard variants)
+  dedupeKey   String   @unique
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  likes RecipeLike[]
+
+  @@index([mealType])
+  @@index([dietType])
+  @@index([calories])
+  @@index([protein])
+  @@index([fibre])
+  @@index([likeCount])
+  @@index([sourceCount])
+  @@index([createdAt])
+  @@map("recipes")
+}
+
+model RecipeLike {
+  id        String   @id @default(cuid())
+  userId    String
+  recipeId  String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipeId])
+  @@index([recipeId])
+  @@map("recipe_likes")
 }

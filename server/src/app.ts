@@ -15,6 +15,7 @@ import foodRoutes from './routes/food';
 import mealsRoutes from './routes/meals';
 import waterRoutes from './routes/water';
 import pagesRoutes from './routes/pages';
+import recipesRoutes, { publicRecipeRouter } from './routes/recipes';
 
 // ---------------------------------------------------------------------------
 // Startup env-var check — missing JWT_SECRET is fatal in production.
@@ -152,7 +153,9 @@ export function createApp(): Express {
   app.use('/api/food', foodRoutes);
   app.use('/api/meals', mealsRoutes);
   app.use('/api/water', waterRoutes);
+  app.use('/api/recipes', recipesRoutes);
   app.use(pagesRoutes);
+  app.use(publicRecipeRouter);   // public read-only share view: GET /recipe/:id
 
   // 404 for unknown /api routes
   app.use('/api', (_req: Request, res: Response) => {

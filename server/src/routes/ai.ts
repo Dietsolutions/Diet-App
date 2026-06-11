@@ -24,6 +24,7 @@ import {
   CN_FAST_TRACK_THRESHOLD,
 } from '../services/macroValidation';
 import { logMealValidation, MealValidationEntry } from '../services/macroValidationLogger';
+import { ingestMeals, type IngestableMeal } from '../services/recipeService';
 
 const router = Router();
 
@@ -1597,6 +1598,42 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         peopleCount: 1
       }
     });
+
+    // ── Feed validated meals into the recipe library (fire-and-forget) ───────
+    // Per-meal finalOutcome from the validation pass gates ingestion: only
+    // meals with trustworthy macros enter the library. Never blocks the
+    // response — recipe ingestion failures are logged and swallowed.
+    {
+      const verdictByMeal = new Map<string, string>();
+      for (const e of pendingLogEntries ?? []) {
+        verdictByMeal.set(`${e.dayIdx}|${e.mealIdx}`, e.logData.finalOutcome);
+      }
+      const libraryMeals: IngestableMeal[] = [];
+      planData.days.forEach((day: any, dayIdx: number) => {
+        (day.meals ?? []).forEach((m: any, mealIdx: number) => {
+          libraryMeals.push({
+            name:         m.name,
+            type:         m.type,
+            description:  m.description,
+            ingredients:  m.ingredients,
+            time:         m.time,
+            calories:     m.calories,
+            protein:      m.protein,
+            carbs:        m.carbs,
+            fat:          m.fat,
+            fibre:        m.fibre,
+            prepTime:     m.prepTime,
+            finalOutcome: verdictByMeal.get(`${dayIdx}|${mealIdx}`) ?? null,
+          });
+        });
+      });
+      ingestMeals(libraryMeals)
+        .then(s => console.log(
+          `[Recipes] Plan ${mealPlan.id}: ${s.processed} meals → ` +
+          `${s.created} new, ${s.merged} merged, ${s.variantsCreated} variants, ${s.filteredOut} filtered`,
+        ))
+        .catch(err => console.warn('[Recipes] Plan ingest failed:', err?.message));
+    }
 
     // Reset shopping items for the new plan (ticking off old items is irrelevant).
     // IMPORTANT: MealLog, WaterLog, AdditionalMealLog, MealReplacement, WeightLog,
