@@ -31,7 +31,7 @@ jobs:
       - run: cd server && npx prisma generate --schema=src/prisma/schema.prisma
       - run: npm run typecheck
       - run: npm run test --prefix server
-      - run: npx vitest run --coverage --prefix client
+      - run: cd client && npx vitest run --coverage
       - run: npm run build
 
   deploy:
