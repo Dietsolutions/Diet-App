@@ -87,32 +87,46 @@ export function signInWithApple(): Promise<AppleSignInPayload> {
       return;
     }
 
-    let resolved = false;
-    const onSuccess = (event: Event) => {
-      if (resolved) return;
-      resolved = true;
-      const detail = (event as CustomEvent<AppleSignInPayload>).detail;
-      cleanup();
-      resolve(detail);
-    };
-    const onError = (event: Event) => {
-      if (resolved) return;
-      resolved = true;
-      const detail = (event as CustomEvent<{ error: string }>).detail;
-      cleanup();
-      reject(new Error(detail?.error || 'Apple Sign-In was cancelled'));
-    };
+    let settled = false;
+
+    // Declared before use in onSuccess/onError (populated after timeout is created).
+    let timeoutId: ReturnType<typeof setTimeout>;
+
     const cleanup = () => {
+      clearTimeout(timeoutId);
       window.removeEventListener('apple-signin-success', onSuccess as EventListener);
       window.removeEventListener('apple-signin-error', onError as EventListener);
     };
 
+    const onSuccess = (event: Event) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve((event as CustomEvent<AppleSignInPayload>).detail);
+    };
+
+    const onError = (event: Event) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const detail = (event as CustomEvent<{ error: string }>).detail;
+      reject(new Error(detail?.error || 'Apple Sign-In was cancelled'));
+    };
+
+    // Safety valve: reject if the native flow never fires either event.
+    timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error('Apple Sign-In timed out. Please try again.'));
+    }, 90_000);
+
     window.addEventListener('apple-signin-success', onSuccess as EventListener, { once: true });
     window.addEventListener('apple-signin-error', onError as EventListener, { once: true });
 
-    // Bridge to the native AppDelegate via a custom URL scheme.
-    // The AppDelegate intercepts "dietplan://apple-signin" and starts the native flow.
-    // (WKWebView will not actually navigate to this scheme — the AppDelegate short-circuits it.)
-    window.location.href = 'dietplan://apple-signin';
+    // Use setTimeout(0) so the navigation fires outside the synchronous JS stack.
+    // This prevents WKWebView from silently dropping custom-scheme navigations
+    // triggered within a synchronous event dispatch on some iOS versions.
+    setTimeout(() => { window.location.href = 'dietplan://apple-signin'; }, 0);
   });
 }

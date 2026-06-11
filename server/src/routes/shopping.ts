@@ -24,13 +24,14 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response): Promise<vo
 
       if (genList) {
         const categories = JSON.parse(genList.categories);
-        const dbItems = await prisma.shoppingItem.findMany({ where: { userId } });
+        const dbItems = await prisma.shoppingItem.findMany({ where: { userId }, take: 500 });
+        const dbItemMap = new Map(dbItems.map(d => [d.itemKey, d]));
 
         const enrichedCategories = categories.map((cat: any, catIdx: number) => ({
           name: cat.category || cat.name,
           items: (cat.items || []).map((item: any, itemIdx: number) => {
             const key = `gen-${catIdx}-${itemIdx}`;
-            const dbItem = dbItems.find(d => d.itemKey === key);
+            const dbItem = dbItemMap.get(key);
             return {
               key,
               name: item.name,
@@ -57,13 +58,14 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response): Promise<vo
     }
 
     // Fallback to hardcoded shopping list
-    const dbItems = await prisma.shoppingItem.findMany({ where: { userId } });
+    const dbItems = await prisma.shoppingItem.findMany({ where: { userId }, take: 500 });
+    const dbItemMap = new Map(dbItems.map(d => [d.itemKey, d]));
 
     const categories = SHOPPING_LIST.map((cat, catIdx) => ({
       name: cat.name,
       items: cat.items.map((itemName, itemIdx) => {
         const key = `${catIdx}-${itemIdx}`;
-        const dbItem = dbItems.find(d => d.itemKey === key);
+        const dbItem = dbItemMap.get(key);
         return { key, name: itemName, bought: dbItem?.bought ?? false };
       })
     }));

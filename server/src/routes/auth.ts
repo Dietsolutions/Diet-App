@@ -5,13 +5,14 @@ import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import nodemailer from 'nodemailer';
 import { prisma } from '../lib/prisma';
-import { requireAuth, AuthRequest } from '../middleware/auth';
+import { requireAuth, AuthRequest, JWT_SECRET } from '../middleware/auth';
 import { setAuthCookie, setRefreshCookie, clearAllAuthCookies } from '../utils/setAuthCookie';
 import { generateRefreshToken, revokeAllUserRefreshTokens } from '../utils/refreshToken';
 import { logSecurityEvent } from '../utils/securityLogger';
 
 
-function sanitizeText(text: string): string {
+function sanitizeText(text: unknown): string {
+  if (typeof text !== 'string') return '';
   return text.trim().replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
 }
 
@@ -247,14 +248,10 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 // Google redirects here with ?code=... — this must be the BACKEND origin (the server
 // exchanges the code and redirects onward to FRONTEND_URL with the JWT).
 const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5173');
 
 function issueToken(userId: string): string {
-  if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET not set');
-  }
-  const secret = process.env.JWT_SECRET || 'dev-jwt-secret-not-for-production';
-  return jwt.sign({ userId }, secret, { expiresIn: '15m' });
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '15m' });
 }
 
 async function issueTokenPair(userId: string): Promise<{ accessToken: string; refreshToken: string }> {
@@ -473,16 +470,21 @@ router.get('/check-username', checkUsernameLimiter, async (req: Request, res: Re
 
 // POST /api/auth/logout
 router.post('/logout', async (req: Request, res: Response): Promise<void> => {
-  const refreshTokenValue = req.cookies?.refreshToken;
-  if (refreshTokenValue) {
-    const tokenHash = crypto.createHash('sha256').update(refreshTokenValue, 'utf8').digest('hex');
-    await prisma.refreshToken.updateMany({
-      where: { tokenHash, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+  try {
+    const refreshTokenValue = req.cookies?.refreshToken;
+    if (refreshTokenValue) {
+      const tokenHash = crypto.createHash('sha256').update(refreshTokenValue, 'utf8').digest('hex');
+      await prisma.refreshToken.updateMany({
+        where: { tokenHash, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
+  } catch (err) {
+    console.warn('[Logout] DB revocation failed (non-fatal):', (err as Error).message);
+  } finally {
+    clearAllAuthCookies(res);
+    res.json({ ok: true });
   }
-  clearAllAuthCookies(res);
-  res.json({ ok: true });
 });
 
 // POST /api/auth/refresh — rotate refresh token and issue new access token
@@ -737,13 +739,23 @@ router.get('/google', (req: Request, res: Response): void => {
     return;
   }
 
+  const state = crypto.randomBytes(16).toString('hex');
+  const redirectTo = (typeof req.query.redirect === 'string' && req.query.redirect) || '';
+  res.cookie('oauth_state', JSON.stringify({ state, redirectTo }), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 600_000,
+  });
+
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: GOOGLE_CALLBACK_URL,
     response_type: 'code',
     scope: 'openid email profile',
     access_type: 'offline',
-    prompt: 'consent'
+    prompt: 'consent',
+    state,
   });
 
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
@@ -751,10 +763,23 @@ router.get('/google', (req: Request, res: Response): void => {
 
 // GET /api/auth/google/callback
 router.get('/google/callback', async (req: Request, res: Response): Promise<void> => {
-  const { code } = req.query;
+  const { code, state } = req.query;
+  let storedState: { state: string; redirectTo?: string } | null = null;
+  try { storedState = JSON.parse(req.cookies?.oauth_state || 'null'); } catch {}
+  const expectedState = storedState?.state;
+  const redirectTo = storedState?.redirectTo || FRONTEND_URL;
+
+  if (!state || !expectedState || state !== expectedState) {
+    res.clearCookie('oauth_state');
+    res.redirect(`${FRONTEND_URL}?error=invalid_state`);
+    return;
+  }
+  res.clearCookie('oauth_state');
+
+  const baseRedirect = (s: string) => `${redirectTo}${s.startsWith('?') ? s : `?${s}`}`;
 
   if (!code || typeof code !== 'string') {
-    res.redirect(`${FRONTEND_URL}?error=google_auth_failed`);
+    res.redirect(baseRedirect('error=google_auth_failed'));
     return;
   }
 
@@ -775,7 +800,7 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
     const tokenData = (await tokenRes.json()) as { access_token?: string };
 
     if (!tokenData.access_token) {
-      res.redirect(`${FRONTEND_URL}?error=google_token_failed`);
+      res.redirect(baseRedirect('error=google_token_failed'));
       return;
     }
 
@@ -793,7 +818,7 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
     };
 
     if (!googleUser.email) {
-      res.redirect(`${FRONTEND_URL}?error=google_no_email`);
+      res.redirect(baseRedirect('error=google_no_email'));
       return;
     }
 
@@ -811,7 +836,7 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
         if (!emailVerified) {
           // Refuse to link unverified Google account to existing email.
           // The user must sign in with the original method to claim it.
-          res.redirect(`${FRONTEND_URL}?error=google_email_not_verified`);
+          res.redirect(baseRedirect('error=google_email_not_verified'));
           return;
         }
         // Link google to existing account
@@ -840,9 +865,11 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
     // any third-party resource loaded by the SPA. The httpOnly cookie set
     // above is sufficient — the client picks up the session via
     // /api/auth/me on next render.
+    res.redirect(redirectTo);
+    return;
   } catch (err) {
     console.error('Google OAuth error:', err);
-    res.redirect(`${FRONTEND_URL}?error=google_auth_error`);
+    res.redirect(baseRedirect('error=google_auth_error'));
   }
 });
 

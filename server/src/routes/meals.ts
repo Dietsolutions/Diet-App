@@ -283,9 +283,17 @@ router.post('/additional', requireAuth, perUserLimiter({ windowMs: 60_000, max: 
     if (!VALID_MEAL_CATEGORIES.includes(mealCategory)) {
       res.status(400).json({ error: `Invalid mealCategory. Must be one of: ${VALID_MEAL_CATEGORIES.join(', ')}` }); return;
     }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(400).json({ error: 'date must be YYYY-MM-DD' }); return;
+    }
     const today = new Date().toISOString().split('T')[0];
     if (date > today) {
       res.status(400).json({ error: 'Cannot log meals for future dates' }); return;
+    }
+    const pastLimit = new Date();
+    pastLimit.setDate(pastLimit.getDate() - 365);
+    if (date < pastLimit.toISOString().split('T')[0]) {
+      res.status(400).json({ error: 'date is too far in the past' }); return;
     }
     if (typeof servingQty !== 'number' || servingQty <= 0) {
       res.status(400).json({ error: 'servingQty must be a positive number' }); return;
@@ -373,6 +381,9 @@ router.patch('/additional/:id', requireAuth, perUserLimiter({ windowMs: 60_000, 
       res.status(404).json({ error: 'Additional meal not found' }); return;
     }
 
+    if (servingQty !== undefined && (typeof servingQty !== 'number' || servingQty <= 0 || !isFinite(servingQty))) {
+      res.status(400).json({ error: 'servingQty must be a positive number' }); return;
+    }
     if (mealCategory !== undefined && !VALID_MEAL_CATEGORIES.includes(mealCategory)) {
       res.status(400).json({ error: 'Invalid mealCategory' }); return;
     }
@@ -436,6 +447,10 @@ router.post('/instructions/generate', requireAuth, async (req: AuthRequest, res:
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
     const todayCount = await prisma.mealCookingInstructions.count({ where: { userId, generatedAt: { gte: dayStart } } });
     if (todayCount >= 20) { res.status(429).json({ error: 'Daily generation limit reached (20/day). Try again tomorrow.' }); return; }
+
+    // Verify ownership of the plan before fetching its day
+    const ownedPlan = await prisma.mealPlan.findFirst({ where: { id: mealPlanId, userId } });
+    if (!ownedPlan) { res.status(404).json({ error: 'Plan not found' }); return; }
 
     // Fetch the meal from the plan
     const planDay = await prisma.mealPlanDay.findFirst({ where: { mealPlanId, dayIndex } });

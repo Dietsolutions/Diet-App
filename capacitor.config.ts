@@ -10,7 +10,7 @@ const config: CapacitorConfig = {
   // webview uses the bundled static files and hits your local proxy.
   server: {
     url: process.env.VITE_API_URL || undefined,
-    cleartext: false,
+    cleartext: true,
   },
 
   // Plugins that need store-friendly UX

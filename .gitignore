@@ -13,6 +13,10 @@ build/
 # Vercel
 .vercel/
 
+# Credentials / secrets — never commit
+PRODUCTION_ENV_VARS.md
+SECRETS.md
+
 # Environment files
 .env
 .env.local

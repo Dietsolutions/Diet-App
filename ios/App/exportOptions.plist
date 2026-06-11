@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Store distribution — used by ios.yml CI and local fastlane builds -->
+	<key>method</key>
+	<string>app-store</string>
+
+	<key>destination</key>
+	<string>upload</string>
+
+	<key>teamID</key>
+	<!-- Overridden at build time by DEVELOPMENT_TEAM xcodebuild flag -->
+	<string>$(DEVELOPMENT_TEAM)</string>
+
+	<key>signingStyle</key>
+	<string>manual</string>
+
+	<key>provisioningProfiles</key>
+	<dict>
+		<!-- Match the bundle ID used in App Store Connect -->
+		<key>com.dietplan.tracker</key>
+		<string>match AppStore com.dietplan.tracker</string>
+	</dict>
+
+	<!-- Generate dSYMs for Sentry crash symbolication -->
+	<key>uploadSymbols</key>
+	<true/>
+
+	<!-- Bitcode is deprecated since Xcode 14 — keep off -->
+	<key>compileBitcode</key>
+	<false/>
+
+	<!-- Strip Swift symbols to reduce IPA size -->
+	<key>stripSwiftSymbols</key>
+	<true/>
+
+	<!-- thinning: none keeps a universal binary for App Store -->
+	<key>thinning</key>
+	<string>&lt;none&gt;</string>
+</dict>
+</plist>

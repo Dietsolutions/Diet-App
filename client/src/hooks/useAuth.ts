@@ -7,12 +7,14 @@ export function useAuth() {
   const { user, isLoading, setUser, setLoading } = useAuthStore();
 
   useEffect(() => {
-    axios.get('/api/auth/me', { withCredentials: true })
+    const controller = new AbortController();
+    axios.get('/api/auth/me', { withCredentials: true, signal: controller.signal })
       .then((res) => setUser(res.data.user))
-      .catch(() => {
-        setUser(null);
+      .catch((err) => {
+        if (!axios.isCancel(err)) setUser(null);
       })
       .finally(() => setLoading(false));
+    return () => controller.abort();
   }, []);
 
   const login = async (username: string, password: string) => {
@@ -36,17 +38,25 @@ export function useAuth() {
   };
 
   const logout = async () => {
-    await axios.post('/api/auth/logout', {}, { withCredentials: true });
+    setLoading(false);
+    try {
+      await axios.post('/api/auth/logout', {}, { withCredentials: true });
+    } catch {
+      // best-effort — still clear local state
+    }
     resetUser();
     setUser(null);
   };
 
   const refreshUser = async () => {
+    setLoading(true);
     try {
       const res = await axios.get('/api/auth/me', { withCredentials: true });
       setUser(res.data.user);
     } catch {
-      // silent
+      // silent — keep existing user state
+    } finally {
+      setLoading(false);
     }
   };
 

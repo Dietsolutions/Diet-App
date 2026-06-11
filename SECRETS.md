@@ -18,8 +18,9 @@ All secrets go to: **GitHub → your repo → Settings → Secrets and variables
 | `MATCH_GIT_URL` | A **private** git repo you create for storing iOS certificates. URL can be HTTPS. | `https://github.com/yourorg/ios-certs.git` |
 | `MATCH_PASSWORD` | Any strong password — used to encrypt the match repo | (use `openssl rand -base64 32`) |
 | `KEYCHAIN_PASSWORD` | Any strong password — the CI keychain is temporary and ephemeral | (use `openssl rand -base64 32`) |
-| `APPLE_APP_PASSWORD` | appleid.apple.com → App-Specific Passwords → generate | `xxxx-xxxx-xxxx-xxxx` |
-| `APP_SPECIFIC_PASSWORD` | (same as above — used by `altool` in local builds) | `xxxx-xxxx-xxxx-xxxx` |
+| `ASC_API_KEY_ID` | App Store Connect → Users & Access → Integrations → App Store Connect API → generate key → copy Key ID | `AB12CD34EF` |
+| `ASC_API_ISSUER_ID` | Same page → copy Issuer ID (UUID format) | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| `ASC_API_KEY_CONTENT` | Download the `.p8` file → `cat AuthKey_XXXX.p8` → paste contents (including `-----BEGIN PRIVATE KEY-----` headers) | multi-line string |
 
 ### One-time: populate the match repo
 
@@ -28,11 +29,12 @@ the certificate + provisioning profile. Run this locally:
 
 ```bash
 cd ios
+# Uses App Store Connect API key (set ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_CONTENT in env)
 bundle exec fastlane match appstore \
   --app_identifier com.dietplan.tracker \
   --git_url "$MATCH_GIT_URL" \
   --team_id "$APPLE_TEAM_ID" \
-  --username "$APPLE_ID" \
+  --api_key_path ~/.appstoreconnect/private_keys/AuthKey_${ASC_API_KEY_ID}.p8 \
   --readonly false
 ```
 

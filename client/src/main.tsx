@@ -177,7 +177,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, BoundaryState
           padding:      '20px',
           fontFamily:   'monospace',
           fontSize:     '13px',
-          minHeight:    '100vh',
+          minHeight:    '100dvh',
           lineHeight:   1.6,
           overflowY:    'auto',
           boxSizing:    'border-box',

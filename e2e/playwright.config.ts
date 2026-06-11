@@ -20,10 +20,24 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium',
+      name: 'phone',
       use: {
         browserName: 'chromium',
         viewport: { width: 390, height: 844 },
+      },
+    },
+    {
+      name: 'tablet-7inch',
+      use: {
+        browserName: 'chromium',
+        viewport: { width: 768, height: 1024 },
+      },
+    },
+    {
+      name: 'tablet-10inch',
+      use: {
+        browserName: 'chromium',
+        viewport: { width: 1024, height: 1366 },
       },
     },
   ],

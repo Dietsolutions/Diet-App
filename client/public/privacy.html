@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Diet Plan & Tracker</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px 16px 60px; color: #e2e8f0; background: #0f1117; line-height: 1.6; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  h2 { font-size: 1.15rem; margin-top: 28px; }
+  p, li { color: #94a3b8; }
+  hr { border: none; border-top: 1px solid #1e293b; margin: 28px 0; }
+  .updated { color: #64748b; font-size: 0.85rem; }
+  a { color: #60a5fa; }
+</style>
+</head>
+<body>
+<h1>Privacy Policy</h1>
+<p class="updated">Last updated: June 2026</p>
+
+<p>Diet Plan & Tracker ("we", "our", "app") respects your privacy. This policy explains what data we collect, how we use it, and your rights.</p>
+
+<h2>1. Data We Collect</h2>
+<ul>
+  <li><strong>Account data:</strong> username/email, password (hashed), OAuth profile info (name, avatar) if you sign in with Google or Apple.</li>
+  <li><strong>Health data:</strong> weight, height, age, gender, dietary preferences, activity level, meal logs, calorie/macro targets, water intake, and other nutrition/wellness information you enter.</li>
+  <li><strong>Usage data:</strong> meal plan generations, feature interactions, session length (anonymized via PostHog if you opt in).</li>
+  <li><strong>Error data:</strong> crash reports and stack traces (Sentry) — no personal identifiers attached.</li>
+</ul>
+
+<h2>2. How We Use Data</h2>
+<ul>
+  <li>Generate personalized meal plans using AI (Claude via OpenRouter). Meal plan prompts include your dietary preferences and goals — no raw personal identifiers are sent.</li>
+  <li>Authenticate you and maintain your session.</li>
+  <li>Improve app stability (Sentry crash reporting).</li>
+  <li>Understand feature usage (PostHog — opt-in only).</li>
+</ul>
+
+<h2>3. Data Storage</h2>
+<ul>
+  <li>Your data is stored on Neon (PostgreSQL), hosted in Singapore (ap-southeast-1).</li>
+  <li>Passwords are bcrypt-hashed. Refresh tokens are stored as SHA-256 hashes.</li>
+  <li>We retain your data until you delete your account, which permanently removes all associated records.</li>
+</ul>
+
+<h2>4. Third-Party Services</h2>
+<ul>
+  <li><strong>OpenRouter/Anthropic</strong> — AI meal plan generation. Prompts include dietary preferences but no names or email addresses.</li>
+  <li><strong>CalorieNinjas</strong> — nutrition database lookups for macro validation (ingredient names only).</li>
+  <li><strong>Sentry</strong> — error and crash reporting.</li>
+  <li><strong>PostHog</strong> — product analytics (opt-in; never captures health data).</li>
+  <li><strong>Vercel</strong> — hosting and serverless function execution.</li>
+  <li><strong>Neon</strong> — PostgreSQL database hosting.</li>
+</ul>
+
+<h2>5. Your Rights</h2>
+<ul>
+  <li><strong>Delete account:</strong> available in-app. All your data is permanently removed.</li>
+  <li><strong>Export data:</strong> contact us and we'll provide a JSON export of your data.</li>
+  <li><strong>Opt out of analytics:</strong> disable "Analytics" in app settings at any time.</li>
+</ul>
+
+<h2>6. Children</h2>
+<p>We do not knowingly collect data from children under 13. If you believe a child has provided data, contact us and we'll delete it.</p>
+
+<h2>7. Contact</h2>
+<p>Email: <a href="mailto:sathwik@dietplan.app">sathwik@dietplan.app</a></p>
+
+<hr>
+<p><em>This policy may be updated. Changes will be posted here with an updated date.</em></p>
+</body>
+</html>

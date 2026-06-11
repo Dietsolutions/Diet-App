@@ -61,21 +61,30 @@ jobs:
       - name: Write keystore properties
         working-directory: android
         run: |
-          cat > app/keystore.properties <<EOF
-          storeFile=diet-plan-release.jks
-          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          keyAlias=diet-plan-release
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
-          EOF
+          printf '%s\n' \
+            "storeFile=diet-plan-release.jks" \
+            "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+            "keyAlias=diet-plan-release" \
+            "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" \
+            > app/keystore.properties
+
+      - name: Extract version name from package.json
+        id: version
+        run: echo "name=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
       - name: Build AAB
         working-directory: android
-        run: ./gradlew bundleRelease -PversionCode=${{ github.run_number }}
+        run: |
+          ./gradlew bundleRelease \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=${{ steps.version.outputs.name }}
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
         with:
           name: diet-plan-android-${{ github.run_number }}.aab
           path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 30
 
       - name: Upload to Play Console
         if: inputs.upload_play_console == 'true' || startsWith(github.ref, 'refs/tags/v')
@@ -86,3 +95,4 @@ jobs:
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           track: internal
           status: completed
+          releaseName: ${{ steps.version.outputs.name }} (${{ github.run_number }})

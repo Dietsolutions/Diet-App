@@ -231,7 +231,7 @@ export default function App() {
         )}
 
         {/* Main content */}
-        <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', paddingBottom: 64 }}>
+        <main style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', paddingBottom: 64 }}>
           <ErrorBoundary>
             <Suspense fallback={<TabFallback />}>
               {activeTab === 'meals' && <MealsTab />}
@@ -240,7 +240,6 @@ export default function App() {
               {activeTab === 'shopping' && <ShoppingTab />}
               {activeTab === 'tips' && <TipsTab />}
               {activeTab === 'profile' && <ProfileTab />}
-              {activeTab === 'recipes' && <BrowseRecipesTab />}
             </Suspense>
           </ErrorBoundary>
         </main>

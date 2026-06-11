@@ -92,7 +92,7 @@ async function attemptRefresh(req: AuthRequest, res: Response, next: NextFunctio
     setAuthCookie(res, result.accessToken);
     setRefreshCookie(res, result.refreshToken);
 
-    const payload = jwt.decode(result.accessToken) as { userId: string | number } | null;
+    const payload = jwt.verify(result.accessToken, JWT_SECRET) as { userId: string | number };
     if (!payload?.userId) {
       clearAllAuthCookies(res);
       res.status(401).json({ error: 'Session error. Please log in again.' });

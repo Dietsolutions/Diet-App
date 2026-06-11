@@ -875,13 +875,14 @@ function buildUserPrompt(
   dailyTargets: { calories: number; proteinG: number; carbsG: number; fatG: number; fibreG: number },
 ): string {
   const bmi = calculateBMI(profile.weightKg, profile.heightCm);
-  const cuisines = JSON.parse(profile.cuisinePreferences);
-  const allergies = JSON.parse(profile.allergies);
-  const preferred = JSON.parse(profile.preferredIngredients);
-  const avoidRaw = JSON.parse(profile.avoidIngredients);
+  const tryParse = (s: string, fallback: unknown[] = []) => { try { return JSON.parse(s); } catch { return fallback; } };
+  const cuisines = tryParse(profile.cuisinePreferences);
+  const allergies = tryParse(profile.allergies);
+  const preferred = tryParse(profile.preferredIngredients);
+  const avoidRaw = tryParse(profile.avoidIngredients);
   const avoid = avoidRaw.filter((a: string) => a !== '__none__');
-  const health = JSON.parse(profile.healthConditions);
-  const equipment = JSON.parse(profile.kitchenEquipment);
+  const health = tryParse(profile.healthConditions);
+  const equipment = tryParse(profile.kitchenEquipment);
 
   const profileAny = profile as any;
   const mealPref = profile.mealPreference?.toLowerCase() || '';

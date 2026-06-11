@@ -79,6 +79,7 @@ router.get('/summary', requireAuth, async (req: AuthRequest, res: Response): Pro
     if (period === 'week') {
       const weekStart = req.query.weekStart as string;
       if (!weekStart) { res.status(400).json({ error: 'weekStart required' }); return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) { res.status(400).json({ error: 'weekStart must be YYYY-MM-DD' }); return; }
       const dates = getWeekDates(weekStart);
       const logs = await prisma.mealLog.findMany({
         where: { userId, date: { in: dates }, eaten: true }
@@ -333,12 +334,13 @@ router.get('/monthly-calories', requireAuth, async (req: AuthRequest, res: Respo
 
     const year = parseInt(monthMatch[1], 10);
     const mon  = parseInt(monthMatch[2], 10);     // 1-based
+    if (mon < 1 || mon > 12) { res.status(400).json({ error: 'Invalid month value' }); return; }
 
     const profile = await prisma.userProfile.findUnique({ where: { userId } });
     if (!profile) { res.status(404).json({ error: 'Profile not found' }); return; }
 
     const targetCalories = profile.targetCalories;
-    const planDuration   = (profile as any).planDuration || 7;
+    const planDuration   = profile.planDuration || 7;
     const mealsPerDay    = profile.mealsPerDay || 4;
 
     // Get active meal plan with all days
@@ -470,19 +472,20 @@ router.get('/monthly-macros', requireAuth, async (req: AuthRequest, res: Respons
 
     const year = parseInt(monthMatch[1], 10);
     const mon  = parseInt(monthMatch[2], 10); // 1-based
+    if (mon < 1 || mon > 12) { res.status(400).json({ error: 'Invalid month value' }); return; }
 
     const profile = await prisma.userProfile.findUnique({ where: { userId } });
     if (!profile) { res.status(404).json({ error: 'Profile not found' }); return; }
 
-    const planDuration = (profile as any).planDuration || 7;
+    const planDuration = profile.planDuration || 7;
     const mealsPerDay  = profile.mealsPerDay || 4;
 
     const targets = {
       calories: profile.targetCalories,
-      protein:  (profile as any).proteinTarget || 0,
-      carbs:    (profile as any).carbTarget    || 0,
-      fat:      (profile as any).fatTarget     || 0,
-      fibre:    (profile as any).fibreTarget   || 0,
+      protein:  profile.proteinTarget || 0,
+      carbs:    profile.carbTarget    || 0,
+      fat:      profile.fatTarget     || 0,
+      fibre:    profile.fibreTarget   || 0,
     };
 
     const mealPlan = await prisma.mealPlan.findFirst({
@@ -558,10 +561,10 @@ router.get('/monthly-macros', requireAuth, async (req: AuthRequest, res: Respons
         const rep = repByMeal.get(mealIdx);
         if (rep) {
           dayConsumed.calories += rep.calories;
-          dayConsumed.protein  += (rep as any).proteinG ?? 0;
-          dayConsumed.carbs    += (rep as any).carbsG   ?? 0;
-          dayConsumed.fat      += (rep as any).fatG     ?? 0;
-          dayConsumed.fibre    += (rep as any).fibreG   ?? 0;
+          dayConsumed.protein  += rep.proteinG ?? 0;
+          dayConsumed.carbs    += rep.carbsG   ?? 0;
+          dayConsumed.fat      += rep.fatG     ?? 0;
+          dayConsumed.fibre    += rep.fibreG   ?? 0;
         } else {
           const log = dateLogs.find(l => l.mealIndex === mealIdx && l.eaten);
           if (log) {

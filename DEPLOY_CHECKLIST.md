@@ -34,7 +34,9 @@
 | `KEYCHAIN_PASSWORD` | Temporary keychain password for CI |
 | `APPLE_TEAM_ID` | Apple Developer Team ID |
 | `APPLE_ID` | Apple Developer account email |
-| `APPLE_APP_PASSWORD` | App-specific password for altool |
+| `ASC_API_KEY_ID` | App Store Connect API Key ID |
+| `ASC_API_ISSUER_ID` | App Store Connect API Issuer ID |
+| `ASC_API_KEY_CONTENT` | App Store Connect `.p8` private key file contents |
 
 ## Android (Play Store)
 

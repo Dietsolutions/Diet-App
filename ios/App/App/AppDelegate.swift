@@ -5,21 +5,9 @@ import AuthenticationServices
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
 
-    var window: UIWindow?
-
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        return true
+    func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        return UISceneConfiguration(name: "Default", sessionRole: connectingSceneSession.role)
     }
-
-    func applicationWillResignActive(_ application: UIApplication) { }
-
-    func applicationDidEnterBackground(_ application: UIApplication) { }
-
-    func applicationWillEnterForeground(_ application: UIApplication) { }
-
-    func applicationDidBecomeActive(_ application: UIApplication) { }
-
-    func applicationWillTerminate(_ application: UIApplication) { }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         // Custom URL scheme used by the WebView to trigger native Sign in with Apple.
@@ -112,12 +100,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, ASAuthorizationController
     }
 
     private static func findCapacitorBridge() -> CAPBridgeViewController? {
-        guard let root = UIApplication.shared.delegate?.window??.rootViewController else { return nil }
+        let root: UIViewController? = {
+            // Scene-based: get from the window scene
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let window = scene.windows.first(where: { $0.isKeyWindow }) {
+                return window.rootViewController
+            }
+            // Legacy fallback
+            return UIApplication.shared.keyWindow?.rootViewController
+        }()
+        guard let root else { return nil }
         if let bridge = root as? CAPBridgeViewController { return bridge }
         if let nav = root as? UINavigationController, let bridge = nav.viewControllers.first as? CAPBridgeViewController { return bridge }
         if let tab = root as? UITabBarController, let bridge = tab.viewControllers?.first as? CAPBridgeViewController { return bridge }
         if let presented = root.presentedViewController as? CAPBridgeViewController { return presented }
-        // Last resort: look at the view subviews
         for sub in root.view.subviews {
             if let bridge = sub as? CAPBridgeViewController { return bridge }
         }
@@ -126,7 +122,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, ASAuthorizationController
 
     // ── ASAuthorizationControllerPresentationContextProviding ──────────────
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        if let window = self.window { return window }
+        if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = scene.windows.first(where: { $0.isKeyWindow }) {
+            return window
+        }
         return ASPresentationAnchor()
     }
 }

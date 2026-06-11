@@ -12,6 +12,7 @@ router.get('/logs', requireAuth, async (req: AuthRequest, res: Response): Promis
     const logs = await prisma.weightLog.findMany({
       where: { userId: req.userId! },
       orderBy: { loggedAt: 'asc' },
+      take: 500,
       select: { id: true, weightKg: true, loggedAt: true, note: true }
     });
     res.json({ logs });

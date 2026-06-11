@@ -34,6 +34,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitejs/plugin-react-oxc": "^0.4.3",
     "autoprefixer": "^10.4.17",
     "jsdom": "^29.1.1",
     "postcss": "^8.4.35",

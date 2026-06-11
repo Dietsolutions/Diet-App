@@ -161,7 +161,6 @@ export function createApp(): Express {
   app.use('/api/meals', mealsRoutes);
   app.use('/api/recipes', recipesRoutes);
   app.use('/api/water', waterRoutes);
-  app.use('/api/recipes', recipesRoutes);
   app.use(pagesRoutes);
   app.use(publicRecipeRouter);   // public read-only share view: GET /recipe/:id
 

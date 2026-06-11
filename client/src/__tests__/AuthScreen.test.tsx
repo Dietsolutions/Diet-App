@@ -21,6 +21,14 @@ vi.mock('../lib/analytics', () => ({
   identifyUser: vi.fn(),
   resetUser: vi.fn(),
 }));
+vi.mock('../store/authStore', () => ({
+  useAuthStore: vi.fn(() => ({
+    user: null,
+    isLoading: false,
+    setUser: vi.fn(),
+    setLoading: vi.fn(),
+  })),
+}));
 
 describe('AuthScreen', () => {
 

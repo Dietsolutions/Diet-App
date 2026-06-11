@@ -44,8 +44,8 @@ export async function rotateRefreshToken(oldToken: string): Promise<{ accessToke
   const newRefreshToken = await generateRefreshToken(userId);
 
   const jwt = await import('jsonwebtoken');
-  const secret = process.env.JWT_SECRET || 'dev-jwt-secret-not-for-production';
-  const accessToken = jwt.default.sign({ userId }, secret, { expiresIn: '15m' });
+  const { JWT_SECRET } = await import('../middleware/auth');
+  const accessToken = jwt.default.sign({ userId }, JWT_SECRET, { expiresIn: '15m' });
 
   return { accessToken, refreshToken: newRefreshToken };
 }

@@ -147,7 +147,7 @@ model MealPlan {
 model MealPlanDay {
   id            String   @id @default(cuid())
   mealPlanId    String
-  mealPlan      MealPlan @relation(fields: [mealPlanId], references: [id])
+  mealPlan      MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
   dayIndex      Int
   dayName       String
   totalCalories Float
@@ -156,6 +156,8 @@ model MealPlanDay {
   totalFat      Float
   totalFibre    Float
   meals         String   @default("[]")
+
+  @@index([mealPlanId, dayIndex])
 }
 
 model GeneratedShoppingList {
@@ -167,6 +169,9 @@ model GeneratedShoppingList {
   categories  String   @default("[]")
   peopleCount Int      @default(1)
   createdAt   DateTime @default(now())
+
+  @@index([userId, mealPlanId])
+  @@index([userId, createdAt])
 }
 
 model MealLog {

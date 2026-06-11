@@ -294,15 +294,24 @@ export function AuthScreen() {
     try {
       const res  = await fetch(apiUrl('/api/auth/google/check'), { credentials: 'include' });
       const data = await res.json();
-      if (data.configured) window.location.href = apiUrl('/api/auth/google');
-      else setErrors({ general: 'Google Sign-In is not configured. Please use credentials to sign in.' });
+      if (!data.configured) {
+        setErrors({ general: 'Google Sign-In is not configured. Please use credentials to sign in.' });
+        return;
+      }
+      // On native (Capacitor), Google OAuth opens the system browser which
+      // won't automatically return to the app.  We redirect to a custom
+      // scheme so the OS re-opens the app after auth completes.
+      const redirectParam = isNative()
+        ? '?redirect=dietplan%3A%2F%2Fauth'
+        : '';
+      window.location.href = apiUrl(`/api/auth/google${redirectParam}`);
     } catch {
       setErrors({ general: 'Google Sign-In is not available. Please use credentials to sign in.' });
     }
   };
 
   const handleAppleLogin = async () => {
-    if (!isNative || platform() !== 'ios') {
+    if (!isNative() || platform() !== 'ios') {
       setErrors({ general: 'Sign in with Apple is only available on the iOS app. Use credentials or Google Sign-In here.' });
       return;
     }
@@ -317,6 +326,7 @@ export function AuthScreen() {
       }, { withCredentials: true });
       setUser(res.data.user);
       identifyUser(res.data.user.id);
+      setIsSubmitting(false);
       setSuccessBurst(true);
       setTimeout(() => setSuccessBurst(false), 800);
     } catch (err: any) {
