@@ -28,7 +28,7 @@ jobs:
       - run: npm ci
       - run: npm install --prefix server
       - run: npm install --prefix client --legacy-peer-deps
-      - run: npx --prefix server prisma generate --schema=src/prisma/schema.prisma
+      - run: cd server && npx prisma generate --schema=src/prisma/schema.prisma
       - run: npm run typecheck
       - run: npm run test --prefix server
       - run: npx vitest run --coverage --prefix client

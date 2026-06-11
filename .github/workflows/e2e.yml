@@ -17,5 +17,5 @@ jobs:
       - run: npm install --prefix server
       - run: npm install --prefix client --legacy-peer-deps
       - run: npx playwright install chromium
-      - run: npx --prefix server prisma generate --schema=src/prisma/schema.prisma
+      - run: cd server && npx prisma generate --schema=src/prisma/schema.prisma
       - run: npm run test:e2e
