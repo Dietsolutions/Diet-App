@@ -72,10 +72,14 @@ function buildCorsOptions(): cors.CorsOptions {
   if (process.env.CLIENT_URL) explicit.add(process.env.CLIENT_URL);
   if (process.env.FRONTEND_URL) explicit.add(process.env.FRONTEND_URL);
 
-  // Optional Capacitor custom URL (configured in capacitor.config.ts as
-  // `server.url`). If set, that exact origin is allowed so the WebView can
-  // be pinned to your backend. If unset, capacitor:// and http://localhost
-  // are *not* allowed (in production).
+  // Capacitor WebView origins — required for native iOS/Android builds that
+  // load bundled assets instead of a remote server.url.
+  // These origins are safe to allow because every endpoint requires a valid
+  // JWT; an untrusted Capacitor app still cannot call the API without auth.
+  explicit.add('capacitor://localhost'); // iOS Capacitor WebView
+  explicit.add('http://localhost');      // Android Capacitor WebView
+  // If the native build uses server.url = VITE_API_URL (remote WebView mode),
+  // same-origin applies and no CORS header is needed — but adding it is harmless.
   if (process.env.VITE_API_URL) explicit.add(process.env.VITE_API_URL);
 
   // Per-project preview regex. VERCEL_PROJECT_NAME is automatically set by

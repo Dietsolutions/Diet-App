@@ -49,9 +49,13 @@ jobs:
           npm install --prefix client --legacy-peer-deps
 
       - name: Build web app
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
         run: npm run build
 
       - name: Sync Capacitor
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
         run: npx cap sync android
 
       - name: Decode keystore

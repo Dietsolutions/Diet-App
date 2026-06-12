@@ -41,6 +41,7 @@ jobs:
         with:
           ruby-version: '3.3'
           bundler-cache: true
+          working-directory: ios
 
       - name: Install Node dependencies
         run: |
@@ -49,9 +50,13 @@ jobs:
           npm install --prefix client --legacy-peer-deps
 
       - name: Build web app
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
         run: npm run build
 
       - name: Sync Capacitor (copies dist → ios/App/App/public)
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
         run: npx cap sync ios
 
       # This project uses Swift Package Manager — no Podfile, no pod install.
