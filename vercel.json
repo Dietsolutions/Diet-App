@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "installCommand": "npm install --prefix client --legacy-peer-deps && npm install --prefix server && npm install",
+  "installCommand": "npm install --prefix client --legacy-peer-deps --include=dev && npm install --prefix server --include=dev && npm install --omit=dev",
   "buildCommand": "npm run build",
   "outputDirectory": "client/dist",
   "framework": null,
