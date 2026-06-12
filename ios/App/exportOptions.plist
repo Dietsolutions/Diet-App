@@ -9,10 +9,6 @@
 	<key>destination</key>
 	<string>upload</string>
 
-	<key>teamID</key>
-	<!-- Overridden at build time by DEVELOPMENT_TEAM xcodebuild flag -->
-	<string>$(DEVELOPMENT_TEAM)</string>
-
 	<key>signingStyle</key>
 	<string>manual</string>
 
