@@ -77,7 +77,8 @@ function buildCorsOptions(): cors.CorsOptions {
   // These origins are safe to allow because every endpoint requires a valid
   // JWT; an untrusted Capacitor app still cannot call the API without auth.
   explicit.add('capacitor://localhost'); // iOS Capacitor WebView
-  explicit.add('http://localhost');      // Android Capacitor WebView
+  explicit.add('http://localhost');      // Android Capacitor WebView (http scheme)
+  explicit.add('https://localhost');     // Android Capacitor WebView (default https scheme)
   // If the native build uses server.url = VITE_API_URL (remote WebView mode),
   // same-origin applies and no CORS header is needed — but adding it is harmless.
   if (process.env.VITE_API_URL) explicit.add(process.env.VITE_API_URL);
