@@ -739,14 +739,19 @@ router.get('/google', (req: Request, res: Response): void => {
     return;
   }
 
-  const state = crypto.randomBytes(16).toString('hex');
+  const csrfToken = crypto.randomBytes(16).toString('hex');
   const redirectTo = (typeof req.query.redirect === 'string' && req.query.redirect) || '';
-  res.cookie('oauth_state', JSON.stringify({ state, redirectTo }), {
+  res.cookie('oauth_state', JSON.stringify({ state: csrfToken }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     maxAge: 600_000,
   });
+
+  // Embed the redirect URL inside the state parameter so it survives
+  // across browser contexts (e.g., Chrome opened from Capacitor WebView).
+  // Google returns this verbatim in the callback.
+  const statePayload = Buffer.from(JSON.stringify({ csrf: csrfToken, redirect: redirectTo })).toString('base64url');
 
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
@@ -755,7 +760,7 @@ router.get('/google', (req: Request, res: Response): void => {
     scope: 'openid email profile',
     access_type: 'offline',
     prompt: 'consent',
-    state,
+    state: statePayload,
   });
 
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
@@ -763,13 +768,22 @@ router.get('/google', (req: Request, res: Response): void => {
 
 // GET /api/auth/google/callback
 router.get('/google/callback', async (req: Request, res: Response): Promise<void> => {
-  const { code, state } = req.query;
-  let storedState: { state: string; redirectTo?: string } | null = null;
-  try { storedState = JSON.parse(req.cookies?.oauth_state || 'null'); } catch {}
-  const expectedState = storedState?.state;
-  const redirectTo = storedState?.redirectTo || FRONTEND_URL;
+  const { code, state: stateRaw } = req.query;
 
-  if (!state || !expectedState || state !== expectedState) {
+  // Decode the state payload (JSON embedded in OAuth state parameter)
+  let csrfToken = '';
+  let redirectTo = FRONTEND_URL;
+  try {
+    const decoded = JSON.parse(Buffer.from(stateRaw as string, 'base64url').toString());
+    csrfToken = decoded.csrf || '';
+    if (decoded.redirect) redirectTo = decoded.redirect;
+  } catch { /* fall through — will check CSRF below */ }
+
+  // Verify CSRF from cookie (cross-check against decoded state)
+  let storedCsrf: string | undefined;
+  try { storedCsrf = JSON.parse(req.cookies?.oauth_state || 'null').state; } catch {}
+
+  if (!csrfToken || !storedCsrf || csrfToken !== storedCsrf) {
     res.clearCookie('oauth_state');
     res.redirect(`${FRONTEND_URL}?error=invalid_state`);
     return;
