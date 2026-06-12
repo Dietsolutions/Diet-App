@@ -357,6 +357,9 @@ router.post('/login', loginLimiter, async (req: Request, res: Response): Promise
     setTokenCookies(res, accessToken, refreshToken);
 
     res.json({
+      // Return the JWT in the body too — native (Capacitor) builds can't rely on
+      // the cross-origin auth cookie, so the client keeps this as a Bearer token.
+      token: accessToken,
       user: {
         id: user.id,
         username: user.username,
