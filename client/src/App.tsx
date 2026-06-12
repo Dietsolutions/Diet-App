@@ -44,7 +44,7 @@ function isIOS(): boolean {
 }
 
 export default function App() {
-  const { user, isLoading, refreshUser } = useAuth();
+  const { user, isLoading, refreshUser, authWithToken } = useAuth();
   const { activeTab, setActiveTab, profile, setProfile } = useAppStore();
   const toastRef = useRef<ToastHandle>(null);
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
@@ -64,6 +64,32 @@ export default function App() {
 
   // Load plan data when user is logged in and onboarded
   usePlan();
+
+  // ── Capacitor deep-link handler (Google OAuth return-to-app) ──────────────
+  // When the user completes Google OAuth in the system browser, the server
+  // redirects to dietplan://auth?token=JWT. Capacitor fires appUrlOpen with
+  // that URL — we extract the token and authenticate.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { App } = await import('@capacitor/app');
+        App.addListener('appUrlOpen', (data: { url: string }) => {
+          if (cancelled) return;
+          const url = new URL(data.url);
+          const token = url.searchParams.get('token') || url.hash.replace('#', '');
+          if (token) {
+            authWithToken(token);
+            // Clean the URL to prevent re-processing on re-render
+            window.history.replaceState(null, '', '/');
+          }
+        });
+      } catch {
+        // Not running in Capacitor — ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Strip legacy ?_at= token from URL (kept for one deploy for back-compat) ──
   // The server no longer puts the JWT in the OAuth redirect URL, but any

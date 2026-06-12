@@ -13,19 +13,36 @@ import axios from 'axios';
 
 const RAW_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
+/** In-memory token for OAuth deep-link auth. */
+let _bearerToken: string | null = null;
+
+export function setBearerToken(token: string | null): void {
+  _bearerToken = token;
+}
+
+export function getBearerToken(): string | null {
+  return _bearerToken;
+}
+
 /**
  * Configure axios defaults once so every call in every hook automatically
  * uses the correct base URL and sends credentials (cookies).
  *
- * Auth is httpOnly cookie only — we deliberately do NOT attach a
- * sessionStorage JWT as Authorization header. That would re-introduce
- * the XSS-token-theft surface that this whole batch of changes is
- * closing. The server sets the cookie on login and the browser
- * automatically includes it on same-origin requests.
+ * Auth is httpOnly cookie first (same-origin). For OAuth deep-link returns
+ * (native apps), we fall back to an in-memory Bearer token set by the
+ * Capacitor appUrlOpen handler.
  */
 axios.defaults.baseURL = RAW_BASE || undefined;
 axios.defaults.withCredentials = true;
 axios.defaults.timeout = 15000;
+
+// Attach Bearer token if set (OAuth deep-link on native)
+axios.interceptors.request.use((config) => {
+  if (_bearerToken) {
+    config.headers.Authorization = `Bearer ${_bearerToken}`;
+  }
+  return config;
+});
 
 /**
  * Global response interceptor: handle 401 (session expired), network errors.

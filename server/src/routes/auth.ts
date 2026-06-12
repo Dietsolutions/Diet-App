@@ -874,11 +874,21 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
     const { accessToken, refreshToken } = await issueTokenPair(user.id);
     setTokenCookies(res, accessToken, refreshToken);
 
-    // Do NOT put the JWT in the redirect URL — Vercel edge logs capture
-    // full request URLs, and the token would leak via Referer headers to
-    // any third-party resource loaded by the SPA. The httpOnly cookie set
-    // above is sufficient — the client picks up the session via
-    // /api/auth/me on next render.
+    // For native app deep links (dietplan://), use an HTML page with JS
+    // redirect instead of an HTTP 302.  Chrome/Safari on mobile may
+    // ignore 302 redirects to custom URL schemes (especially iOS Safari).
+    // The JS-based redirect reliably triggers the OS to open the app.
+    // We also pass the token in the URL since the httpOnly cookie was set
+    // in the system browser (not the WebView), and the app needs it to
+    // authenticate on return.
+    if (redirectTo.startsWith('dietplan://')) {
+      const delim = redirectTo.includes('?') ? '&' : '?';
+      res.send(`<!doctype html><html><body><script>
+window.location.href = '${redirectTo}${delim}token=${encodeURIComponent(accessToken)}';
+<\/script></body></html>`);
+      return;
+    }
+
     res.redirect(redirectTo);
     return;
   } catch (err) {

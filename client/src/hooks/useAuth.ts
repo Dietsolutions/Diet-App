@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { identifyUser, resetUser } from '../lib/analytics';
+import { setBearerToken } from '../lib/api';
 
 export function useAuth() {
   const { user, isLoading, setUser, setLoading } = useAuthStore();
@@ -37,8 +38,25 @@ export function useAuth() {
     return res.data.user;
   };
 
+  /** Authenticate via a Bearer token (e.g., from deep-link OAuth return). */
+  const authWithToken = async (token: string) => {
+    setBearerToken(token);
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/auth/me');
+      setUser(res.data.user);
+      identifyUser(res.data.user.id);
+    } catch {
+      setBearerToken(null);
+      // fall through — user remains unauthenticated
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = async () => {
     setLoading(false);
+    setBearerToken(null);
     try {
       await axios.post('/api/auth/logout', {}, { withCredentials: true });
     } catch {
@@ -60,5 +78,5 @@ export function useAuth() {
     }
   };
 
-  return { user, isLoading, login, signup, logout, refreshUser };
+  return { user, isLoading, login, signup, authWithToken, logout, refreshUser };
 }
