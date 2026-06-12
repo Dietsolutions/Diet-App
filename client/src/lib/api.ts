@@ -75,6 +75,10 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   if (!headers.has('Content-Type') && init.body && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
+  // Mirror the Axios interceptor: attach Bearer token for OAuth native deep-link sessions
+  if (_bearerToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${_bearerToken}`);
+  }
 
   return fetch(apiUrl(path), {
     credentials: 'include',

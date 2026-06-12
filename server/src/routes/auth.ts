@@ -883,8 +883,10 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
     // authenticate on return.
     if (redirectTo.startsWith('dietplan://')) {
       const delim = redirectTo.includes('?') ? '&' : '?';
+      // JSON.stringify escapes all JS metacharacters — safe to inline in a script block
+      const safeHref = JSON.stringify(`${redirectTo}${delim}token=${encodeURIComponent(accessToken)}`);
       res.send(`<!doctype html><html><body><script>
-window.location.href = '${redirectTo}${delim}token=${encodeURIComponent(accessToken)}';
+window.location.href = ${safeHref};
 <\/script></body></html>`);
       return;
     }

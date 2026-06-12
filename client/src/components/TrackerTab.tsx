@@ -228,7 +228,7 @@ export function TrackerTab() {
           <Card padding={16}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <HairLabel>DAY {selectedDayIndex + 1} OF {planDuration}</HairLabel>
+                <HairLabel>{selectedDayIndex >= 0 ? `DAY ${selectedDayIndex + 1} OF ${planDuration}` : 'EXTRA LOG'}</HairLabel>
                 <div style={{ fontFamily: s2.sans, fontSize: 22, fontWeight: 400, marginTop: 4, letterSpacing: '-0.02em' }}>
                   {format(parseISO(selectedDate), 'EEEE, d MMM')}
                 </div>
@@ -306,6 +306,18 @@ function GoalStatCard({ goalCountdown }: { goalCountdown: GoalCountdown | null }
   }
 
   const { daysLeft, goalDate, targetWeight } = goalCountdown;
+
+  // Server returns null for users without a weight goal (e.g. eat_healthy, maintain)
+  if (daysLeft == null || !goalDate) {
+    return (
+      <div style={{ border: `1px solid ${s2.line}`, padding: '12px 10px', background: s2.surface }}>
+        <HairLabel>GOAL ETA</HairLabel>
+        <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, color: s2.textDimmer, letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6 }}>—</div>
+        <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDimmer, letterSpacing: '0.15em', marginTop: 4 }}>no weight goal set</div>
+      </div>
+    );
+  }
+
   let bigText: string;
   if      (daysLeft <= 0) bigText = 'DONE';
   else if (daysLeft < 7)  bigText = `${daysLeft}`;

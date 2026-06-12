@@ -118,14 +118,17 @@ export function MealDetailSheet({
   // Fetch existing instructions on open (only if mealPlanId is known)
   useEffect(() => {
     if (!mealPlanId) { setCookLoading(false); return; }
+    const controller = new AbortController();
     setCookLoading(true);
     axios.get('/api/meals/instructions', {
       params: { mealPlanId, dayIndex, mealIndex },
       withCredentials: true,
+      signal: controller.signal,
     })
       .then(r => setCookInstr(r.data.instructions || null))
-      .catch(() => {/* silent — show "not generated" state */})
+      .catch((err) => { if (!axios.isCancel(err)) {/* silent — show "not generated" state */} })
       .finally(() => setCookLoading(false));
+    return () => controller.abort();
   }, [mealPlanId, dayIndex, mealIndex]);
 
   const handleGenerateInstructions = useCallback(async () => {

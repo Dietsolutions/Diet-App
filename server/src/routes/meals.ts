@@ -80,6 +80,16 @@ router.post('/replace', requireAuth, perUserLimiter({ windowMs: 60_000, max: 60,
       return;
     }
 
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+      return;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    if (date > today) {
+      res.status(400).json({ error: 'Cannot log meals for future dates' });
+      return;
+    }
+
     // Upsert the replacement
     const replacement = await prisma.mealReplacement.upsert({
       where: {
@@ -124,12 +134,10 @@ router.post('/replace', requireAuth, perUserLimiter({ windowMs: 60_000, max: 60,
 
     // Also mark the meal as eaten
     try {
-      const planDates = getPlanDates();
-      const dIdx = planDates.indexOf(date);
       await prisma.mealLog.upsert({
         where: { userId_date_mealIndex: { userId, date, mealIndex } },
         update: { eaten: true, loggedAt: new Date() },
-        create: { userId, date, dayIndex: dIdx >= 0 ? dIdx : (dayIndex ?? 0), mealIndex, eaten: true },
+        create: { userId, date, dayIndex: typeof dayIndex === 'number' ? dayIndex : 0, mealIndex, eaten: true },
       });
     } catch (err) {
       console.warn('Meal log upsert failed:', (err as Error)?.message);
