@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { apiFetch } from '../lib/api';
 import { WeightLog, WeightProjectionPoint, TimeRange } from '../types';
+import { notifyWeightMilestone, notifyWeightGoalReached } from '../lib/notifications';
 
 interface WeightState {
   logs: WeightLog[];
@@ -83,8 +84,22 @@ export const useWeightStore = create<WeightState>((set, get) => ({
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to log weight');
-    // Refresh both logs and projection
+
+    const prevLogs = get().logs;
+    const startKg = prevLogs.length > 0 ? prevLogs[0].weightKg : input.weightKg;
+
     await Promise.all([get().fetchLogs(), get().fetchProjection()]);
+
+    // Fire milestone / goal notifications (non-blocking, best-effort)
+    const kgLost = Math.round((startKg - input.weightKg) * 10) / 10;
+    if (kgLost > 0) void notifyWeightMilestone(kgLost);
+
+    const proj = get().projection;
+    if (proj.length > 0) {
+      const goalKg = proj[proj.length - 1].weightKg;
+      if (input.weightKg <= goalKg) void notifyWeightGoalReached();
+    }
+
     return data.log;
   },
 

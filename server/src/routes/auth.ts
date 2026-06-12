@@ -250,6 +250,22 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback';
 const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5173');
 
+// Validate and sanitize OAuth post-login redirect targets.
+// Allows: relative paths (/tab, /profile) and same-origin absolute URLs.
+// Rejects: any other-origin URL (open redirect attack vector).
+function sanitizeOAuthRedirect(redirect: string): string {
+  if (!redirect) return FRONTEND_URL;
+  if (/^\/[a-zA-Z0-9\-._~!$&'()*+,;=:@/?#%]*$/.test(redirect)) {
+    return `${FRONTEND_URL}${redirect}`;
+  }
+  try {
+    const target = new URL(redirect);
+    const base = new URL(FRONTEND_URL);
+    if (target.origin === base.origin) return redirect;
+  } catch {}
+  return FRONTEND_URL;
+}
+
 function issueToken(userId: string): string {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '15m' });
 }
@@ -740,7 +756,9 @@ router.get('/google', (req: Request, res: Response): void => {
   }
 
   const csrfToken = crypto.randomBytes(16).toString('hex');
-  const redirectTo = (typeof req.query.redirect === 'string' && req.query.redirect) || '';
+  // Validate before embedding — prevents open-redirect if state is replayed
+  const rawRedirect = typeof req.query.redirect === 'string' ? req.query.redirect : '';
+  const redirectTo = rawRedirect && /^\/[a-zA-Z0-9\-._~!$&'()*+,;=:@/?#%]*$/.test(rawRedirect) ? rawRedirect : '';
   res.cookie('oauth_state', JSON.stringify({ state: csrfToken }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -776,7 +794,7 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
   try {
     const decoded = JSON.parse(Buffer.from(stateRaw as string, 'base64url').toString());
     csrfToken = decoded.csrf || '';
-    if (decoded.redirect) redirectTo = decoded.redirect;
+    if (decoded.redirect) redirectTo = sanitizeOAuthRedirect(decoded.redirect);
   } catch { /* fall through — will check CSRF below */ }
 
   // Verify CSRF from cookie (cross-check against decoded state)

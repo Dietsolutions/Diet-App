@@ -34,8 +34,26 @@ async function keepAlive(): Promise<void> {
 
 const HOST = process.env.HOST || '0.0.0.0';
 
-app.listen(PORT, HOST, async () => {
+const server = app.listen(PORT, HOST, async () => {
   console.log(`Server running on http://${HOST}:${PORT}`);
   await wakeDatabase();
   setInterval(keepAlive, 180_000);
 });
+
+// Graceful shutdown — drain in-flight requests before exiting.
+// Vercel sends SIGTERM before replacing the function instance.
+async function shutdown(signal: string): Promise<void> {
+  console.log(`[Server] ${signal} received — shutting down gracefully`);
+  server.close(async () => {
+    try { await prisma.$disconnect(); } catch {}
+    process.exit(0);
+  });
+  // Force exit after 25 s so a stuck handler never blocks a new deploy
+  setTimeout(() => {
+    console.error('[Server] Forced exit after timeout');
+    process.exit(1);
+  }, 25_000).unref();
+}
+
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT',  () => void shutdown('SIGINT'));

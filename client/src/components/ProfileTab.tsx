@@ -19,6 +19,7 @@ import { NotificationSettings } from './NotificationSettings';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card, Btn } from './ui';
 import { track, trackPage } from '../lib/analytics';
+import { notifyNewPlanReady } from '../lib/notifications';
 
 const APP_VERSION = '1.0.0';
 const APP_STORE_URL = 'https://apps.apple.com/app/id6747787745';
@@ -177,6 +178,7 @@ export function ProfileTab() {
       // Show plan review screen instead of the old success screen
       setReviewMealPlanId(result?.mealPlanId || 'active');
       setShowPlanReview(true);
+      void notifyNewPlanReady();
     } catch (err: any) {
       setError(err?.message || 'Failed to regenerate');
       setRegenerating(false);

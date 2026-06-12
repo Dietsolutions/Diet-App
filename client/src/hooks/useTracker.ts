@@ -1,12 +1,16 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
+import { notifyStreakAchieved } from '../lib/notifications';
+
+const STREAK_MILESTONES = [3, 7, 14, 30, 60, 100];
 
 export function useTracker() {
   const {
     weekData, stats, weekStart,
     setWeekData, setStats, setWeekStart, toggleMealEaten, setMealsPerDay, setPlanDuration
   } = useAppStore();
+  const lastNotifiedStreak = useRef(0);
 
   const loadWeekData = useCallback(async (startDate?: string) => {
     try {
@@ -28,11 +32,15 @@ export function useTracker() {
       const stats = statsRes.data;
       if (stats && typeof stats.eaten === 'number' && typeof stats.adherence === 'number') {
         setStats(stats);
-        if (stats.mealsPerDay) {
-          setMealsPerDay(stats.mealsPerDay);
-        }
-        if ((weekRes.data as any).planDuration) {
-          setPlanDuration((weekRes.data as any).planDuration);
+        if (stats.mealsPerDay) setMealsPerDay(stats.mealsPerDay);
+        if ((weekRes.data as any).planDuration) setPlanDuration((weekRes.data as any).planDuration);
+
+        // Fire streak milestone notification once per milestone per session
+        const streak = typeof stats.streak === 'number' ? stats.streak : 0;
+        const milestone = STREAK_MILESTONES.find(m => streak >= m && lastNotifiedStreak.current < m);
+        if (milestone) {
+          lastNotifiedStreak.current = milestone;
+          void notifyStreakAchieved(streak);
         }
       } else {
         setStats({ eaten: 0, total: 0, adherence: 0, streak: 0, remaining: 0 });

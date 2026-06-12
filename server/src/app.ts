@@ -137,18 +137,16 @@ export function createApp(): Express {
 
   // Health check (used by Vercel + monitoring)
   app.get('/api/health', async (_req: Request, res: Response) => {
-    let dbStatus = 'unknown';
+    let dbOk = false;
     try {
       await prisma.$queryRaw`SELECT 1`;
-      dbStatus = 'connected';
-    } catch {
-      dbStatus = 'error';
-    }
-    res.json({
-      status: 'ok',
-      env: process.env.NODE_ENV || 'development',
+      dbOk = true;
+    } catch {}
+    // Never expose NODE_ENV or infra details in health responses —
+    // it would reveal whether we're in production to unauthenticated callers.
+    res.status(dbOk ? 200 : 503).json({
+      status: dbOk ? 'ok' : 'degraded',
       time: new Date().toISOString(),
-      db: dbStatus,
     });
   });
   // Legacy alias

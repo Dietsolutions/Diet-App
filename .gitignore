@@ -16,6 +16,8 @@ build/
 # Credentials / secrets — never commit
 PRODUCTION_ENV_VARS.md
 SECRETS.md
+.env.vercel*
+*.oidc_token
 
 # Environment files
 .env

@@ -1,0 +1,8 @@
+User-agent: *
+# Block user-specific and API routes from indexing
+Disallow: /api/
+Disallow: /reset-password
+Disallow: /confirm-deletion
+Allow: /
+
+Sitemap: https://dietplan.app/sitemap.xml

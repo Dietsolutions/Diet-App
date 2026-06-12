@@ -5,6 +5,7 @@ import axios from 'axios';
 import { useAppStore } from '../store/appStore';
 import { getPlanDayIndex } from '../utils/planUtils';
 import { track, trackPage } from '../lib/analytics';
+import { notifyPlanExpiringSoon } from '../lib/notifications';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { useTracker } from '../hooks/useTracker';
@@ -73,7 +74,15 @@ export function TrackerTab() {
     ]).then(([weekRes, monthRes, goalRes]) => {
       if (weekRes.status  === 'fulfilled') setWeeklySummary(weekRes.value.data);
       if (monthRes.status === 'fulfilled') setMonthlySummary(monthRes.value.data);
-      if (goalRes.status  === 'fulfilled') setGoalCountdown(goalRes.value.data);
+      if (goalRes.status  === 'fulfilled') {
+        const countdown = goalRes.value.data;
+        setGoalCountdown(countdown);
+        // Notify when plan end is within 2 days
+        const daysLeft = countdown?.daysLeft;
+        if (typeof daysLeft === 'number' && daysLeft > 0 && daysLeft <= 2) {
+          void notifyPlanExpiringSoon(daysLeft);
+        }
+      }
     });
   }, [trackerCalendarMonth]);
 
