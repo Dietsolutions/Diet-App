@@ -1093,6 +1093,11 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     const aiText = await callLLM(userPrompt, {
       system: systemPrompt,
       maxTokens: maxTokens,
+      // The full plan is a large response (~8k tokens for 7-day, ~12k for 14-day)
+      // and takes ~40-90s to write — far longer than the 30s llmClient default,
+      // which was aborting every generation. Generous ceiling, still well under
+      // the 300s Vercel function limit so macro validation has room to run after.
+      timeout: planDuration === 14 ? 180_000 : 120_000,
     });
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`AI response in ${elapsed}s (${aiText.length} chars)`);
