@@ -66,6 +66,8 @@ import { Capacitor } from '@capacitor/core';
 import './lib/api';
 import { initAnalytics } from './lib/analytics';
 import { initCapacitor } from './lib/capacitor';
+import { createNotificationChannels, scheduleAllNotifications, checkNotificationPermission } from './lib/notifications';
+import { useNotificationStore } from './store/notificationStore';
 import App from './App';
 import './index.css';
 
@@ -74,7 +76,18 @@ initAnalytics();
 
 // Initialise native platform plugins (StatusBar, SplashScreen, App lifecycle).
 // No-op on web.
-void initCapacitor();
+void initCapacitor().then(async () => {
+  if (Capacitor.isNativePlatform()) {
+    // Create Android notification channels; no-op on iOS
+    await createNotificationChannels();
+    // Reschedule on every cold start — OS may clear them after OS updates
+    const granted = await checkNotificationPermission();
+    if (granted) {
+      const prefs = useNotificationStore.getState().prefs;
+      if (prefs.enabled) void scheduleAllNotifications(prefs);
+    }
+  }
+});
 
 /**
  * iOS Safari 100vh fix.
@@ -97,6 +110,24 @@ function setAppHeight(): void {
 setAppHeight();
 window.addEventListener('resize', setAppHeight);
 window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 100));
+
+/**
+ * Keyboard avoidance — iOS Safari / Capacitor WebView.
+ *
+ * When the software keyboard opens, the visualViewport shrinks. We
+ * expose --keyboard-height so any input-containing container can push
+ * itself up with `padding-bottom: var(--keyboard-height)`.
+ */
+if (typeof window !== 'undefined' && window.visualViewport) {
+  const vv = window.visualViewport;
+  function updateKeyboardHeight(): void {
+    const keyboardHeight = Math.max(0, window.innerHeight - (vv?.height ?? window.innerHeight));
+    document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+  }
+  vv.addEventListener('resize', updateKeyboardHeight);
+  vv.addEventListener('scroll', updateKeyboardHeight);
+  updateKeyboardHeight();
+}
 
 /**
  * Service-worker registration.

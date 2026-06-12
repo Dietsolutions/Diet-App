@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { apiUrl } from '../lib/api';
 import { useAppStore } from '../store/appStore';
 import { useWeightStore } from '../store/weightStore';
+import { useUnitsStore } from '../store/unitsStore';
 import { MealPlanCustomiser } from './MealPlanCustomiser';
 import { PlanReviewScreen } from './PlanReviewScreen';
 import { WeightStatsHeader } from './weight/WeightStatsHeader';
@@ -14,9 +15,14 @@ import { WeightProgressChart } from './weight/WeightProgressChart';
 import { WeightLogModal } from './weight/WeightLogModal';
 import { WeightLogList } from './weight/WeightLogList';
 import { ErrorBoundary } from './ErrorBoundary';
+import { NotificationSettings } from './NotificationSettings';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card, Btn } from './ui';
 import { track, trackPage } from '../lib/analytics';
+
+const APP_VERSION = '1.0.0';
+const APP_STORE_URL = 'https://apps.apple.com/app/id6747787745';
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.dietplan.tracker';
 
 // ── Plan history item type ──────────────────────────────────────────────────
 interface PlanHistoryItem {
@@ -33,6 +39,7 @@ interface PlanHistoryItem {
 export function ProfileTab() {
   const { user, logout, refreshUser } = useAuth();
   const { profile, setProfile, setActiveTab } = useAppStore();
+  const { unit, setUnit, toDisplay } = useUnitsStore();
   const [regenerating, setRegenerating] = useState(false);
   const [regenStep, setRegenStep] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -191,6 +198,31 @@ export function ProfileTab() {
     }
   };
 
+  // ── Share & rate helpers ───────────────────────────────────────────────
+  const handleShare = async () => {
+    const shareData = {
+      title: 'Diet Plan & Tracker',
+      text: 'AI-powered meal planning that actually works 🥗 Check it out!',
+      url: APP_STORE_URL,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        track('app_shared', { method: 'native_share' });
+      } else {
+        await navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
+        track('app_shared', { method: 'clipboard' });
+      }
+    } catch { /* user cancelled */ }
+  };
+
+  const handleRate = () => {
+    const isAndroid = /android/i.test(navigator.userAgent);
+    const url = isAndroid ? PLAY_STORE_URL : APP_STORE_URL;
+    window.open(url, '_blank', 'noopener');
+    track('rate_app_tapped', { platform: isAndroid ? 'android' : 'ios' });
+  };
+
   // ── Plan review screen — shown after re-generation ────────────────────
   if (showPlanReview) {
     return (
@@ -313,10 +345,24 @@ export function ProfileTab() {
         {profile && (
           <>
             <div>
-              <HairLabel style={{ marginBottom: 8 }}>BODY STATS</HairLabel>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <HairLabel>BODY STATS</HairLabel>
+                {/* Units toggle */}
+                <div style={{ display: 'flex', gap: 0 }}>
+                  {(['kg', 'lbs'] as const).map((u) => (
+                    <button key={u} onClick={() => setUnit(u)} style={{
+                      padding: '3px 10px', border: `1px solid ${unit === u ? s2.accent : s2.line}`,
+                      background: unit === u ? s2.accentFill : 'transparent',
+                      fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.1em',
+                      color: unit === u ? s2.accent : s2.textDim,
+                      cursor: 'pointer', textTransform: 'uppercase',
+                    }}>{u}</button>
+                  ))}
+                </div>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 10 }}>
-                <StatCard label="CURRENT" value={`${profile.weightKg}`} unit="kg" />
-                <StatCard label="TARGET" value={`${profile.targetWeightKg}`} unit="kg" accent />
+                <StatCard label="CURRENT" value={`${toDisplay(profile.weightKg)}`} unit={unit} />
+                <StatCard label="TARGET" value={`${toDisplay(profile.targetWeightKg)}`} unit={unit} accent />
                 <StatCard label="BMI" value={`${profile.bmi}`} unit="" />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
@@ -555,6 +601,38 @@ export function ProfileTab() {
 
         <div style={{ height: 12 }} />
 
+        {/* ── Notifications ───────────────────────────────────────────────── */}
+        <div>
+          <HairLabel style={{ marginBottom: 8 }}>NOTIFICATIONS</HairLabel>
+          <NotificationSettings />
+        </div>
+
+        <div style={{ height: 4 }} />
+
+        {/* ── Rate & Share ─────────────────────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <button onClick={handleRate} style={{
+            padding: '13px 0', border: `1px solid ${s2.lineStrong}`,
+            background: s2.surface, cursor: 'pointer', fontFamily: s2.mono,
+            fontSize: 9, letterSpacing: '0.15em', color: s2.text,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+          }}>
+            <span style={{ fontSize: 18 }}>⭐</span>
+            RATE THE APP
+          </button>
+          <button onClick={handleShare} style={{
+            padding: '13px 0', border: `1px solid ${s2.lineStrong}`,
+            background: s2.surface, cursor: 'pointer', fontFamily: s2.mono,
+            fontSize: 9, letterSpacing: '0.15em', color: s2.text,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+          }}>
+            <span style={{ fontSize: 18 }}>🔗</span>
+            TELL A FRIEND
+          </button>
+        </div>
+
+        <div style={{ height: 4 }} />
+
         {/* ── Analytics toggle ────────────────────────────────────────────── */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -614,6 +692,13 @@ export function ProfileTab() {
           >
             Terms of Service
           </a>
+        </div>
+
+        {/* ── App version ─────────────────────────────────────────────────── */}
+        <div style={{ textAlign: 'center', paddingBottom: 4 }}>
+          <div style={{ fontFamily: s2.mono, fontSize: 10, color: s2.textDimmer, letterSpacing: '0.1em' }}>
+            DIET PLAN & TRACKER v{APP_VERSION}
+          </div>
         </div>
 
         <div style={{ height: 16 }} />

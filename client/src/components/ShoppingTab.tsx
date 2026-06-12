@@ -1,7 +1,8 @@
 // ShoppingTab — Strain v2 visual, all hook logic preserved.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useShopping } from '../hooks/useShopping';
+import { PullRefreshWrapper } from './ui/PullRefreshWrapper';
 import { useAppStore } from '../store/appStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card, Bar, Check } from './ui';
@@ -21,8 +22,12 @@ export function ShoppingTab() {
   const {
     shoppingCategories, totalItems, boughtItems,
     isShoppingGenerated, peopleCount,
-    toggleItem, reset, updatePeopleCount,
+    toggleItem, reset, updatePeopleCount, loadShopping,
   } = useShopping();
+
+  const handleRefresh = useCallback(async () => {
+    await loadShopping();
+  }, [loadShopping]);
 
   const { lastShoppingUpdateTime } = useAppStore();
   const [showUpdateBanner, setShowUpdateBanner] = useState(false);
@@ -45,7 +50,7 @@ export function ShoppingTab() {
   const progress = totalItems > 0 ? boughtItems / totalItems : 0;
 
   return (
-    <div style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 90 }}>
+    <PullRefreshWrapper onRefresh={handleRefresh} style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 90 }}>
 
       {/* ── Meal-change update banner ─────────────────────────────────────── */}
       {showUpdateBanner && (
@@ -360,6 +365,6 @@ export function ShoppingTab() {
 
         <div style={{ height: 16 }} />
       </div>
-    </div>
+    </PullRefreshWrapper>
   );
 }

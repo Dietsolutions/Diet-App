@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { format, parseISO, addWeeks, startOfWeek, addDays } from 'date-fns';
+import { PullRefreshWrapper } from './ui/PullRefreshWrapper';
 import { useAppStore } from '../store/appStore';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useAdditionalMealsStore } from '../store/additionalMealsStore';
@@ -102,6 +103,14 @@ export function MealsTab() {
     useMealReplacerStore();
   const { fetchForDate, getForDate } = useAdditionalMealsStore();
 
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([
+      loadPlan(),
+      loadWeekData(calendarDates[0]),
+      fetchReplacementsForWeek(),
+    ]);
+  }, [loadPlan, loadWeekData, fetchReplacementsForWeek]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const today = todayStr();
 
   const calendarDates = getWeekDates(mealsCalendarOffset);
@@ -179,12 +188,7 @@ export function MealsTab() {
   const monthLabel = format(parseISO(calendarDates[3]), 'MMM yyyy').toUpperCase();
 
   return (
-    <div style={{
-      background: s2.bg,
-      minHeight: '100%',
-      color: s2.text,
-      paddingBottom: 90,
-    }}>
+    <PullRefreshWrapper onRefresh={handleRefresh} style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 90 }}>
 
       {/* ── Section header ────────────────────────────────────────────────── */}
       <div style={{
@@ -700,6 +704,6 @@ export function MealsTab() {
           />
         );
       })()}
-    </div>
+    </PullRefreshWrapper>
   );
 }

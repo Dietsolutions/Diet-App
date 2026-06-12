@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { PullRefreshWrapper } from './ui/PullRefreshWrapper';
 import { format, parseISO, startOfMonth, addMonths, subMonths, getDaysInMonth, getDay, addDays, startOfWeek } from 'date-fns';
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
@@ -35,6 +36,13 @@ export function TrackerTab() {
   } = useAppStore();
   const { fetchReplacementsForWeek } = useMealReplacerStore();
   const { fetchForDate, getForDate } = useAdditionalMealsStore();
+
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([
+      loadWeekData(),
+      fetchReplacementsForWeek(),
+    ]);
+  }, [loadWeekData, fetchReplacementsForWeek]);
 
   const [weeklySummary,  setWeeklySummary]  = useState<TrackerSummary | null>(null);
   const [monthlySummary, setMonthlySummary] = useState<TrackerSummary | null>(null);
@@ -101,7 +109,7 @@ export function TrackerTab() {
   while (calendarCells.length % 7 !== 0) calendarCells.push(null);
 
   return (
-    <div style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 90 }}>
+    <PullRefreshWrapper onRefresh={handleRefresh} style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 90 }}>
 
       {/* ── Section header ────────────────────────────────────────────────── */}
       <div style={{ padding: '14px 20px 0' }}>
@@ -110,6 +118,26 @@ export function TrackerTab() {
           Tracker
         </div>
       </div>
+
+      {/* ── Empty state ── shown when no meals have ever been logged ─────── */}
+      {stats != null && stats.total === 0 && weekData.length === 0 && (
+        <div style={{ padding: '24px 20px 0' }}>
+          <div style={{
+            border: `1px solid ${s2.lineStrong}`,
+            background: s2.surface,
+            padding: '24px 20px',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
+            <div style={{ fontFamily: s2.sans, fontSize: 16, fontWeight: 500, color: s2.text, marginBottom: 6 }}>
+              No data yet
+            </div>
+            <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDimmer, lineHeight: 1.6, maxWidth: 260, margin: '0 auto' }}>
+              Start logging meals on the Meals tab and your tracking stats will appear here.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Big-3 summary ─────────────────────────────────────────────────── */}
       <div style={{ padding: '18px 20px 0', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
@@ -274,7 +302,7 @@ export function TrackerTab() {
       )}
 
       <div style={{ height: 16 }} />
-    </div>
+    </PullRefreshWrapper>
   );
 }
 

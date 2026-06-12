@@ -9,3 +9,4 @@ export { VBar }         from './VBar';
 export { Check }        from './Check';
 export { TopBar }       from './TopBar';
 export { SectionTitle } from './SectionTitle';
+export { PullRefreshWrapper } from './PullRefreshWrapper';

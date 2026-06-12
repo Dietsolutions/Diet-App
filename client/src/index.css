@@ -13,6 +13,7 @@
    */
   :root {
     --app-height: 100vh;
+    --keyboard-height: 0px;
   }
 
   html {
@@ -127,5 +128,20 @@
   @keyframes slideUp {
     from { transform: translateY(100%); }
     to { transform: translateY(0); }
+  }
+
+  /* Pull-to-refresh spinner */
+  @keyframes ptr-spin {
+    from { transform: translateY(20px) scale(1) rotate(0deg); }
+    to   { transform: translateY(20px) scale(1) rotate(360deg); }
+  }
+  .ptr-indicator[data-spinning="true"] {
+    animation: ptr-spin 0.7s linear infinite;
+  }
+
+  /* Keyboard-aware padding */
+  .keyboard-avoid {
+    padding-bottom: var(--keyboard-height, 0px);
+    transition: padding-bottom 180ms ease-out;
   }
 }
