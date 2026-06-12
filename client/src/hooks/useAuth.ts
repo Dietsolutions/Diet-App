@@ -20,6 +20,9 @@ export function useAuth() {
 
   const login = async (username: string, password: string) => {
     const res = await axios.post('/api/auth/login', { username, password }, { withCredentials: true });
+    // Native: the auth cookie won't persist (cross-origin WebView), so keep the
+    // returned JWT as a Bearer token. Harmless on web (cookie still primary).
+    if (res.data.token) setBearerToken(res.data.token);
     setUser(res.data.user);
     // Identify user in PostHog — no PII, only internal ID
     identifyUser(res.data.user.id);
@@ -32,6 +35,8 @@ export function useAuth() {
       { username, password, confirmPassword },
       { withCredentials: true }
     );
+    // Native: persist the JWT as a Bearer token (cookie won't survive in WebView).
+    if (res.data.token) setBearerToken(res.data.token);
     setUser(res.data.user);
     // New user — identify so their onboarding funnel is tracked from the start
     identifyUser(res.data.user.id);

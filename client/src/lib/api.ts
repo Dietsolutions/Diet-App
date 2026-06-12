@@ -13,11 +13,46 @@ import axios from 'axios';
 
 const RAW_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
-/** In-memory token for OAuth deep-link auth. */
-let _bearerToken: string | null = null;
+/**
+ * Bearer token for auth.
+ *
+ * On the web, auth is httpOnly cookie only (no token kept in JS — no XSS surface).
+ * But in the native (Capacitor) build the app and API are different origins, so
+ * the auth cookie is third-party and the iOS/Android WebView won't store it.
+ * There we keep the JWT and send it as `Authorization: Bearer`, and persist it
+ * in localStorage so the session survives app restarts. Persistence is gated to
+ * native only, so the web build keeps its cookie-only, storage-free posture.
+ */
+const BEARER_STORAGE_KEY = 'dpt_auth_token';
+
+function isNativeRuntime(): boolean {
+  try {
+    return !!(window as any).Capacitor?.isNativePlatform?.();
+  } catch {
+    return false;
+  }
+}
+
+// Restore a persisted token on startup (native only) so the first /api/auth/me
+// check carries it and the user stays logged in across app launches.
+let _bearerToken: string | null = (() => {
+  try {
+    return isNativeRuntime() ? localStorage.getItem(BEARER_STORAGE_KEY) : null;
+  } catch {
+    return null;
+  }
+})();
 
 export function setBearerToken(token: string | null): void {
   _bearerToken = token;
+  try {
+    if (isNativeRuntime()) {
+      if (token) localStorage.setItem(BEARER_STORAGE_KEY, token);
+      else localStorage.removeItem(BEARER_STORAGE_KEY);
+    }
+  } catch {
+    // storage unavailable — in-memory token still works for this session
+  }
 }
 
 export function getBearerToken(): string | null {
