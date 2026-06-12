@@ -2,6 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
 
+// OpenRouter uses Anthropic's SDK but with a different base URL and key.
+const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+
 export interface CallLLMOptions {
   model?: string;
   maxTokens?: number;
@@ -14,11 +17,25 @@ let _client: Anthropic | null = null;
 
 function llmClient(): Anthropic {
   if (_client) return _client;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error('No LLM API key configured. Set ANTHROPIC_API_KEY in server/.env');
+
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  const anthropicKey  = process.env.ANTHROPIC_API_KEY;
+
+  if (openrouterKey) {
+    _client = new Anthropic({
+      apiKey:  openrouterKey,
+      baseURL: OPENROUTER_BASE,
+      defaultHeaders: {
+        'HTTP-Referer': process.env.FRONTEND_URL || 'https://dietplan.app',
+        'X-Title': 'Diet Plan & Tracker',
+      },
+    });
+  } else if (anthropicKey) {
+    _client = new Anthropic({ apiKey: anthropicKey });
+  } else {
+    throw new Error('No LLM API key configured. Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY.');
   }
-  _client = new Anthropic({ apiKey });
+
   return _client;
 }
 
