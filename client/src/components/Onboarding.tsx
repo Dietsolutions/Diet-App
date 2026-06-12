@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
-import { apiUrl } from '../lib/api';
+import { apiUrl, getBearerToken } from '../lib/api';
 import { OnboardingData } from '../types';
 import { COUNTRIES, COUNTRY_CODES, ALLERGENS, ALLERGEN_ICONS, INGREDIENT_CATEGORIES, INGREDIENT_ICONS, CUISINE_OPTIONS, CUISINE_REGIONS, KITCHEN_EQUIPMENT, EQUIPMENT_ICONS, HEALTH_CONDITIONS } from '../data/onboarding';
 import { s2 } from '../theme/tokens';
@@ -226,6 +226,9 @@ export function Onboarding({ onComplete, userName }: Props) {
         xhr.open('POST', apiUrl('/api/ai/generate-meal-plan'));
         xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.withCredentials = true;
+        // Native (Capacitor) has no cross-origin auth cookie — attach the Bearer
+        // token like the axios interceptor does, or this request is unauthenticated (401).
+        { const _bt = getBearerToken(); if (_bt) xhr.setRequestHeader('Authorization', `Bearer ${_bt}`); }
         xhr.timeout = 300000; // 5 min — matches Vercel maxDuration; 180s was too short for worst-case CN pipeline
         let processed = 0;
         let settled = false;
