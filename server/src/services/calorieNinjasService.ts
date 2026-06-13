@@ -45,6 +45,7 @@ export async function getMealMacrosFromCalorieNinjas(
   }
 
   const query = ingredients.join(', ');
+  const _cnT0 = Date.now();   // [CN-DIAG] timing — must be outside try so catch can read it
 
   try {
     const url   = `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(query)}`;
@@ -64,7 +65,7 @@ export async function getMealMacrosFromCalorieNinjas(
 
     if (!response.ok) {
       const text = await response.text();
-      console.warn(`[CalorieNinjas] ${response.status} for "${mealName}":`, text);
+      console.warn(`[CN-DIAG] "${mealName}" HTTP ${response.status} in ${Date.now() - _cnT0}ms: ${text.slice(0, 80)}`);
       return {
         success:    false,
         macros:     zeroed(),
@@ -109,7 +110,7 @@ export async function getMealMacrosFromCalorieNinjas(
     };
 
     console.log(
-      `[CalorieNinjas] "${mealName}": ${macros.calories}kcal ` +
+      `[CN-DIAG] "${mealName}" OK in ${Date.now() - _cnT0}ms: ${macros.calories}kcal ` +
       `P:${macros.proteinG}g C:${macros.carbsG}g F:${macros.fatG}g`
     );
     return {
@@ -121,7 +122,7 @@ export async function getMealMacrosFromCalorieNinjas(
     };
 
   } catch (err: any) {
-    console.warn(`[CalorieNinjas] Failed for "${mealName}":`, err.message);
+    console.warn(`[CN-DIAG] "${mealName}" FAILED after ${Date.now() - _cnT0}ms — name=${err?.name} code=${err?.code ?? err?.cause?.code ?? ''} msg=${err?.message}`);
     return {
       success:      false,
       macros:       zeroed(),
