@@ -267,7 +267,14 @@ function sanitizeOAuthRedirect(redirect: string): string {
 }
 
 function issueToken(userId: string): string {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '15m' });
+  // 7 days, not 15m. The client has no auto-refresh, and the native build can't
+  // use the refresh-token cookie at all (cross-origin WebView), so a 15-minute
+  // access token meant any idle gap (e.g. pausing on the plan-confirm screen)
+  // logged the user out with "Token expired". 7d matches the refresh-token
+  // lifetime and covers normal multi-hour/day usage. See DECISIONS — the more
+  // secure long-term fix is wiring real auto-refresh (return the refresh token
+  // to native, retry on 401), but this removes the broken-session UX now.
+  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
 }
 
 async function issueTokenPair(userId: string): Promise<{ accessToken: string; refreshToken: string }> {
