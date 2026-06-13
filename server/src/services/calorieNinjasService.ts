@@ -55,12 +55,11 @@ export async function getMealMacrosFromCalorieNinjas(
         'X-Api-Key':     apiKey,
         'Content-Type':  'application/json',
       },
-      // 12s, not 5s: CN answers in ~1-2s from a normal host, but the Vercel→CN
-      // serverless path is slower/flakier and the 5s ceiling was aborting most
-      // calls (logged as null/timeout → meals fell back to Claude estimates).
-      // The plan-level slot fast-track still caps repeated failures, so total
-      // generation time stays well under the 300s function limit.
-      signal: AbortSignal.timeout(12000),
+      // 5s: the Vercel->CN serverless path is unreliable regardless (calls hang
+      // past even 12s for ~half of requests — likely CN throttling datacenter IPs).
+      // Raising the timeout did not improve coverage, so keep it short so failures
+      // fast-track quickly. The real fix is a paid CN tier or a different source.
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!response.ok) {
