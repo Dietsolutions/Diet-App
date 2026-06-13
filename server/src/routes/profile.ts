@@ -101,8 +101,12 @@ router.post('/', requireAuth, perUserLimiter({ windowMs: 60_000, max: 30, keyPre
       }
     }
 
-    // Calculate nutrition targets — pass all extended fields for accurate computation
-    const targets = calculateTDEE({
+    // Calculate nutrition targets — pass all extended fields for accurate computation.
+    // Strip `breakdown` (the TDEE audit object) off the result: it is NOT a
+    // UserProfile column, and `...targets` is spread into prisma.userProfile
+    // below — leaving it in causes "Unknown argument `breakdown`". The breakdown
+    // is only persisted on plan generation (ai.ts), not on profile save.
+    const { breakdown: _tdeeBreakdown, ...targets } = calculateTDEE({
       weightKg:               data.weightKg,
       heightCm:               data.heightCm,
       age:                    data.age,
