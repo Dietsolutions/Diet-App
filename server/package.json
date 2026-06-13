@@ -15,6 +15,7 @@
     "seed:kaggle": "tsx src/scripts/seedKaggleIndianFoods.ts",
     "query:validation": "tsx src/scripts/queryValidationData.ts",
     "query:attempts": "tsx src/scripts/queryAttemptDetail.ts",
+    "query:tdee": "tsx src/scripts/queryTdeeHistory.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

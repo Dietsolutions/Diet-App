@@ -644,4 +644,60 @@ model MacroValidationLog {
   @@map("macro_validation_logs")
 }
 
+// One row per TDEE calculation — full input snapshot + step-by-step derivation,
+// so a user's calorie/macro targets can be traced over time as their profile
+// changes. Written fire-and-forget on plan generation. No FK relation by design
+// (keeps writes cheap and decoupled from User cascade).
+model TdeeCalculationLog {
+  id         String   @id @default(cuid())
+  userId     String
+  mealPlanId String?  // null if calculated outside plan generation
+  createdAt  DateTime @default(now())
+
+  // ── Input snapshot (the user's profile at calc time) ──
+  age                 Int?
+  sex                 String?
+  heightCm            Float?
+  weightKg            Float?
+  bodyFatPct          Float?
+  activityLevel       String?
+  trainingType        String?
+  trainingDaysPerWeek Int?
+  dailySteps          Int?
+  occupationType      String?
+  insulinSensitivity  String?
+  goal                String?
+  dietIntensity       String?
+
+  // ── Step-by-step derivation ──
+  bmrFormula         String?
+  bmrValue           Float?
+  activityMultiplier Float?
+  tdeeBeforeAdjust   Float?
+  neatAdjustment     Float?
+  goalAdjustment     Float?
+  tdeeAfterAdjust    Float?
+  safetyFloorApplied Boolean @default(false)
+  safetyFloorType    String?
+
+  // ── Final outputs ──
+  finalCalories Float?
+  finalProteinG Float?
+  finalCarbsG   Float?
+  finalFatG     Float?
+  finalFibreG   Float?
+
+  // Macro hierarchy decisions
+  proteinBasis String?
+  fatBasis     String?
+  carbsBasis   String?
+
+  // Full derivation object for anything not in columns
+  breakdownJson String?
+
+  @@index([userId, createdAt])
+  @@index([mealPlanId])
+  @@map("tdee_calculation_logs")
+}
+
 

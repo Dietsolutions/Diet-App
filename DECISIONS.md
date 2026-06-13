@@ -900,3 +900,85 @@ Test user and synthetic plan deleted afterwards; library state: 133 recipes, 0 l
 | `client/src/App.tsx` | Lazy import + render branch |
 
 Reminder: run `cap sync` before the next mobile build so the WebView picks up the new tab.
+
+## 19. Proportional macro split guard + TDEE calculation audit trail (2026-06-13)
+
+Two parts from a combined brief: (A) the per-meal macro split, (B) a step-by-step
+TDEE audit log.
+
+### Part A — proportional macro split (already correct; guard added)
+
+The brief described a bug where `getMealMacroTargets` split protein/carbs/fat by
+`/ mealsPerDay` (equal split) while calories used `* weight`. **In this repo that
+was already fixed** (during the §15 multi-macro work) — all four macros already use
+`* weight`:
+
+```typescript
+calories: Math.round(dailyTargets.calories * weight),
+proteinG: Math.round(dailyTargets.proteinG * weight * 10) / 10,
+carbsG:   Math.round(dailyTargets.carbsG   * weight * 10) / 10,
+fatG:     Math.round(dailyTargets.fatG     * weight * 10) / 10,
+fibreG:   Math.round(dailyTargets.fibreG   * weight * 10) / 10,
+```
+
+So no code change was made to `getMealMacroTargets` (kept the existing robust
+version, which also has a `?? MEAL_WEIGHT_DISTRIBUTIONS[4]` fallback the brief's
+template dropped). Added `server/src/scripts/testMacroSplit.ts` as a regression
+guard. Output (2850 kcal, 4 meals):
+
+```
+breakfast  cal=713 | P28 C114.8 F16.8 | macro-kcal=722 | drift=1% OK
+lunch      cal=997 | P39.2 C160.6 F23.5 | macro-kcal=1011 | drift=1% OK
+snack      cal=285 | P11.2 C45.9 F6.7 | macro-kcal=289 | drift=1% OK
+dinner     cal=855 | P33.6 C137.7 F20.1 | macro-kcal=866 | drift=1% OK
+Snack carbs = 45.9g (expected ~46g, NOT 114.75g): PASS
+All slots internally consistent: PASS
+```
+
+The snack carbs land at 45.9g (proportional), not 114.75g (equal-split) — confirming
+the split is correct.
+
+### Part B — TDEE calculation audit log
+
+New `TdeeCalculationLog` model (`tdee_calculation_logs` table), one row per
+calculation, capturing the full input snapshot + each derivation step. `calculateTDEE`
+in `utils/tdee.ts` was instrumented to emit a `TdeeBreakdown` alongside the existing
+`NutritionTargets` — **capture only, the math is unchanged.**
+
+Variable → breakdown-field mapping (real code names differ from the brief's template):
+
+| breakdown field | actual source in `calculateTDEE` |
+|---|---|
+| `bmrValue` | `bmr` (Mifflin-St Jeor, line ~80) |
+| `activityMultiplier` | `multiplier` = `ACTIVITY_MULTIPLIERS[activityLevel]` |
+| `tdeeBeforeAdjust` | `bmr * multiplier` (raw, before age/health) |
+| `goalAdjustment` | `targetCalories - roundedTDEE` after the goal step (deficit/surplus/bonus) |
+| `neatAdjustment` | `tdeeAfterAdjust - _goalTargetCalories` (steps + occupation + training-type + training-volume kcal) |
+| `tdeeAfterAdjust` | `targetCalories` just before the safety-floor re-apply |
+| `safetyFloorApplied`/`Type` | gender `SAFETY_FLOOR` raise → `calorie_<n>`; else fat-30g floor → `fat_30g`; else null |
+| `proteinBasis` | `${proteinPerKgByGoal[goal]}g_per_kg` |
+| `fatBasis` | `${fatMultiplierByGoal[goal]}g_per_kg`, or `30g_floor` when the fat floor fires |
+| `carbsBasis` | `'remainder'` |
+| `ageSlowdownApplied`, `healthAdjustments` | captured into `breakdownJson` |
+
+The breakdown is persisted fire-and-forget in `ai.ts` right after `mealPlan.create`
+(off the critical path; a logging failure never breaks generation). Migration applied
+to production via idempotent `CREATE TABLE IF NOT EXISTS` (prod's Prisma migration
+history is not fully in sync — the Recipe table was applied outside it — so a direct
+additive DDL is safer than `migrate deploy`).
+
+Query script `queryTdeeHistory.ts` (`npm run query:tdee -- <userId>`) traces a user's
+calculations over time with a movement summary.
+
+### Files
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | none (split already proportional — verified, not changed) |
+| `server/src/scripts/testMacroSplit.ts` | new — macro-split regression guard |
+| `server/src/prisma/schema.prisma` | added `TdeeCalculationLog` model |
+| `server/src/prisma/migrations/20260613000000_add_tdee_calculation_log/migration.sql` | new — idempotent CREATE TABLE |
+| `server/src/utils/tdee.ts` | added `TdeeBreakdown`, instrumented `calculateTDEE` (capture only) |
+| `server/src/routes/ai.ts` | persist TDEE breakdown after `mealPlan.create` |
+| `server/src/scripts/queryTdeeHistory.ts` | new — TDEE history/trace query |
+| `server/package.json` | added `query:tdee` script |

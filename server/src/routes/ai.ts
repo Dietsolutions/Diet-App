@@ -1404,6 +1404,49 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       }
     });
 
+    // ── Persist the TDEE derivation for this generation (fire-and-forget) ─────
+    // Off the critical path: a logging failure must never break generation.
+    {
+      const b = freshTargets.breakdown;
+      prisma.tdeeCalculationLog.create({
+        data: {
+          userId,
+          mealPlanId:          mealPlan.id,
+          age:                 b.inputs.age ?? null,
+          sex:                 b.inputs.sex ?? null,
+          heightCm:            b.inputs.heightCm ?? null,
+          weightKg:            b.inputs.weightKg ?? null,
+          bodyFatPct:          b.inputs.bodyFatPct ?? null,
+          activityLevel:       b.inputs.activityLevel ?? null,
+          trainingType:        b.inputs.trainingType ?? null,
+          trainingDaysPerWeek: b.inputs.trainingDaysPerWeek ?? null,
+          dailySteps:          b.inputs.dailySteps ?? null,
+          occupationType:      b.inputs.occupationType ?? null,
+          insulinSensitivity:  b.inputs.insulinSensitivity ?? null,
+          goal:                b.inputs.goal ?? null,
+          dietIntensity:       b.inputs.dietIntensity ?? null,
+          bmrFormula:          b.bmrFormula,
+          bmrValue:            b.bmrValue,
+          activityMultiplier:  b.activityMultiplier,
+          tdeeBeforeAdjust:    b.tdeeBeforeAdjust,
+          neatAdjustment:      b.neatAdjustment,
+          goalAdjustment:      b.goalAdjustment,
+          tdeeAfterAdjust:     b.tdeeAfterAdjust,
+          safetyFloorApplied:  b.safetyFloorApplied,
+          safetyFloorType:     b.safetyFloorType,
+          finalCalories:       b.finalCalories,
+          finalProteinG:       b.finalProteinG,
+          finalCarbsG:         b.finalCarbsG,
+          finalFatG:           b.finalFatG,
+          finalFibreG:         b.finalFibreG,
+          proteinBasis:        b.proteinBasis,
+          fatBasis:            b.fatBasis,
+          carbsBasis:          b.carbsBasis,
+          breakdownJson:       JSON.stringify(b),
+        },
+      }).catch((err: any) => console.error('[TdeeLog] Failed:', err.message));
+    }
+
     if (pendingLogEntries && pendingLogEntries.length > 0) {
       const logTimeout = new Promise<void>(resolve => setTimeout(resolve, 8000));
       await Promise.race([

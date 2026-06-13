@@ -23,6 +23,38 @@ export interface TDEEInput {
   insulinSensitivity?:     string | null;  // 'good' | 'average' | 'poor'
 }
 
+// Full derivation snapshot, captured during calculateTDEE for the audit log.
+// Capture only — the math below is unchanged.
+export interface TdeeBreakdown {
+  inputs: {
+    age?: number; sex?: string; heightCm?: number; weightKg?: number;
+    bodyFatPct?: number | null; activityLevel?: string; trainingType?: string | null;
+    trainingDaysPerWeek?: number | null; dailySteps?: number | null;
+    occupationType?: string | null; insulinSensitivity?: string | null;
+    goal?: string; dietIntensity?: string | null;
+  };
+  bmrFormula: string;
+  bmrValue: number;
+  activityMultiplier: number;
+  tdeeBeforeAdjust: number;    // BMR × activity (raw, pre age/health/goal)
+  neatAdjustment: number;      // steps + occupation + training kcal adjustments
+  goalAdjustment: number;      // deficit/surplus/bonus from the goal
+  tdeeAfterAdjust: number;     // targetCalories after all adjustments, pre-floor
+  safetyFloorApplied: boolean;
+  safetyFloorType: string | null;   // 'calorie_<n>' | 'fat_30g' | null
+  finalCalories: number;
+  finalProteinG: number;
+  finalCarbsG: number;
+  finalFatG: number;
+  finalFibreG: number;
+  proteinBasis: string;        // e.g. '2.2g_per_kg'
+  fatBasis: string;            // e.g. '0.8g_per_kg' | '30g_floor'
+  carbsBasis: string;          // 'remainder'
+  // anything not captured in columns
+  ageSlowdownApplied?: boolean;
+  healthAdjustments?: string[];
+}
+
 export interface NutritionTargets {
   tdee:           number;
   targetCalories: number;
@@ -30,6 +62,7 @@ export interface NutritionTargets {
   fatTarget:      number;
   carbTarget:     number;
   fibreTarget:    number;
+  breakdown:      TdeeBreakdown;   // full step-by-step derivation for the audit log
 }
 
 const ACTIVITY_MULTIPLIERS: Record<string, number> = {
@@ -75,6 +108,21 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
   } = input;
   const gender = input.gender.toLowerCase();
 
+  // ── Audit capture (does not affect the math below) ────────────────────────
+  const _healthAdj: string[] = [];
+  const _bd: Partial<TdeeBreakdown> = {
+    inputs: {
+      age, sex: input.gender, heightCm, weightKg, bodyFatPct: null,
+      activityLevel, trainingType: input.trainingType ?? null,
+      trainingDaysPerWeek: input.trainingDaysPerWeek ?? null,
+      dailySteps: input.dailySteps ?? null,
+      occupationType: input.occupationType ?? null,
+      insulinSensitivity: input.insulinSensitivity ?? null,
+      goal: primaryGoal, dietIntensity: dietIntensity ?? null,
+    },
+    bmrFormula: 'mifflin_st_jeor',
+  };
+
   // ── Step 1: BMR via Mifflin-St Jeor ────────────────────────────────────────
   let bmr: number;
   if (gender === 'female') {
@@ -88,9 +136,13 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
     bmr = (m + f) / 2;
   }
 
+  _bd.bmrValue = Math.round(bmr);
+
   // ── Step 2: Activity multiplier → TDEE ────────────────────────────────────
   const multiplier = ACTIVITY_MULTIPLIERS[activityLevel] ?? 1.375;
   let tdee = bmr * multiplier;
+  _bd.activityMultiplier = multiplier;
+  _bd.tdeeBeforeAdjust = Math.round(bmr * multiplier);
 
   // ── Step 3: Age-based metabolic slowdown (beyond Mifflin baseline) ────────
   // After 35, add ~1% per decade reduction on top of the formula
@@ -98,6 +150,7 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
     const decadesOver35 = Math.floor((age - 35) / 10);
     const slowdown = 1 - (decadesOver35 * 0.01);
     tdee = tdee * slowdown;
+    _bd.ageSlowdownApplied = decadesOver35 > 0;
   }
 
   // ── Step 4: Health-condition TDEE adjustments ─────────────────────────────
@@ -107,6 +160,7 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
       const adj = HEALTH_ADJUSTMENTS[key];
       if (adj) {
         tdee = tdee * (1 + adj);
+        _healthAdj.push(`${key}:${adj}`);
       }
     }
   }
@@ -133,6 +187,10 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
     targetCalories = Math.round(tdee + bonus);
   }
 
+  // Capture goal calorie delta (vs the activity-adjusted TDEE) for the audit log
+  _bd.goalAdjustment = targetCalories - roundedTDEE;
+  const _goalTargetCalories = targetCalories;   // baseline before NEAT/occ/training
+
   // ── Step 6 (A): Protein — protein-first, goal-specific g/kg ─────────────
   // Reference weight = targetWeightKg if set (protein sized for the goal body).
   const referenceWeightKg = (targetWeightKg && targetWeightKg > 20)
@@ -151,6 +209,7 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
   let proteinTarget = Math.round(
     referenceWeightKg * (proteinPerKgByGoal[primaryGoal] ?? 1.8)
   );
+  _bd.proteinBasis = `${proteinPerKgByGoal[primaryGoal] ?? 1.8}g_per_kg`;
 
   // ── Step 7 (B): Fat — goal-specific g/kg, supports hormonal function ─────
   // Not a % of calories — sized to body weight for predictability.
@@ -165,6 +224,8 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
   let fatTarget = Math.round(
     weightKg * (fatMultiplierByGoal[primaryGoal] ?? 0.8)
   );
+  _bd.fatBasis = `${fatMultiplierByGoal[primaryGoal] ?? 0.8}g_per_kg`;
+  _bd.carbsBasis = 'remainder';
 
   // ── Step 8 (C): Carbs — fill remaining calories, min 50g ─────────────────
   let proteinCalories = proteinTarget * 4;
@@ -255,22 +316,43 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
   // with this cuisine style.  Applied AFTER all per-input adjustments so no
   // single pathway can push fat below this level.
   const FAT_FLOOR_GRAMS = 30;
+  let _fatFloorApplied = false;
   if (fatTarget < FAT_FLOOR_GRAMS) {
+    _fatFloorApplied = true;
     const preFatTarget  = fatTarget;
     fatTarget           = FAT_FLOOR_GRAMS;
+    _bd.fatBasis = '30g_floor';
     // Offset the extra fat calories by reducing carbs (keeps total kcal stable)
     const fatKcalAdded  = (FAT_FLOOR_GRAMS - preFatTarget) * 9;
     carbTarget          = Math.max(50, carbTarget - Math.round(fatKcalAdded / 4));
     // fat floor adjustment applied silently
   }
 
+  // Capture pre-floor totals for the audit log
+  _bd.tdeeAfterAdjust = Math.round(targetCalories);
+  _bd.neatAdjustment = Math.round(targetCalories - _goalTargetCalories);
+
   // ── Re-apply safety floor + round to nearest 25 after all adjustments ────
   const adjustedFloor = SAFETY_FLOOR[gender] ?? 1200;
+  const _calorieFloorApplied = targetCalories < adjustedFloor;
   targetCalories = Math.max(adjustedFloor, targetCalories);
   targetCalories = Math.round(targetCalories / 25) * 25;
+  // Priority: a calorie floor is the headline; otherwise note the fat floor.
+  _bd.safetyFloorApplied = _calorieFloorApplied || _fatFloorApplied;
+  _bd.safetyFloorType = _calorieFloorApplied ? `calorie_${adjustedFloor}`
+                       : _fatFloorApplied ? 'fat_30g' : null;
 
   // ── Step 9: Fibre — gender-appropriate (WHO/ICMR) ─────────────────────────
   const fibreTarget = gender === 'male' ? 30 : 25;
+
+  // ── Finalise the audit breakdown ──────────────────────────────────────────
+  _bd.finalCalories = targetCalories;
+  _bd.finalProteinG = proteinTarget;
+  _bd.finalCarbsG   = carbTarget;
+  _bd.finalFatG     = fatTarget;
+  _bd.finalFibreG   = fibreTarget;
+  _bd.healthAdjustments = _healthAdj;
+  const breakdown = _bd as TdeeBreakdown;
 
   return {
     tdee:           roundedTDEE,
@@ -279,6 +361,7 @@ export function calculateTDEE(input: TDEEInput): NutritionTargets {
     fatTarget,
     carbTarget,
     fibreTarget,
+    breakdown,
   };
 }
 
