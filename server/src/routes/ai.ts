@@ -1016,7 +1016,12 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
 
   const planDuration: number = (profile as any).planDuration === 14 ? 14 : 7;
   const systemPrompt = planDuration === 14 ? SYSTEM_PROMPT_14 : SYSTEM_PROMPT_7;
-  const maxTokens = planDuration === 14 ? 12000 : 8000;
+  // A full plan is larger than it looks: a 7-day plan needs ~8.5k output tokens
+  // (28 meals + shopping list + prep guide), a 14-day plan ~17k. The old
+  // 8000/12000 caps truncated the JSON mid-document → "AI returned malformed
+  // data". These ceilings give headroom so the model finishes (stop_reason
+  // end_turn) and the JSON parses. Within Claude Haiku's output limit.
+  const maxTokens = planDuration === 14 ? 32000 : 16000;
 
   // Set up SSE
   res.setHeader('Content-Type', 'text/event-stream');
