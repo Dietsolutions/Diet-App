@@ -3,6 +3,35 @@
 // Free tier: 100 calls/day
 // Endpoint: GET https://api.calorieninjas.com/v1/nutrition?query=<ingredients>
 
+import https from 'node:https';
+
+// Dedicated HTTPS agent for CalorieNinjas, isolated from Node's global `fetch`
+// (undici) connection pool. The diagnosis: when CN runs via global `fetch` in the
+// same serverless instance as the Anthropic SDK's big generation call, ~half the
+// CN calls hang to the timeout — CN is 15/15 in a fresh function but ~11-15/28
+// after the AI call. The shared undici pool is the prime suspect. Using node:https
+// with keepAlive:false puts CN on its own fresh socket per request, off the undici
+// path entirely, so the AI call can't poison it.
+const cnAgent = new https.Agent({ keepAlive: false, maxSockets: 8 });
+
+interface CNHttpResponse { statusCode: number; body: string; }
+
+// GET JSON over node:https on the dedicated agent. Rejects on network error or timeout.
+function cnHttpsGet(url: string, headers: Record<string, string>, timeoutMs: number): Promise<CNHttpResponse> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, { method: 'GET', headers, agent: cnAgent }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(Object.assign(new Error(`CN request timed out after ${timeoutMs}ms`), { name: 'TimeoutError' }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 export interface CNMacros {
   calories: number;
   proteinG: number;
@@ -59,26 +88,25 @@ export async function getMealMacrosFromCalorieNinjas(
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const t0 = Date.now();
     try {
-      const response = await fetch(url, {
-        method:  'GET',
-        headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' },
-        signal:  AbortSignal.timeout(6000),
-      });
+      const response = await cnHttpsGet(
+        url,
+        { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' },
+        6000,
+      );
 
-      if (!response.ok) {
-        const text = await response.text();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
         // 5xx is transient — retry; 4xx (bad query/key) won't improve — give up.
-        if (response.status >= 500 && attempt < MAX_ATTEMPTS) {
+        if (response.statusCode >= 500 && attempt < MAX_ATTEMPTS) {
           await new Promise(r => setTimeout(r, 200 * attempt));
           continue;
         }
-        console.warn(`[CalorieNinjas] HTTP ${response.status} for "${mealName}": ${text.slice(0, 80)}`);
-        return { success: false, macros: zeroed(), error: `CalorieNinjas ${response.status}`, queryString: query, statusCode: response.status };
+        console.warn(`[CalorieNinjas] HTTP ${response.statusCode} for "${mealName}": ${response.body.slice(0, 80)}`);
+        return { success: false, macros: zeroed(), error: `CalorieNinjas ${response.statusCode}`, queryString: query, statusCode: response.statusCode };
       }
 
-      const data = await response.json() as any;
+      const data = JSON.parse(response.body) as any;
       if (!data.items || data.items.length === 0) {
-        return { success: false, macros: zeroed(), error: 'No items returned', queryString: query, statusCode: response.status, itemsMatched: 0 };
+        return { success: false, macros: zeroed(), error: 'No items returned', queryString: query, statusCode: response.statusCode, itemsMatched: 0 };
       }
 
       const totals = data.items.reduce(
@@ -99,7 +127,7 @@ export async function getMealMacrosFromCalorieNinjas(
         fibreG:   Math.round(totals.fibreG   * 10) / 10,
       };
       if (attempt > 1) console.log(`[CalorieNinjas] "${mealName}" recovered on attempt ${attempt}`);
-      return { success: true, macros, queryString: query, statusCode: response.status, itemsMatched: data.items.length };
+      return { success: true, macros, queryString: query, statusCode: response.statusCode, itemsMatched: data.items.length };
 
     } catch (err: any) {
       lastError = err?.message ?? 'fetch failed';
