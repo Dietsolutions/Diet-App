@@ -982,3 +982,77 @@ calculations over time with a movement summary.
 | `server/src/routes/ai.ts` | persist TDEE breakdown after `mealPlan.create` |
 | `server/src/scripts/queryTdeeHistory.ts` | new — TDEE history/trace query |
 | `server/package.json` | added `query:tdee` script |
+
+## 20. Two-phase meal-plan generation — CN validation in a clean invocation (2026-06-14)
+
+### The problem
+
+During plan generation, CalorieNinjas (CN) macro checks failed ~60% of the time
+(8–11 of 28 meals), so most meals fell back to Claude's macro estimates instead of
+being validated and scaled. CN was healthy in isolation (15/15 from inside Vercel,
+~200ms), so this was not the API, key, quota, region, or rate limit.
+
+### What it was NOT (ruled out by measurement, not theory)
+
+- **Not the CN API / network.** A fresh serverless invocation doing only CN calls
+  scored 28/28, ~365ms each, zero errors.
+- **Not a timeout tuning issue.** 5s, 6s, 12s all gave ~8–15/28.
+- **Not the connection pool.** Moving CN off Node's global `fetch` (undici) onto a
+  dedicated `node:https` agent with `keepAlive:false` (fresh socket per request) still
+  gave 11/28 — so it isn't undici pool corruption.
+- **Not interleaving with corrections.** Pre-batching all initial CN checks in a tight
+  burst (a prefetch) still gave 11/28 — so it isn't the per-meal interleaving either.
+
+### The actual cause
+
+The degradation is **caller-side and invocation-wide**: once a serverless invocation
+has made the big Anthropic generation call (holding/processing a ~16–32k-token
+response), *any* outbound HTTPS it makes afterward — any host, any connection
+mechanism — stalls to the timeout ~half the time. Almost certainly event-loop / memory
+pressure while that large response is resident. Proof: the **same plan's** CN checks
+scored **11/28 inside the generation invocation but 28/28 when run as a separate
+request** (even reusing the warm instance — a fresh invocation frees the memory and is
+clean again).
+
+### The fix — split generation from validation
+
+- **Phase 1** `POST /ai/generate-meal-plan`: generate via Anthropic, save the **raw**
+  plan (with sensible day totals computed from Claude's macros), return immediately with
+  `needsValidation: true` + `mealPlanId`. No inline CN validation.
+- **Phase 2** `POST /ai/validate-plan` (new SSE endpoint): the client calls this right
+  after generation. Because it's a **separate invocation** (clean caller), it loads the
+  saved plan and runs the full CN macro-validation + correction + scaling pipeline, then
+  updates the day rows, `cnChecks`/`cnCorrections`, validation logs, and recipe ingestion.
+- **Client** (`Onboarding.tsx`, `ProfileTab.tsx`): after generation, automatically call
+  phase 2 showing "Validating meal macros…" before the review screen. Shared
+  `streamSSE()` helper in `lib/api.ts` (XHR-based so native Capacitor carries the Bearer
+  token). Validation is **non-fatal** — a failure leaves the plan usable with Claude's
+  estimates.
+
+The `runMacroValidation()` and `persistValidationLogs()` logic was extracted verbatim
+from the generation handler into module-level functions so both never diverge.
+
+### Result
+
+CN genuine-validation went **11/28 → 23/28** on a live 7-day generation (2× more meals
+validated + scaled to target; 15 `accepted_after_scaling`). It is 23 rather than the
+isolated 28 because phase 2 itself makes Anthropic correction calls, and the first one
+re-poisons the phase-2 invocation, degrading the post-correction rechecks. The remaining
+~5 fall back to Claude estimates exactly as before.
+
+**Future optimisation (not done):** a two-pass phase-2 — run all 28 initial CN checks
+first as a clean burst, *then* do corrections — would keep the initial reads at ~28/28
+and limit degradation to the smaller set of post-correction rechecks, likely pushing
+genuine validation toward 28/28. Deferred: the current flat per-meal loop is carefully
+tuned (fast-track, slot failures, day budget) and restructuring it carries regression
+risk that 23/28-with-fallback doesn't justify yet.
+
+### Files
+
+| File | Change |
+|---|---|
+| `server/src/routes/ai.ts` | split generate/validate; extracted `runMacroValidation` + `persistValidationLogs`; new `/validate-plan` SSE endpoint; phase 1 returns `needsValidation` |
+| `server/src/services/calorieNinjasService.ts` | CN on a dedicated `node:https` agent (kept — harmless, slightly more isolated) + 2-attempt retry |
+| `client/src/lib/api.ts` | new `streamSSE()` helper (shared XHR-SSE POST with Bearer) |
+| `client/src/components/Onboarding.tsx` | call `/validate-plan` after generation |
+| `client/src/components/ProfileTab.tsx` | call `/validate-plan` after regeneration |
