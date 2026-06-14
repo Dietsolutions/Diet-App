@@ -1664,32 +1664,4 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
   }
 });
 
-// TEMP diagnostic: run N CalorieNinjas calls from inside the Vercel function and
-// return per-call timing + outcome. Reveals whether failures are latency, hangs,
-// or connection errors — directly, without log-tailing. Remove after diagnosis.
-router.get('/_cndiag', async (req: AuthRequest, res: Response): Promise<void> => {
-  if (req.query.k !== 'cndiag2026') { res.status(403).json({ error: 'forbidden' }); return; }
-  const n = Math.min(20, Math.max(1, parseInt(String(req.query.n ?? '15'), 10) || 15));
-  // gapMs simulates spacing between CN calls in a real generation (seconds apart,
-  // interspersed with LLM corrections) vs a tight loop (50ms). Tests the stale
-  // keep-alive hypothesis: an idle connection dies → next reuse hangs to timeout.
-  const gapMs = Math.min(20000, Math.max(0, parseInt(String(req.query.gapMs ?? '50'), 10) || 50));
-  const results: any[] = [];
-  for (let i = 0; i < n; i++) {
-    const t0 = Date.now();
-    const r = await getMealMacrosFromCalorieNinjas('diag', ['100g paneer, 50g onion, 30g tomato, 5g oil, 80g spinach']);
-    results.push({ i, ms: Date.now() - t0, success: r.success, status: r.statusCode ?? null, error: r.error ?? null });
-    await new Promise(rs => setTimeout(rs, gapMs));
-  }
-  const oks = results.filter(r => r.success);
-  res.json({
-    cnEnabled: CN_ENABLED,
-    ok: oks.length, total: n,
-    okMs: oks.map(r => r.ms),
-    failMs: results.filter(r => !r.success).map(r => r.ms),
-    sampleErrors: [...new Set(results.filter(r => !r.success).map(r => `status=${r.status} err=${r.error}`))].slice(0, 5),
-    results,
-  });
-});
-
 export default router;
