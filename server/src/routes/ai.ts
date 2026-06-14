@@ -966,221 +966,36 @@ CRITICAL RULES FOR MACRO DISTRIBUTION:
 }
 
 // POST /api/ai/generate-meal-plan (SSE streaming)
-router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
-  const userId = req.userId!;
-
-  if (!checkRateLimit(userId)) {
-    res.status(429).json({ error: 'Rate limit exceeded. Maximum 3 meal plan generations per day.' });
-    return;
-  }
-
-  // Reject concurrent duplicates BEFORE the monthly counter increments, so a
-  // double-fire doesn't burn the user's quota. Cleanup is on response close,
-  // which fires on success, error, and client abort alike.
-  if (activeGenerations.has(userId)) {
-    res.status(409).json({
-      error:   'generation_in_progress',
-      message: 'A meal plan generation is already running for your account. Please wait for it to finish.',
-    });
-    return;
-  }
-  activeGenerations.add(userId);
-  res.once('close', () => activeGenerations.delete(userId));
-
-  // Monthly limit: only applies to regeneration by users who have completed onboarding.
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { onboardingDone: true } });
-  if (user?.onboardingDone) {
-    const check = await checkAndIncrementGenerationLimit(userId);
-    if (!check.allowed) {
-      res.status(429).json({
-        error:    'monthly_limit_reached',
-        message:  `You've used ${check.used} of ${check.limit} plan regenerations this month.`,
-        resetsOn: check.resetsOn,
-        used:     check.used,
-        limit:    check.limit,
-      });
-      return;
-    }
-  }
-
-  if (!process.env.ANTHROPIC_API_KEY) {
-    res.status(500).json({ error: 'No LLM provider configured. Set ANTHROPIC_API_KEY in server/.env' });
-    return;
-  }
-
-  const profile = await prisma.userProfile.findUnique({ where: { userId } });
-  if (!profile) {
-    res.status(400).json({ error: 'User profile not found. Complete onboarding first.' });
-    return;
-  }
-
-  const planDuration: number = (profile as any).planDuration === 14 ? 14 : 7;
-  const systemPrompt = planDuration === 14 ? SYSTEM_PROMPT_14 : SYSTEM_PROMPT_7;
-  // A full plan is larger than it looks: a 7-day plan needs ~8.5k output tokens
-  // (28 meals + shopping list + prep guide), a 14-day plan ~17k. The old
-  // 8000/12000 caps truncated the JSON mid-document → "AI returned malformed
-  // data". These ceilings give headroom so the model finishes (stop_reason
-  // end_turn) and the JSON parses. Within Claude Haiku's output limit.
-  const maxTokens = planDuration === 14 ? 32000 : 16000;
-
-  // Set up SSE
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  const sendEvent = (event: string, data: any) => {
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+type PendingLogEntry = {
+  dayIdx:   number;
+  mealIdx:  number;
+  origMeal: any;
+  logData:  MealLogData;
+  dayBudgetResult?: DayBudgetAnnotation;
+  dayLevelExtra?: {
+    wasDayLevelReplacement:    boolean;
+    dayTotalBeforeReplacement: number;
+    dayTotalAfterReplacement:  number;
   };
+};
 
-  // SSE heartbeat — declared outside try/catch so clearHeartbeat is always in scope.
-  let heartbeat: ReturnType<typeof setInterval> | null = null;
-  const clearHeartbeat = () => {
-    if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
-  };
+type DailyTargets = { calories: number; proteinG: number; carbsG: number; fatG: number; fibreG: number };
 
-  try {
-    // ── Compute fresh targets BEFORE building the prompt ──────────────────────
-    const freshTargets = calculateTDEE({
-      weightKg:               profile.weightKg,
-      heightCm:               profile.heightCm,
-      age:                    profile.age,
-      gender:                 profile.gender,
-      activityLevel:          profile.activityLevel,
-      dietIntensity:          (profile as any).dietIntensity        ?? null,
-      primaryGoal:            profile.primaryGoal,
-      targetWeightKg:         (profile as any).targetWeightKg       ?? null,
-      healthConditions:       JSON.parse((profile as any).healthConditions ?? '[]'),
-      eatingWindowHours:      (profile as any).eatingWindowHours    ?? null,
-      trainingType:           (profile as any).trainingType          ?? 'none',
-      trainingDaysPerWeek:    (profile as any).trainingDaysPerWeek   ?? 3,
-      trainingDurationMins:   (profile as any).trainingDurationMins  ?? 45,
-      cardioSessionsPerWeek:  (profile as any).cardioSessionsPerWeek ?? 0,
-      dailySteps:             (profile as any).dailySteps            ?? 5000,
-      occupationType:         (profile as any).occupationType        ?? 'desk_job',
-      insulinSensitivity:     (profile as any).insulinSensitivity    ?? 'average',
-    });
+// Runs the CN macro-validation + correction pipeline over planData.days (mutated
+// in place). MUST run in its own request invocation — never the same one that did
+// the big Anthropic generation call, whose held response degrades outbound HTTPS
+// so ~half the CN calls stall to the timeout. See DECISIONS.md §20.
+async function runMacroValidation(
+  planData: any,
+  profile: any,
+  dailyTargets: DailyTargets,
+  planDuration: number,
+  sendEvent: (event: string, data: any) => void,
+): Promise<{ cnChecksTotal: number; cnCorrectionsTotal: number; pendingLogEntries: PendingLogEntry[] }> {
+  let cnChecksTotal = 0;
+  let cnCorrectionsTotal = 0;
+  let pendingLogEntries: PendingLogEntry[] = [];
 
-    const promptDailyTargets = {
-      calories: freshTargets.targetCalories,
-      proteinG: freshTargets.proteinTarget,
-      carbsG:   freshTargets.carbTarget,
-      fatG:     freshTargets.fatTarget,
-      fibreG:   freshTargets.fibreTarget,
-    };
-
-    // Sync profile targets in background — never blocks generation
-    prisma.userProfile.update({
-      where: { userId },
-      data: {
-        targetCalories: freshTargets.targetCalories,
-        proteinTarget:  freshTargets.proteinTarget,
-        carbTarget:     freshTargets.carbTarget,
-        fatTarget:      freshTargets.fatTarget,
-        fibreTarget:    freshTargets.fibreTarget,
-      },
-    }).catch((err: any) => console.warn('[TDEE] Profile target sync failed:', err.message));
-
-    const userPrompt = buildUserPrompt(profile, promptDailyTargets);
-
-    const hasCustomInstructions = !!(profile.mealPlanCustomInstructions || '').trim();
-    if (hasCustomInstructions) {
-      sendEvent('progress', { step: 'Applying your custom preferences...' });
-    }
-    sendEvent('progress', { step: `Generating your ${planDuration}-day personalised meal plan...` });
-
-    let planData: any = null;
-    const startTime = Date.now();
-
-    console.log(`AI generation starting with model ${CLAUDE_MODEL}, planDuration=${planDuration}...`);
-    sendEvent('progress', { step: 'Generating plan with AI...', tokens: 0 });
-
-    const aiText = await callLLM(userPrompt, {
-      system: systemPrompt,
-      maxTokens: maxTokens,
-      // The full plan is a large response (~8k tokens for 7-day, ~12k for 14-day)
-      // and takes ~40-90s to write — far longer than the 30s llmClient default,
-      // which was aborting every generation. Generous ceiling, still well under
-      // the 300s Vercel function limit so macro validation has room to run after.
-      timeout: planDuration === 14 ? 180_000 : 120_000,
-    });
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`AI response in ${elapsed}s (${aiText.length} chars)`);
-
-    sendEvent('progress', { step: 'Plan generated, validating macros...', tokens: aiText.length });
-
-    try {
-      let raw = aiText.trim();
-      if (raw.startsWith('```')) {
-        raw = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
-      }
-      const jsonStart = raw.indexOf('{');
-      const jsonEnd = raw.lastIndexOf('}');
-      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-        raw = raw.substring(jsonStart, jsonEnd + 1);
-      }
-      planData = JSON.parse(raw);
-    } catch (parseErr) {
-      console.error(`JSON parse failed (${aiText.length} chars)`);
-      sendEvent('error', { error: 'AI returned malformed data. Please try again.' });
-      res.end();
-      return;
-    }
-
-    // ── Normalise meal type strings immediately after parse ───────────────────
-    {
-      const mealsPerDayInPlan = planData.days?.[0]?.meals?.length ?? profile.mealsPerDay ?? 4;
-      planData.days = (planData.days ?? []).map((day: any) => ({
-        ...day,
-        meals: (day.meals ?? []).filter((meal: any) => meal != null).map((meal: any, mealIndex: number) => ({
-          ...meal,
-          type: normaliseMealType(meal.type, mealIndex, mealsPerDayInPlan),
-        })),
-      }));
-      const sample = planData.days[0]?.meals?.map((m: any) => m.type);
-      console.log('[Generation] Meal types after normalisation (Day 1):', sample);
-    }
-
-    const expectedDays = planDuration;
-    if (!planData.days || !Array.isArray(planData.days) || planData.days.length !== expectedDays) {
-      console.error(`AI returned ${planData.days?.length} days, expected ${expectedDays}`);
-      sendEvent('error', { error: `AI returned an incomplete meal plan (${planData.days?.length}/${expectedDays} days). Please try again.` });
-      res.end();
-      return;
-    }
-
-    const avgCalories = planData.weekSummary?.avgCalories || 0;
-    if (Math.abs(avgCalories - profile.targetCalories) > 100) {
-      console.warn(`AI plan calories (${avgCalories}) differ from target (${profile.targetCalories}) by >100 kcal`);
-    }
-
-    // ── MACRO VERIFICATION PIPELINE ──────────────────────────────────────────
-    const dailyTargets = promptDailyTargets;
-
-    let cnChecksTotal      = 0;
-    let cnCorrectionsTotal = 0;
-
-    let pendingLogEntries: Array<{
-      dayIdx:   number;
-      mealIdx:  number;
-      origMeal: any;
-      logData:  MealLogData;
-      dayBudgetResult?: DayBudgetAnnotation;
-      dayLevelExtra?: {
-        wasDayLevelReplacement:    boolean;
-        dayTotalBeforeReplacement: number;
-        dayTotalAfterReplacement:  number;
-      };
-    }> | undefined;
-
-    // Start heartbeat now that we're entering the slow CN verification phase
-    heartbeat = setInterval(() => {
-      if (!res.writableEnded) {
-        res.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
-      }
-    }, 10000);
-
-    try {
     if (CN_ENABLED) {
       sendEvent('progress', { step: 'Validating meal macros...' });
 
@@ -1375,78 +1190,21 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     } else {
       console.log('[Validation] CalorieNinjas not configured — skipping macro verification');
     }
-    } catch (cnErr: any) {
-      console.error('[CalorieNinjas] Verification pipeline failed — skipping, using Claude estimates:', cnErr.message);
-    } finally {
-      clearHeartbeat();
-    }
 
-    sendEvent('progress', { step: 'Saving your meal plan...' });
 
-    await prisma.mealPlan.updateMany({
-      where: { userId, isActive: true },
-      data: { isActive: false }
-    });
+  return { cnChecksTotal, cnCorrectionsTotal, pendingLogEntries };
+}
 
-    const weekStartDate = new Date();
-    weekStartDate.setHours(0, 0, 0, 0);
-
-    const mealPlan = await prisma.mealPlan.create({
-      data: {
-        userId,
-        weekStartDate,
-        weekSummary: JSON.stringify(planData.weekSummary || {}),
-        isActive: true,
-        planDuration,
-        cnChecks:      cnChecksTotal,
-        cnCorrections: cnCorrectionsTotal,
-        mealPrepGuide: planData.mealPrepGuide ?? null
-      }
-    });
-
-    // ── Persist the TDEE derivation for this generation (fire-and-forget) ─────
-    // Off the critical path: a logging failure must never break generation.
-    {
-      const b = freshTargets.breakdown;
-      prisma.tdeeCalculationLog.create({
-        data: {
-          userId,
-          mealPlanId:          mealPlan.id,
-          age:                 b.inputs.age ?? null,
-          sex:                 b.inputs.sex ?? null,
-          heightCm:            b.inputs.heightCm ?? null,
-          weightKg:            b.inputs.weightKg ?? null,
-          bodyFatPct:          b.inputs.bodyFatPct ?? null,
-          activityLevel:       b.inputs.activityLevel ?? null,
-          trainingType:        b.inputs.trainingType ?? null,
-          trainingDaysPerWeek: b.inputs.trainingDaysPerWeek ?? null,
-          dailySteps:          b.inputs.dailySteps ?? null,
-          occupationType:      b.inputs.occupationType ?? null,
-          insulinSensitivity:  b.inputs.insulinSensitivity ?? null,
-          goal:                b.inputs.goal ?? null,
-          dietIntensity:       b.inputs.dietIntensity ?? null,
-          bmrFormula:          b.bmrFormula,
-          bmrValue:            b.bmrValue,
-          activityMultiplier:  b.activityMultiplier,
-          tdeeBeforeAdjust:    b.tdeeBeforeAdjust,
-          neatAdjustment:      b.neatAdjustment,
-          goalAdjustment:      b.goalAdjustment,
-          tdeeAfterAdjust:     b.tdeeAfterAdjust,
-          safetyFloorApplied:  b.safetyFloorApplied,
-          safetyFloorType:     b.safetyFloorType,
-          finalCalories:       b.finalCalories,
-          finalProteinG:       b.finalProteinG,
-          finalCarbsG:         b.finalCarbsG,
-          finalFatG:           b.finalFatG,
-          finalFibreG:         b.finalFibreG,
-          proteinBasis:        b.proteinBasis,
-          fatBasis:            b.fatBasis,
-          carbsBasis:          b.carbsBasis,
-          breakdownJson:       JSON.stringify(b),
-        },
-      }).catch((err: any) => console.error('[TdeeLog] Failed:', err.message));
-    }
-
+// Persists per-meal validation logs for a finished validation pass. Bounded by an
+// 8s ceiling so a slow logging path never holds up the response.
+async function persistValidationLogs(
+  pendingLogEntries: PendingLogEntry[],
+  mealPlan: { id: string },
+  userId: string,
+  planData: any,
+  planDuration: number,
+  dailyTargets: DailyTargets,
+): Promise<void> {
     if (pendingLogEntries && pendingLogEntries.length > 0) {
       const logTimeout = new Promise<void>(resolve => setTimeout(resolve, 8000));
       await Promise.race([
@@ -1565,6 +1323,279 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         }),
       ]);
     }
+}
+
+router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.userId!;
+
+  if (!checkRateLimit(userId)) {
+    res.status(429).json({ error: 'Rate limit exceeded. Maximum 3 meal plan generations per day.' });
+    return;
+  }
+
+  // Reject concurrent duplicates BEFORE the monthly counter increments, so a
+  // double-fire doesn't burn the user's quota. Cleanup is on response close,
+  // which fires on success, error, and client abort alike.
+  if (activeGenerations.has(userId)) {
+    res.status(409).json({
+      error:   'generation_in_progress',
+      message: 'A meal plan generation is already running for your account. Please wait for it to finish.',
+    });
+    return;
+  }
+  activeGenerations.add(userId);
+  res.once('close', () => activeGenerations.delete(userId));
+
+  // Monthly limit: only applies to regeneration by users who have completed onboarding.
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { onboardingDone: true } });
+  if (user?.onboardingDone) {
+    const check = await checkAndIncrementGenerationLimit(userId);
+    if (!check.allowed) {
+      res.status(429).json({
+        error:    'monthly_limit_reached',
+        message:  `You've used ${check.used} of ${check.limit} plan regenerations this month.`,
+        resetsOn: check.resetsOn,
+        used:     check.used,
+        limit:    check.limit,
+      });
+      return;
+    }
+  }
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(500).json({ error: 'No LLM provider configured. Set ANTHROPIC_API_KEY in server/.env' });
+    return;
+  }
+
+  const profile = await prisma.userProfile.findUnique({ where: { userId } });
+  if (!profile) {
+    res.status(400).json({ error: 'User profile not found. Complete onboarding first.' });
+    return;
+  }
+
+  const planDuration: number = (profile as any).planDuration === 14 ? 14 : 7;
+  const systemPrompt = planDuration === 14 ? SYSTEM_PROMPT_14 : SYSTEM_PROMPT_7;
+  // A full plan is larger than it looks: a 7-day plan needs ~8.5k output tokens
+  // (28 meals + shopping list + prep guide), a 14-day plan ~17k. The old
+  // 8000/12000 caps truncated the JSON mid-document → "AI returned malformed
+  // data". These ceilings give headroom so the model finishes (stop_reason
+  // end_turn) and the JSON parses. Within Claude Haiku's output limit.
+  const maxTokens = planDuration === 14 ? 32000 : 16000;
+
+  // Set up SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendEvent = (event: string, data: any) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // SSE heartbeat — declared outside try/catch so clearHeartbeat is always in scope.
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  const clearHeartbeat = () => {
+    if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+  };
+
+  try {
+    // ── Compute fresh targets BEFORE building the prompt ──────────────────────
+    const freshTargets = calculateTDEE({
+      weightKg:               profile.weightKg,
+      heightCm:               profile.heightCm,
+      age:                    profile.age,
+      gender:                 profile.gender,
+      activityLevel:          profile.activityLevel,
+      dietIntensity:          (profile as any).dietIntensity        ?? null,
+      primaryGoal:            profile.primaryGoal,
+      targetWeightKg:         (profile as any).targetWeightKg       ?? null,
+      healthConditions:       JSON.parse((profile as any).healthConditions ?? '[]'),
+      eatingWindowHours:      (profile as any).eatingWindowHours    ?? null,
+      trainingType:           (profile as any).trainingType          ?? 'none',
+      trainingDaysPerWeek:    (profile as any).trainingDaysPerWeek   ?? 3,
+      trainingDurationMins:   (profile as any).trainingDurationMins  ?? 45,
+      cardioSessionsPerWeek:  (profile as any).cardioSessionsPerWeek ?? 0,
+      dailySteps:             (profile as any).dailySteps            ?? 5000,
+      occupationType:         (profile as any).occupationType        ?? 'desk_job',
+      insulinSensitivity:     (profile as any).insulinSensitivity    ?? 'average',
+    });
+
+    const promptDailyTargets = {
+      calories: freshTargets.targetCalories,
+      proteinG: freshTargets.proteinTarget,
+      carbsG:   freshTargets.carbTarget,
+      fatG:     freshTargets.fatTarget,
+      fibreG:   freshTargets.fibreTarget,
+    };
+
+    // Sync profile targets in background — never blocks generation
+    prisma.userProfile.update({
+      where: { userId },
+      data: {
+        targetCalories: freshTargets.targetCalories,
+        proteinTarget:  freshTargets.proteinTarget,
+        carbTarget:     freshTargets.carbTarget,
+        fatTarget:      freshTargets.fatTarget,
+        fibreTarget:    freshTargets.fibreTarget,
+      },
+    }).catch((err: any) => console.warn('[TDEE] Profile target sync failed:', err.message));
+
+    const userPrompt = buildUserPrompt(profile, promptDailyTargets);
+
+    const hasCustomInstructions = !!(profile.mealPlanCustomInstructions || '').trim();
+    if (hasCustomInstructions) {
+      sendEvent('progress', { step: 'Applying your custom preferences...' });
+    }
+    sendEvent('progress', { step: `Generating your ${planDuration}-day personalised meal plan...` });
+
+    let planData: any = null;
+    const startTime = Date.now();
+
+    console.log(`AI generation starting with model ${CLAUDE_MODEL}, planDuration=${planDuration}...`);
+    sendEvent('progress', { step: 'Generating plan with AI...', tokens: 0 });
+
+    const aiText = await callLLM(userPrompt, {
+      system: systemPrompt,
+      maxTokens: maxTokens,
+      // The full plan is a large response (~8k tokens for 7-day, ~12k for 14-day)
+      // and takes ~40-90s to write — far longer than the 30s llmClient default,
+      // which was aborting every generation. Generous ceiling, still well under
+      // the 300s Vercel function limit so macro validation has room to run after.
+      timeout: planDuration === 14 ? 180_000 : 120_000,
+    });
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`AI response in ${elapsed}s (${aiText.length} chars)`);
+
+    sendEvent('progress', { step: 'Plan generated, validating macros...', tokens: aiText.length });
+
+    try {
+      let raw = aiText.trim();
+      if (raw.startsWith('```')) {
+        raw = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
+      }
+      const jsonStart = raw.indexOf('{');
+      const jsonEnd = raw.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        raw = raw.substring(jsonStart, jsonEnd + 1);
+      }
+      planData = JSON.parse(raw);
+    } catch (parseErr) {
+      console.error(`JSON parse failed (${aiText.length} chars)`);
+      sendEvent('error', { error: 'AI returned malformed data. Please try again.' });
+      res.end();
+      return;
+    }
+
+    // ── Normalise meal type strings immediately after parse ───────────────────
+    {
+      const mealsPerDayInPlan = planData.days?.[0]?.meals?.length ?? profile.mealsPerDay ?? 4;
+      planData.days = (planData.days ?? []).map((day: any) => ({
+        ...day,
+        meals: (day.meals ?? []).filter((meal: any) => meal != null).map((meal: any, mealIndex: number) => ({
+          ...meal,
+          type: normaliseMealType(meal.type, mealIndex, mealsPerDayInPlan),
+        })),
+      }));
+      const sample = planData.days[0]?.meals?.map((m: any) => m.type);
+      console.log('[Generation] Meal types after normalisation (Day 1):', sample);
+    }
+
+    const expectedDays = planDuration;
+    if (!planData.days || !Array.isArray(planData.days) || planData.days.length !== expectedDays) {
+      console.error(`AI returned ${planData.days?.length} days, expected ${expectedDays}`);
+      sendEvent('error', { error: `AI returned an incomplete meal plan (${planData.days?.length}/${expectedDays} days). Please try again.` });
+      res.end();
+      return;
+    }
+
+    const avgCalories = planData.weekSummary?.avgCalories || 0;
+    if (Math.abs(avgCalories - profile.targetCalories) > 100) {
+      console.warn(`AI plan calories (${avgCalories}) differ from target (${profile.targetCalories}) by >100 kcal`);
+    }
+
+    // ── Raw day totals — macro validation deferred to /validate-plan ──────────
+    // Validation runs as a SEPARATE request in a clean invocation (DECISIONS.md
+    // §20): the big Anthropic call degrades outbound HTTPS in THIS invocation,
+    // stalling ~half the CN calls. Persist the raw plan with sensible totals; the
+    // client calls /validate-plan right after to finalise macros at ~28/28.
+    for (const day of planData.days as any[]) {
+      const meals = (day.meals as any[]) ?? [];
+      day.totalCalories = meals.reduce((s: number, m: any) => s + (m.calories || 0), 0);
+      day.totalProtein  = meals.reduce((s: number, m: any) => s + (m.protein  || 0), 0);
+      day.totalCarbs    = meals.reduce((s: number, m: any) => s + (m.carbs    || 0), 0);
+      day.totalFat      = meals.reduce((s: number, m: any) => s + (m.fat      || 0), 0);
+      day.totalFibre    = meals.reduce((s: number, m: any) => s + (m.fibre    || 0), 0);
+    }
+    const cnChecksTotal = 0;
+    const cnCorrectionsTotal = 0;
+
+    sendEvent('progress', { step: 'Saving your meal plan...' });
+
+    await prisma.mealPlan.updateMany({
+      where: { userId, isActive: true },
+      data: { isActive: false }
+    });
+
+    const weekStartDate = new Date();
+    weekStartDate.setHours(0, 0, 0, 0);
+
+    const mealPlan = await prisma.mealPlan.create({
+      data: {
+        userId,
+        weekStartDate,
+        weekSummary: JSON.stringify(planData.weekSummary || {}),
+        isActive: true,
+        planDuration,
+        cnChecks:      cnChecksTotal,
+        cnCorrections: cnCorrectionsTotal,
+        mealPrepGuide: planData.mealPrepGuide ?? null
+      }
+    });
+
+    // ── Persist the TDEE derivation for this generation (fire-and-forget) ─────
+    // Off the critical path: a logging failure must never break generation.
+    {
+      const b = freshTargets.breakdown;
+      prisma.tdeeCalculationLog.create({
+        data: {
+          userId,
+          mealPlanId:          mealPlan.id,
+          age:                 b.inputs.age ?? null,
+          sex:                 b.inputs.sex ?? null,
+          heightCm:            b.inputs.heightCm ?? null,
+          weightKg:            b.inputs.weightKg ?? null,
+          bodyFatPct:          b.inputs.bodyFatPct ?? null,
+          activityLevel:       b.inputs.activityLevel ?? null,
+          trainingType:        b.inputs.trainingType ?? null,
+          trainingDaysPerWeek: b.inputs.trainingDaysPerWeek ?? null,
+          dailySteps:          b.inputs.dailySteps ?? null,
+          occupationType:      b.inputs.occupationType ?? null,
+          insulinSensitivity:  b.inputs.insulinSensitivity ?? null,
+          goal:                b.inputs.goal ?? null,
+          dietIntensity:       b.inputs.dietIntensity ?? null,
+          bmrFormula:          b.bmrFormula,
+          bmrValue:            b.bmrValue,
+          activityMultiplier:  b.activityMultiplier,
+          tdeeBeforeAdjust:    b.tdeeBeforeAdjust,
+          neatAdjustment:      b.neatAdjustment,
+          goalAdjustment:      b.goalAdjustment,
+          tdeeAfterAdjust:     b.tdeeAfterAdjust,
+          safetyFloorApplied:  b.safetyFloorApplied,
+          safetyFloorType:     b.safetyFloorType,
+          finalCalories:       b.finalCalories,
+          finalProteinG:       b.finalProteinG,
+          finalCarbsG:         b.finalCarbsG,
+          finalFatG:           b.finalFatG,
+          finalFibreG:         b.finalFibreG,
+          proteinBasis:        b.proteinBasis,
+          fatBasis:            b.fatBasis,
+          carbsBasis:          b.carbsBasis,
+          breakdownJson:       JSON.stringify(b),
+        },
+      }).catch((err: any) => console.error('[TdeeLog] Failed:', err.message));
+    }
+
+
 
     await Promise.all(planData.days.map((dayData: any) =>
       prisma.mealPlanDay.create({
@@ -1590,6 +1621,144 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
         peopleCount: 1
       }
     });
+
+
+
+    // Reset shopping items for the new plan (ticking off old items is irrelevant).
+    // IMPORTANT: MealLog, WaterLog, AdditionalMealLog, MealReplacement, WeightLog,
+    // and MealCookingInstructions are NEVER deleted — they are permanent user records
+    // that must survive plan regeneration so history, streaks, and adherence remain intact.
+    await prisma.shoppingItem.deleteMany({ where: { userId } });
+
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`Meal plan saved in ${totalTime}s total`);
+
+    sendEvent('done', {
+      success:       true,
+      mealPlanId:    mealPlan.id,
+      shoppingListId: shoppingList.id,
+      weekSummary:   planData.weekSummary,
+      daysCount:     planData.days.length,
+      needsValidation: true,
+      cnChecks:      cnChecksTotal,
+      cnCorrections: cnCorrectionsTotal,
+    });
+    res.end();
+  } catch (err: any) {
+    clearHeartbeat();
+    console.error('AI generation error:', err?.message || err, err?.status, err?.error);
+    let errorMsg = 'Failed to generate meal plan. Please try again.';
+    if (err.message?.includes('timeout') || err.message?.includes('ETIMEDOUT')) {
+      errorMsg = 'AI generation timed out. Please try again.';
+    } else if (err?.status === 402 || err.message?.includes('insufficient_quota') || err.message?.includes('insufficient_credits')) {
+      errorMsg = 'Service temporarily unavailable. Please try again later.';
+    } else if (err?.status === 401 || err.message?.includes('auth')) {
+      errorMsg = 'AI API authentication failed. Check ANTHROPIC_API_KEY.';
+    } else if (err?.status === 404 || err.message?.includes('not_found')) {
+      errorMsg = `Model "${CLAUDE_MODEL}" not found. Check CLAUDE_MODEL env var.`;
+    }
+    sendEvent('error', { error: errorMsg });
+    res.end();
+  }
+});
+
+// ── PHASE 2: macro validation in a clean invocation ─────────────────────────
+// The generation request (phase 1) saves the raw plan, then the client calls this
+// endpoint. Running here — not inside the generation invocation — keeps CN at
+// ~28/28 instead of ~11/28. See DECISIONS.md §20.
+router.post('/validate-plan', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.userId!;
+  const { mealPlanId } = req.body ?? {};
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  const sendEvent = (event: string, data: any) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
+    if (!res.writableEnded) res.write(`event: heartbeat\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+  }, 10000);
+  const clearHeartbeat = () => { if (heartbeat) { clearInterval(heartbeat); heartbeat = null; } };
+
+  try {
+    if (!mealPlanId) { sendEvent('error', { error: 'mealPlanId required' }); clearHeartbeat(); res.end(); return; }
+
+    const plan = await prisma.mealPlan.findFirst({
+      where: { id: mealPlanId, userId },
+      include: { days: { orderBy: { dayIndex: 'asc' } } },
+    });
+    if (!plan) { sendEvent('error', { error: 'Meal plan not found' }); clearHeartbeat(); res.end(); return; }
+
+    const profile = await prisma.userProfile.findUnique({ where: { userId } });
+    if (!profile) { sendEvent('error', { error: 'Profile not found' }); clearHeartbeat(); res.end(); return; }
+
+    if (!CN_ENABLED) {
+      sendEvent('done', { success: true, mealPlanId: plan.id, cnChecks: 0, cnCorrections: 0, skipped: true });
+      clearHeartbeat(); res.end(); return;
+    }
+
+    const freshTargets = calculateTDEE({
+      weightKg:               profile.weightKg,
+      heightCm:               profile.heightCm,
+      age:                    profile.age,
+      gender:                 profile.gender,
+      activityLevel:          profile.activityLevel,
+      dietIntensity:          (profile as any).dietIntensity        ?? null,
+      primaryGoal:            profile.primaryGoal,
+      targetWeightKg:         (profile as any).targetWeightKg       ?? null,
+      healthConditions:       JSON.parse((profile as any).healthConditions ?? '[]'),
+      eatingWindowHours:      (profile as any).eatingWindowHours    ?? null,
+      trainingType:           (profile as any).trainingType          ?? 'none',
+      trainingDaysPerWeek:    (profile as any).trainingDaysPerWeek   ?? 3,
+      trainingDurationMins:   (profile as any).trainingDurationMins  ?? 45,
+      cardioSessionsPerWeek:  (profile as any).cardioSessionsPerWeek ?? 0,
+      dailySteps:             (profile as any).dailySteps            ?? 5000,
+      occupationType:         (profile as any).occupationType        ?? 'desk_job',
+      insulinSensitivity:     (profile as any).insulinSensitivity    ?? 'average',
+    });;
+    const dailyTargets: DailyTargets = {
+      calories: freshTargets.targetCalories,
+      proteinG: freshTargets.proteinTarget,
+      carbsG:   freshTargets.carbTarget,
+      fatG:     freshTargets.fatTarget,
+      fibreG:   freshTargets.fibreTarget,
+    };
+
+    const planData: any = {
+      days: plan.days.map(d => ({
+        dayIndex: d.dayIndex,
+        dayName:  d.dayName,
+        meals:    JSON.parse(d.meals || '[]'),
+      })),
+      weekSummary: JSON.parse(plan.weekSummary || '{}'),
+    };
+
+    const { cnChecksTotal, cnCorrectionsTotal, pendingLogEntries } =
+      await runMacroValidation(planData, profile, dailyTargets, plan.planDuration, sendEvent);
+
+    sendEvent('progress', { step: 'Saving validated plan...' });
+
+    await Promise.all(planData.days.map((d: any) =>
+      prisma.mealPlanDay.updateMany({
+        where: { mealPlanId: plan.id, dayIndex: d.dayIndex },
+        data: {
+          meals:         JSON.stringify(d.meals || []),
+          totalCalories: d.totalCalories || 0,
+          totalProtein:  d.totalProtein  || 0,
+          totalCarbs:    d.totalCarbs    || 0,
+          totalFat:      d.totalFat      || 0,
+          totalFibre:    d.totalFibre    || 0,
+        },
+      })
+    ));
+    await prisma.mealPlan.update({
+      where: { id: plan.id },
+      data: { cnChecks: cnChecksTotal, cnCorrections: cnCorrectionsTotal },
+    });
+
+    await persistValidationLogs(pendingLogEntries, { id: plan.id }, userId, planData, plan.planDuration, dailyTargets);
 
     // ── Feed validated meals into the recipe library (fire-and-forget) ───────
     // Per-meal finalOutcome from the validation pass gates ingestion: only
@@ -1621,86 +1790,27 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       });
       ingestMeals(libraryMeals)
         .then(s => console.log(
-          `[Recipes] Plan ${mealPlan.id}: ${s.processed} meals → ` +
+          `[Recipes] Plan ${plan.id}: ${s.processed} meals → ` +
           `${s.created} new, ${s.merged} merged, ${s.variantsCreated} variants, ${s.filteredOut} filtered`,
         ))
         .catch(err => console.warn('[Recipes] Plan ingest failed:', err?.message));
     }
 
-    // Reset shopping items for the new plan (ticking off old items is irrelevant).
-    // IMPORTANT: MealLog, WaterLog, AdditionalMealLog, MealReplacement, WeightLog,
-    // and MealCookingInstructions are NEVER deleted — they are permanent user records
-    // that must survive plan regeneration so history, streaks, and adherence remain intact.
-    await prisma.shoppingItem.deleteMany({ where: { userId } });
-
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`Meal plan saved in ${totalTime}s total`);
-
     sendEvent('done', {
       success:       true,
-      mealPlanId:    mealPlan.id,
-      shoppingListId: shoppingList.id,
-      weekSummary:   planData.weekSummary,
-      daysCount:     planData.days.length,
+      mealPlanId:    plan.id,
       cnChecks:      cnChecksTotal,
       cnCorrections: cnCorrectionsTotal,
     });
+    clearHeartbeat();
     res.end();
   } catch (err: any) {
     clearHeartbeat();
-    console.error('AI generation error:', err?.message || err, err?.status, err?.error);
-    let errorMsg = 'Failed to generate meal plan. Please try again.';
-    if (err.message?.includes('timeout') || err.message?.includes('ETIMEDOUT')) {
-      errorMsg = 'AI generation timed out. Please try again.';
-    } else if (err?.status === 402 || err.message?.includes('insufficient_quota') || err.message?.includes('insufficient_credits')) {
-      errorMsg = 'Service temporarily unavailable. Please try again later.';
-    } else if (err?.status === 401 || err.message?.includes('auth')) {
-      errorMsg = 'AI API authentication failed. Check ANTHROPIC_API_KEY.';
-    } else if (err?.status === 404 || err.message?.includes('not_found')) {
-      errorMsg = `Model "${CLAUDE_MODEL}" not found. Check CLAUDE_MODEL env var.`;
-    }
-    sendEvent('error', { error: errorMsg });
+    console.error('[validate-plan] error:', err?.message || err);
+    sendEvent('error', { error: 'Validation failed. Your plan was generated but macros may be approximate.' });
     res.end();
   }
 });
 
-// ── TEMPORARY DIAGNOSTIC ─────────────────────────────────────────────────────
-// Tests the option-2 premise: does running CN as a SEPARATE client request
-// (clean caller, no preceding Anthropic call in this invocation) recover CN
-// coverage that fails ~60% inside the generation function? Also reveals the
-// exact failure reason. Remove once the question is settled.
-router.post('/_cnbatch', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
-  const t0 = Date.now();
-  const { mealPlanId } = req.body ?? {};
-  if (!mealPlanId) { res.status(400).json({ error: 'mealPlanId required' }); return; }
-
-  const days = await prisma.mealPlanDay.findMany({
-    where: { mealPlanId, mealPlan: { userId: req.userId } },
-    orderBy: { dayIndex: 'asc' },
-    select: { meals: true },
-  });
-  if (days.length === 0) { res.status(404).json({ error: 'plan not found' }); return; }
-
-  let ok = 0, total = 0;
-  const errors: Record<string, number> = {};
-  const durations: number[] = [];
-  for (const day of days) {
-    let meals: any[] = [];
-    try { meals = JSON.parse(day.meals || '[]'); } catch { meals = []; }
-    for (const meal of meals) {
-      const ing   = Array.isArray(meal.ingredients) ? meal.ingredients : [];
-      const cnIng = prepareCnIngredients(ing.length > 0 ? ing : [meal.description || meal.name]);
-      const m0    = Date.now();
-      const r     = await getMealMacrosFromCalorieNinjas(meal.name, cnIng);
-      durations.push(Date.now() - m0);
-      total++;
-      if (r.success) ok++;
-      else errors[r.error ?? 'unknown'] = (errors[r.error ?? 'unknown'] ?? 0) + 1;
-      await new Promise(rs => setTimeout(rs, 50));
-    }
-  }
-  res.json({ ok, total, errors, elapsedMs: Date.now() - t0,
-    avgCallMs: durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0 });
-});
 
 export default router;

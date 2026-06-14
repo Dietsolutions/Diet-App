@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
-import { apiUrl, getBearerToken } from '../lib/api';
+import { apiUrl, getBearerToken, streamSSE } from '../lib/api';
 import { useAppStore } from '../store/appStore';
 import { useWeightStore } from '../store/weightStore';
 import { useUnitsStore } from '../store/unitsStore';
@@ -166,6 +166,15 @@ export function ProfileTab() {
         xhr.send('{}');
       });
       if (!result?.success) throw new Error('Failed');
+
+      // Phase 2 — macro validation in a clean invocation (CN ~28/28). Non-fatal.
+      if (result?.needsValidation && result?.mealPlanId) {
+        try {
+          setRegenStep('Validating meal macros...');
+          await streamSSE('/api/ai/validate-plan', { mealPlanId: result.mealPlanId }, setRegenStep);
+        } catch { /* raw plan still usable with Claude estimates */ }
+      }
+
       setRegenStep('Done!');
       setRegenerating(false);
       // Refresh plan history + usage in background after regeneration

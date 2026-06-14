@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../hooks/useAuth';
-import { apiUrl, getBearerToken } from '../lib/api';
+import { apiUrl, getBearerToken, streamSSE } from '../lib/api';
 import { OnboardingData } from '../types';
 import { COUNTRIES, COUNTRY_CODES, ALLERGENS, ALLERGEN_ICONS, INGREDIENT_CATEGORIES, INGREDIENT_ICONS, CUISINE_OPTIONS, CUISINE_REGIONS, KITCHEN_EQUIPMENT, EQUIPMENT_ICONS, HEALTH_CONDITIONS } from '../data/onboarding';
 import { s2 } from '../theme/tokens';
@@ -264,6 +264,19 @@ export function Onboarding({ onComplete, userName }: Props) {
       });
 
       if (!result?.success) throw new Error('Generation failed');
+
+      // Phase 2 — macro validation runs as a SEPARATE request (clean invocation),
+      // so CalorieNinjas reaches ~28/28 instead of ~11/28. Non-fatal: if it fails,
+      // the generated plan is still usable with Claude's macro estimates.
+      if (result?.needsValidation && result?.mealPlanId) {
+        try {
+          setGenStep('Validating meal macros...');
+          await streamSSE('/api/ai/validate-plan', { mealPlanId: result.mealPlanId }, setGenStep);
+        } catch (vErr: any) {
+          track('meal_plan_validation_failed', { error: vErr?.message ?? 'unknown' });
+        }
+      }
+
       setGenStep('Done!');
       track('meal_plan_generation_completed', {
         plan_duration:    data.planDuration,

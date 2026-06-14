@@ -83,7 +83,23 @@ axios.interceptors.request.use((config) => {
  * Global response interceptor: handle 401 (session expired), network errors.
  */
 axios.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    // Misroute guard. In the native (Capacitor) build a missing/incorrect
+    // VITE_API_URL makes /api/... calls resolve to the WebView's own SPA host,
+    // which answers with index.html and status 200. Without this, callers read
+    // undefined fields off an HTML string (e.g. signup saw no `user`, the
+    // username check saw no `available`). Detect the misroute and fail loudly
+    // so the real problem — the API base URL — is obvious.
+    const url = typeof res.config?.url === 'string' ? res.config.url : '';
+    const contentType = String(res.headers?.['content-type'] || '');
+    const looksLikeHtml = typeof res.data === 'string' && /^\s*<(!doctype|html)/i.test(res.data);
+    if (url.includes('/api/') && (contentType.includes('text/html') || looksLikeHtml)) {
+      const e: any = new Error('Cannot reach the server. Check your connection and try again.');
+      e.code = 'API_UNREACHABLE';
+      return Promise.reject(e);
+    }
+    return res;
+  },
   (err) => {
     if (err.code === 'ECONNABORTED') {
       return Promise.reject(new Error('Request timed out. Please check your connection.'));
@@ -98,6 +114,58 @@ axios.interceptors.response.use(
 export function apiUrl(path: string): string {
   const normalised = path.startsWith('/') ? path : `/${path}`;
   return `${RAW_BASE}${normalised}`;
+}
+
+/**
+ * POST to an SSE endpoint (meal-plan generate / validate) and resolve with the
+ * `done` event payload. `onStep` receives each `progress` step for the UI.
+ * Mirrors the XHR pattern used for generation so native (Capacitor) requests
+ * carry the Bearer token — EventSource can't POST or set headers.
+ */
+export function streamSSE(
+  path: string,
+  body: Record<string, unknown>,
+  onStep?: (step: string) => void,
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiUrl(path));
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.withCredentials = true;
+    const _bt = getBearerToken();
+    if (_bt) xhr.setRequestHeader('Authorization', `Bearer ${_bt}`);
+    xhr.timeout = 300000; // matches Vercel maxDuration
+    let processed = 0;
+    let settled = false;
+    const parseSSE = () => {
+      const text = xhr.responseText.substring(processed);
+      processed = xhr.responseText.length;
+      for (const block of text.split('\n\n')) {
+        const eventMatch = block.match(/^event: (\w+)/);
+        const dataMatch  = block.match(/^data: (.+)$/m);
+        if (!eventMatch || !dataMatch) continue;
+        try {
+          const parsed = JSON.parse(dataMatch[1]);
+          if (eventMatch[1] === 'progress' && !settled) onStep?.(parsed.step);
+          else if (eventMatch[1] === 'done'  && !settled) { settled = true; resolve(parsed); }
+          else if (eventMatch[1] === 'error' && !settled) { settled = true; reject(new Error(parsed.error)); }
+        } catch {}
+      }
+    };
+    xhr.onprogress = parseSSE;
+    xhr.onload = () => {
+      parseSSE();
+      if (!settled) {
+        if (xhr.status >= 400) {
+          try { reject(new Error(JSON.parse(xhr.responseText).error || 'Request failed')); }
+          catch { reject(new Error('Request failed')); }
+        } else { reject(new Error('No response received')); }
+      }
+    };
+    xhr.onerror   = () => { if (!settled) reject(new Error('Network error')); };
+    xhr.ontimeout = () => { if (!settled) reject(new Error('Request timed out')); };
+    xhr.send(JSON.stringify(body));
+  });
 }
 
 /**
