@@ -1664,4 +1664,43 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
   }
 });
 
+// ── TEMPORARY DIAGNOSTIC ─────────────────────────────────────────────────────
+// Tests the option-2 premise: does running CN as a SEPARATE client request
+// (clean caller, no preceding Anthropic call in this invocation) recover CN
+// coverage that fails ~60% inside the generation function? Also reveals the
+// exact failure reason. Remove once the question is settled.
+router.post('/_cnbatch', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  const t0 = Date.now();
+  const { mealPlanId } = req.body ?? {};
+  if (!mealPlanId) { res.status(400).json({ error: 'mealPlanId required' }); return; }
+
+  const days = await prisma.mealPlanDay.findMany({
+    where: { mealPlanId, mealPlan: { userId: req.userId } },
+    orderBy: { dayIndex: 'asc' },
+    select: { meals: true },
+  });
+  if (days.length === 0) { res.status(404).json({ error: 'plan not found' }); return; }
+
+  let ok = 0, total = 0;
+  const errors: Record<string, number> = {};
+  const durations: number[] = [];
+  for (const day of days) {
+    let meals: any[] = [];
+    try { meals = JSON.parse(day.meals || '[]'); } catch { meals = []; }
+    for (const meal of meals) {
+      const ing   = Array.isArray(meal.ingredients) ? meal.ingredients : [];
+      const cnIng = prepareCnIngredients(ing.length > 0 ? ing : [meal.description || meal.name]);
+      const m0    = Date.now();
+      const r     = await getMealMacrosFromCalorieNinjas(meal.name, cnIng);
+      durations.push(Date.now() - m0);
+      total++;
+      if (r.success) ok++;
+      else errors[r.error ?? 'unknown'] = (errors[r.error ?? 'unknown'] ?? 0) + 1;
+      await new Promise(rs => setTimeout(rs, 50));
+    }
+  }
+  res.json({ ok, total, errors, elapsedMs: Date.now() - t0,
+    avgCallMs: durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0 });
+});
+
 export default router;
