@@ -268,11 +268,10 @@ async function validateAndFinaliseMeal(params: {
   attemptsUsed:   { count: number };            // shared mutable counter for this day
   cnFailureCount: Record<number, number>;        // shared per-meal-index failure tracker (per-day)
   cnSlotFailures: Record<number, number>;        // plan-level slot failure tracker (persists across days)
-  cnPrefetch?:    Map<string, Awaited<ReturnType<typeof getMealMacrosFromCalorieNinjas>>>;  // initial CN results, pre-fetched in a tight burst
 }): Promise<{ meal: any; outcome: string; logData: MealLogData }> {
   const {
     originalMeal, mealIndex, mealsPerDay, dailyTargets,
-    userProfile, dayIdx, attemptsUsed, cnFailureCount, cnSlotFailures, cnPrefetch,
+    userProfile, dayIdx, attemptsUsed, cnFailureCount, cnSlotFailures,
   } = params;
 
   const mealTarget             = getMealMacroTargets(dailyTargets, mealsPerDay, originalMeal.type, mealIndex);
@@ -414,17 +413,8 @@ async function validateAndFinaliseMeal(params: {
       }
     }
 
-    // First check uses the pre-fetched result (gathered up front in a tight,
-    // reliable burst). Corrections (iteration 2+) and any cache miss make a live
-    // call. This keeps the bulk of CN calls out of the flaky interleaved path.
-    const prefetchKey = `${dayIdx}-${mealIndex}`;
-    let cnResult;
-    if (iterationCount === 1 && cnPrefetch?.has(prefetchKey)) {
-      cnResult = cnPrefetch.get(prefetchKey)!;
-    } else {
-      cnResult = await getMealMacrosFromCalorieNinjas(currentMeal.name, cnIngredients);
-      await new Promise(r => setTimeout(r, 50));
-    }
+    const cnResult = await getMealMacrosFromCalorieNinjas(currentMeal.name, cnIngredients);
+    await new Promise(r => setTimeout(r, 50));
 
     if (!cnInitialResult) cnInitialResult = cnResult;   // save first result for log
 
@@ -1206,29 +1196,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
 
       const cnSlotFailures: Record<number, number> = {};
 
-      // ── Pre-fetch every meal's initial CN check in one tight burst ──────────
-      // CN is reliable back-to-back (~200ms each) but flaky when interleaved with
-      // the per-meal Anthropic correction calls. Gather all first-pass lookups up
-      // front so the bulk of CN traffic runs in the clean path; the per-meal
-      // validator reads these from the cache. Corrections still re-check live (far fewer).
-      const cnPrefetch = new Map<string, Awaited<ReturnType<typeof getMealMacrosFromCalorieNinjas>>>();
-      {
-        let pfOk = 0;
-        for (let d = 0; d < daysToValidate; d++) {
-          const meals = (planData.days[d]?.meals as any[]) ?? [];
-          for (let m = 0; m < meals.length; m++) {
-            const meal  = meals[m];
-            const ing   = Array.isArray(meal.ingredients) ? meal.ingredients : [];
-            const cnIng = prepareCnIngredients(ing.length > 0 ? ing : [meal.description || meal.name]);
-            const r     = await getMealMacrosFromCalorieNinjas(meal.name, cnIng);
-            cnPrefetch.set(`${d}-${m}`, r);
-            if (r.success) pfOk++;
-            await new Promise(rs => setTimeout(rs, 50));
-          }
-        }
-        console.log(`[CN Prefetch] ${pfOk}/${cnPrefetch.size} initial CN checks succeeded in tight burst`);
-      }
-
       for (let dayIdx = 0; dayIdx < daysToValidate; dayIdx++) {
         const day            = planData.days[dayIdx];
         const attemptsUsed   = { count: 0 };
@@ -1253,7 +1220,6 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
             attemptsUsed,
             cnFailureCount,
             cnSlotFailures,
-            cnPrefetch,
           });
 
           finalisedMeals.push(result.meal);
