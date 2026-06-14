@@ -45,92 +45,73 @@ export async function getMealMacrosFromCalorieNinjas(
   }
 
   const query = ingredients.join(', ');
-  const _cnT0 = Date.now();   // [CN-DIAG] timing — must be outside try so catch can read it
+  const url   = `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(query)}`;
 
-  try {
-    const url   = `https://api.calorieninjas.com/v1/nutrition?query=${encodeURIComponent(query)}`;
+  // CN is fast/reliable in isolation (~200ms) but, called inside the long-running
+  // generation (interleaved with the Anthropic SDK + heavy processing on the same
+  // serverless instance), individual calls intermittently hang to the timeout.
+  // Since a retry from the same place succeeds, retry transient failures: one
+  // extra attempt recovers most meals. 6s timeout × 2 attempts is well bounded,
+  // and the plan-level slot fast-track still caps sustained failures.
+  const MAX_ATTEMPTS = 2;
+  let lastError = 'CN failed';
 
-    const response = await fetch(url, {
-      method:  'GET',
-      headers: {
-        'X-Api-Key':     apiKey,
-        'Content-Type':  'application/json',
-      },
-      // 5s: the Vercel->CN serverless path is unreliable regardless (calls hang
-      // past even 12s for ~half of requests — likely CN throttling datacenter IPs).
-      // Raising the timeout did not improve coverage, so keep it short so failures
-      // fast-track quickly. The real fix is a paid CN tier or a different source.
-      signal: AbortSignal.timeout(5000),
-    });
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const t0 = Date.now();
+    try {
+      const response = await fetch(url, {
+        method:  'GET',
+        headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' },
+        signal:  AbortSignal.timeout(6000),
+      });
 
-    if (!response.ok) {
-      const text = await response.text();
-      console.warn(`[CN-DIAG] "${mealName}" HTTP ${response.status} in ${Date.now() - _cnT0}ms: ${text.slice(0, 80)}`);
-      return {
-        success:    false,
-        macros:     zeroed(),
-        error:      `CalorieNinjas ${response.status}`,
-        queryString: query,
-        statusCode: response.status,
+      if (!response.ok) {
+        const text = await response.text();
+        // 5xx is transient — retry; 4xx (bad query/key) won't improve — give up.
+        if (response.status >= 500 && attempt < MAX_ATTEMPTS) {
+          await new Promise(r => setTimeout(r, 200 * attempt));
+          continue;
+        }
+        console.warn(`[CalorieNinjas] HTTP ${response.status} for "${mealName}": ${text.slice(0, 80)}`);
+        return { success: false, macros: zeroed(), error: `CalorieNinjas ${response.status}`, queryString: query, statusCode: response.status };
+      }
+
+      const data = await response.json() as any;
+      if (!data.items || data.items.length === 0) {
+        return { success: false, macros: zeroed(), error: 'No items returned', queryString: query, statusCode: response.status, itemsMatched: 0 };
+      }
+
+      const totals = data.items.reduce(
+        (acc: CNMacros, item: any) => ({
+          calories: acc.calories + (item.calories               ?? 0),
+          proteinG: acc.proteinG + (item.protein_g              ?? 0),
+          carbsG:   acc.carbsG   + (item.carbohydrates_total_g  ?? 0),
+          fatG:     acc.fatG     + (item.fat_total_g            ?? 0),
+          fibreG:   acc.fibreG   + (item.fiber_g                ?? 0),
+        }),
+        zeroed(),
+      );
+      const macros: CNMacros = {
+        calories: Math.round(totals.calories),
+        proteinG: Math.round(totals.proteinG * 10) / 10,
+        carbsG:   Math.round(totals.carbsG   * 10) / 10,
+        fatG:     Math.round(totals.fatG     * 10) / 10,
+        fibreG:   Math.round(totals.fibreG   * 10) / 10,
       };
+      if (attempt > 1) console.log(`[CalorieNinjas] "${mealName}" recovered on attempt ${attempt}`);
+      return { success: true, macros, queryString: query, statusCode: response.status, itemsMatched: data.items.length };
+
+    } catch (err: any) {
+      lastError = err?.message ?? 'fetch failed';
+      console.warn(`[CalorieNinjas] "${mealName}" attempt ${attempt} failed after ${Date.now() - t0}ms: ${err?.name} ${lastError}`);
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise(r => setTimeout(r, 200 * attempt));
+        continue;
+      }
     }
-
-    const data = await response.json() as any;
-
-    // data.items — one entry per recognised ingredient; sum all items for meal total
-    if (!data.items || data.items.length === 0) {
-      console.warn(`[CalorieNinjas] No items returned for "${mealName}"`);
-      return {
-        success:      false,
-        macros:       zeroed(),
-        error:        'No items returned',
-        queryString:  query,
-        statusCode:   response.status,
-        itemsMatched: 0,
-      };
-    }
-
-    const totals = data.items.reduce(
-      (acc: CNMacros, item: any) => ({
-        calories: acc.calories + (item.calories                 ?? 0),
-        proteinG: acc.proteinG + (item.protein_g                ?? 0),
-        carbsG:   acc.carbsG   + (item.carbohydrates_total_g   ?? 0),
-        fatG:     acc.fatG     + (item.fat_total_g              ?? 0),
-        fibreG:   acc.fibreG   + (item.fiber_g                  ?? 0),
-      }),
-      zeroed(),
-    );
-
-    const macros: CNMacros = {
-      calories: Math.round(totals.calories),
-      proteinG: Math.round(totals.proteinG * 10) / 10,
-      carbsG:   Math.round(totals.carbsG   * 10) / 10,
-      fatG:     Math.round(totals.fatG     * 10) / 10,
-      fibreG:   Math.round(totals.fibreG   * 10) / 10,
-    };
-
-    console.log(
-      `[CN-DIAG] "${mealName}" OK in ${Date.now() - _cnT0}ms: ${macros.calories}kcal ` +
-      `P:${macros.proteinG}g C:${macros.carbsG}g F:${macros.fatG}g`
-    );
-    return {
-      success:      true,
-      macros,
-      queryString:  query,
-      statusCode:   response.status,
-      itemsMatched: data.items.length,
-    };
-
-  } catch (err: any) {
-    console.warn(`[CN-DIAG] "${mealName}" FAILED after ${Date.now() - _cnT0}ms — name=${err?.name} code=${err?.code ?? err?.cause?.code ?? ''} msg=${err?.message}`);
-    return {
-      success:      false,
-      macros:       zeroed(),
-      error:        err.message,
-      queryString:  query,
-      itemsMatched: 0,
-    };
   }
+
+  return { success: false, macros: zeroed(), error: lastError, queryString: query, itemsMatched: 0 };
 }
 
 // Verify all meals in one plan day sequentially.
