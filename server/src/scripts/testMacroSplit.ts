@@ -6,7 +6,7 @@
  *
  * Run: cd server && npx ts-node -P tsconfig.json src/scripts/testMacroSplit.ts
  */
-import { getMealMacroTargets } from '../services/macroValidation';
+import { getMealMacroTargets, getMealWeightPct } from '../services/macroValidation';
 
 // User from run __8_: 2850 kcal, 112g protein, 459g carbs, 67g fat, 4 meals
 const daily = { calories: 2850, proteinG: 112, carbsG: 459, fatG: 67, fibreG: 38 };
@@ -38,4 +38,22 @@ for (const s of slots) {
 const snackOk = snackCarbs > 35 && snackCarbs < 60;   // ~45.9g expected, NOT 114.75g
 console.log(`\nSnack carbs = ${snackCarbs}g (expected ~46g, NOT 114.75g): ${snackOk ? 'PASS' : 'FAIL'}`);
 console.log(`All slots internally consistent: ${allConsistent ? 'PASS' : 'FAIL'}`);
-process.exit(snackOk && allConsistent ? 0 : 1);
+
+// ── Logger path guard ────────────────────────────────────────────────────────
+// macroValidationLogger computes the per-meal protein/carbs/fat target it WRITES
+// to the DB using getMealWeightPct (same weight as getMealMacroTargets). Guard
+// against the equal-split regression that logged a 4-meal snack at dailyProtein/4
+// (e.g. 152/4 = 38g) instead of the weighted ~15g. Uses the task's reference
+// profile: 1400 kcal, 152g protein, 4 meals.
+const dailyProtein = 152;
+const snackWeight  = getMealWeightPct('snack', 4, 2);
+const snackProteinTarget = dailyProtein * snackWeight;          // weighted (correct)
+const equalSplitProtein  = dailyProtein / 4;                    // the bug (38g)
+const loggerOk = Math.abs(snackProteinTarget - 15.2) < 1 && Math.abs(snackProteinTarget - equalSplitProtein) > 10;
+console.log(
+  `\nLogger snack protein target = ${snackProteinTarget.toFixed(1)}g ` +
+  `(weighted ${snackWeight}×152) vs equal-split ${equalSplitProtein}g: ` +
+  `${loggerOk ? 'PASS — weighted, not 38g' : 'FAIL — equal-split regression'}`
+);
+
+process.exit(snackOk && allConsistent && loggerOk ? 0 : 1);

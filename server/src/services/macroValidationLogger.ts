@@ -135,13 +135,19 @@ export interface MealValidationEntry {
 
 export async function logMealValidation(entry: MealValidationEntry): Promise<void> {
   try {
-    // Use weighted calorie target per meal type (snack ≠ lunch ≠ dinner).
+    // Weighted per-meal target — ALL FOUR macros use the same slot weight
+    // (snack ≠ lunch ≠ dinner), matching getMealMacroTargets, the single source
+    // of truth the prompt + validation already use. Previously calories were
+    // weighted but protein/carbs/fat were divided equally by mealsPerDay, so the
+    // logged target (and its protein/carbs/fat deltas) recorded an impossible
+    // figure — e.g. a snack logged as 38g protein (152/4) instead of ~15g
+    // (152 * 0.10). This only ever affected the logged values, not generation.
     const mealCalPct = getMealWeightPct(entry.mealType, entry.mealsPerDay, entry.mealIndex);
     const mealTarget = {
       calories: Math.round(entry.targets.dailyCalories * mealCalPct),
-      protein:  entry.targets.dailyProtein / entry.mealsPerDay,
-      carbs:    entry.targets.dailyCarbs   / entry.mealsPerDay,
-      fat:      entry.targets.dailyFat     / entry.mealsPerDay,
+      protein:  entry.targets.dailyProtein * mealCalPct,
+      carbs:    entry.targets.dailyCarbs   * mealCalPct,
+      fat:      entry.targets.dailyFat     * mealCalPct,
     };
 
     const delta = entry.cn.success ? {
