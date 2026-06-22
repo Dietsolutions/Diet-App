@@ -1204,11 +1204,14 @@ async function persistValidationLogs(
   planData: any,
   planDuration: number,
   dailyTargets: DailyTargets,
-): Promise<void> {
-    if (pendingLogEntries && pendingLogEntries.length > 0) {
-      const logTimeout = new Promise<void>(resolve => setTimeout(resolve, 8000));
-      await Promise.race([
-        Promise.allSettled(
+): Promise<number> {
+    if (!pendingLogEntries || pendingLogEntries.length === 0) return 0;
+    // Await ALL log inserts fully — no 8s race. /validate-plan freezes after
+    // res.end(), so a premature race left the 28 inserts in flight and the
+    // serverless freeze killed them, losing the validation logs on ~half the runs.
+    // Prisma writes complete fine in this invocation (the MealPlan update just
+    // before this succeeds), so a full await is safe and bounded by the request.
+    const results = await Promise.allSettled(
           pendingLogEntries.map(({ dayIdx, mealIdx, origMeal, logData, dayBudgetResult, dayLevelExtra }) => {
             const entry: MealValidationEntry = {
               userId,
@@ -1314,15 +1317,10 @@ async function persistValidationLogs(
             };
             return logMealValidation(entry);
           })
-        ).then((results: PromiseSettledResult<void>[]) => {
-          const ok = results.filter(r => r.status === 'fulfilled').length;
-          console.log(`[ValidationLog] Wrote ${ok}/${results.length} entries`);
-        }),
-        logTimeout.then(() => {
-          console.warn('[ValidationLog] 8s ceiling hit — some entries may be missing');
-        }),
-      ]);
-    }
+    );
+    const ok = results.filter(r => r.status === 'fulfilled').length;
+    console.log(`[ValidationLog] Wrote ${ok}/${results.length} entries`);
+    return ok;
 }
 
 router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -1758,7 +1756,7 @@ router.post('/validate-plan', requireAuth, async (req: AuthRequest, res: Respons
       data: { cnChecks: cnChecksTotal, cnCorrections: cnCorrectionsTotal },
     });
 
-    await persistValidationLogs(pendingLogEntries, { id: plan.id }, userId, planData, plan.planDuration, dailyTargets);
+    const logsWritten = await persistValidationLogs(pendingLogEntries, { id: plan.id }, userId, planData, plan.planDuration, dailyTargets);
 
     // ── Feed validated meals into the recipe library (fire-and-forget) ───────
     // Per-meal finalOutcome from the validation pass gates ingestion: only
@@ -1801,6 +1799,7 @@ router.post('/validate-plan', requireAuth, async (req: AuthRequest, res: Respons
       mealPlanId:    plan.id,
       cnChecks:      cnChecksTotal,
       cnCorrections: cnCorrectionsTotal,
+      logsWritten,
     });
     clearHeartbeat();
     res.end();
