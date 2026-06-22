@@ -1072,8 +1072,11 @@ async function runMacroValidation(
       if (worklist.length > 0) {
         sendEvent('progress', { step: 'Refining meals to hit your macro targets...' });
       }
+      // After scaling-first routing the worklist is small (protein-ratio / extreme
+      // meals only), so the cap comfortably covers a 7-day plan; it just bounds
+      // worst-case time on big/very-off plans.
       const PASS_B_PER_MEAL   = 2;
-      const PASS_B_GLOBAL_CAP = Math.max(12, mealsPerDay * 3);
+      const PASS_B_GLOBAL_CAP = Math.max(28, mealsPerDay * 5);
       let passBClaudeCalls = 0;
       for (const { d, m } of worklist) {
         if (passBClaudeCalls >= PASS_B_GLOBAL_CAP) {
@@ -1090,6 +1093,17 @@ async function runMacroValidation(
         results[d][m] = r;
         passBClaudeCalls += att.count;
         cnCorrectionsTotal += att.count;
+      }
+      // Safety net: any meal still flagged 'needs_regen' (cap hit, or no correction
+      // ran) must not leak the intermediate state into the saved plan/logs. It keeps
+      // Claude's original meal, relabelled as attempts_exhausted (CN read it cleanly
+      // in Pass A; we just couldn't improve it).
+      for (const { d, m } of worklist) {
+        const r = results[d][m];
+        if (r && r.outcome === 'needs_regen') {
+          r.outcome = 'attempts_exhausted';
+          if (r.logData) r.logData.finalOutcome = 'attempts_exhausted';
+        }
       }
       console.log(`[CN Pass B] ${passBClaudeCalls} Claude correction call(s) across ${worklist.length} meal(s)`);
 

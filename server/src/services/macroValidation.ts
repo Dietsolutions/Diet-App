@@ -3,8 +3,15 @@
 
 // ── Deviation thresholds ──────────────────────────────────────────────────────
 export const DEVIATION_ACCEPT_PCT    = 15   // under this → accept CN, no action
-export const DEVIATION_SCALE_MAX_PCT = 35   // 15–35 → proportional scaling
-                                            // above 35 → regenerate meal
+// 15% and above → proportional scaling FIRST. CN gives us the meal's true macros,
+// so a large CN-vs-Claude gap just means Claude mis-estimated — we can scale the
+// real portions toward the target deterministically (no Claude call, no poisoning).
+// Scaling is self-limiting: the factor is clamped to [0.5, SCALE_UP_MAX_FACTOR] and
+// a post-scale CN re-check (POST_SCALE_ACCEPT_PCT) escalates to regenerate only when
+// portions genuinely can't reach the target (e.g. wrong macro RATIO, not magnitude).
+// This is why the ceiling is high: scaling, not Claude regeneration, is the reliable
+// way to hit a calorie target, and Claude corrections were not converging.
+export const DEVIATION_SCALE_MAX_PCT = 200  // 15–200 → scale; only absurd gaps regenerate
 
 // ── Secondary macro routing thresholds ───────────────────────────────────────
 // Fat is excluded from routing — CN fat estimates are too noisy for Indian
