@@ -268,11 +268,15 @@ async function validateAndFinaliseMeal(params: {
   attemptsUsed:   { count: number };            // shared mutable counter for this day
   cnFailureCount: Record<number, number>;        // shared per-meal-index failure tracker (per-day)
   cnSlotFailures: Record<number, number>;        // plan-level slot failure tracker (persists across days)
+  cnOnly?:        boolean;                        // Pass A: CN check + accept/scale only, never call Claude (returns 'needs_regen')
+  maxAttempts?:   number;                         // override the Claude correction budget for this meal (default MAX_CLAUDE_ATTEMPTS_PER_DAY)
 }): Promise<{ meal: any; outcome: string; logData: MealLogData }> {
   const {
     originalMeal, mealIndex, mealsPerDay, dailyTargets,
     userProfile, dayIdx, attemptsUsed, cnFailureCount, cnSlotFailures,
+    cnOnly = false,
   } = params;
+  const maxAtt = params.maxAttempts ?? MAX_CLAUDE_ATTEMPTS_PER_DAY;
 
   const mealTarget             = getMealMacroTargets(dailyTargets, mealsPerDay, originalMeal.type, mealIndex);
   const attemptsAtStart        = attemptsUsed.count;  // snapshot BEFORE any work on this meal
@@ -327,8 +331,12 @@ async function validateAndFinaliseMeal(params: {
   // Fires BEFORE the while loop so no CN call or attempt budget is consumed.
   // Triggers when this meal slot has accumulated CN_FAST_TRACK_THRESHOLD confirmed
   // failures across ALL previous days of this plan (e.g. fish dinner, Day 3+).
+  // In cnOnly (Pass A) the plan-level fast-track is intentionally bypassed: Pass A
+  // runs every meal's CN check in a clean invocation (no interleaved Claude calls),
+  // so slots never accumulate the transient failures that used to disable CN for
+  // the rest of the plan. The fast-track only applies in normal (Pass B) mode.
   const planSlotFailCount = cnSlotFailures[mealIndex] ?? 0;
-  if (planSlotFailCount >= CN_FAST_TRACK_THRESHOLD) {
+  if (!cnOnly && planSlotFailCount >= CN_FAST_TRACK_THRESHOLD) {
     console.log(
       `[CN] Plan-level fast-track Day${dayIdx+1} Meal${mealIndex+1}` +
       ` — slot ${mealIndex} has ${planSlotFailCount} confirmed failures this plan.` +
@@ -557,7 +565,14 @@ async function validateAndFinaliseMeal(params: {
     }
 
     // ── 3. Regeneration ───────────────────────────────────────────────────
-    if (needRegeneration && !resolved) {
+    // Pass A (cnOnly): we have a clean CN read and the meal is >tolerance off —
+    // defer it to Pass B rather than calling Claude here. Keeping all Claude calls
+    // out of this invocation is what keeps the CN reads clean (~28/28).
+    if (needRegeneration && !resolved && cnOnly) {
+      currentMeal  = { ...originalMeal };
+      finalOutcome = 'needs_regen';
+      resolved     = true;
+    } else if (needRegeneration && !resolved) {
       // Record this failed attempt BEFORE the correction call so the next
       // Claude prompt knows exactly what was tried and why it was rejected.
       previousAttempts.push({
@@ -568,7 +583,7 @@ async function validateAndFinaliseMeal(params: {
         triggerMacro: deviation.triggerMacro,
       });
 
-      if (attemptsUsed.count >= MAX_CLAUDE_ATTEMPTS_PER_DAY) {
+      if (attemptsUsed.count >= maxAtt) {
         console.log(`[CN] Attempts exhausted Day${dayIdx+1} — accepting Claude estimate`);
         currentMeal  = { ...originalMeal };
         finalOutcome = 'attempts_exhausted';
@@ -578,7 +593,7 @@ async function validateAndFinaliseMeal(params: {
         const attemptNumber = attemptsUsed.count;
         console.log(
           `[CN] Regenerating Day${dayIdx+1} Meal${mealIndex+1}` +
-          ` attempt=${attemptNumber}/${MAX_CLAUDE_ATTEMPTS_PER_DAY}` +
+          ` attempt=${attemptNumber}/${maxAtt}` +
           ` trigger=${deviation.triggerMacro}` +
           ` history=${previousAttempts.length - 1} prior failures`,
         );
@@ -620,7 +635,7 @@ async function validateAndFinaliseMeal(params: {
     }
 
     // ── Safety guard — never exceed attempt budget ────────────────────────
-    if (!resolved && attemptsUsed.count >= MAX_CLAUDE_ATTEMPTS_PER_DAY) {
+    if (!resolved && attemptsUsed.count >= maxAtt) {
       currentMeal  = { ...originalMeal };
       finalOutcome = 'attempts_exhausted';
       resolved     = true;
@@ -634,7 +649,7 @@ async function validateAndFinaliseMeal(params: {
     'cn_failure', 'partial_match_failure', 'scaling_sanity_failed',
     'attempts_exhausted', 'correction_parse_failed', 'cn_fast_track_failure',
   ];
-  if (PLAN_SLOT_FAILURE_OUTCOMES.includes(finalOutcome)) {
+  if (!cnOnly && PLAN_SLOT_FAILURE_OUTCOMES.includes(finalOutcome)) {
     cnSlotFailures[mealIndex] = (cnSlotFailures[mealIndex] ?? 0) + 1;
     console.log(
       `[CN] Plan-level slot ${mealIndex} failure count → ${cnSlotFailures[mealIndex]}` +
@@ -1011,147 +1026,135 @@ async function runMacroValidation(
 
       const cnSlotFailures: Record<number, number> = {};
 
-      for (let dayIdx = 0; dayIdx < daysToValidate; dayIdx++) {
-        const day            = planData.days[dayIdx];
-        const attemptsUsed   = { count: 0 };
-        const cnFailureCount: Record<number, number> = {};
-
-        day.meals = (day.meals as any[]).map((meal: any, i: number) => ({
+      // Snapshot the original Claude meals (logging references these; the passes
+      // below never mutate them — planData.days[].meals is overwritten only in the
+      // apply loop after both passes finish).
+      const origMeals: any[][] = [];
+      for (let d = 0; d < daysToValidate; d++) {
+        planData.days[d].meals = (planData.days[d].meals as any[]).map((meal: any, i: number) => ({
           ...meal,
           type: normaliseMealType(meal.type, i, mealsPerDay),
         }));
+        origMeals[d] = (planData.days[d].meals as any[]).map((m: any) => ({ ...m }));
+      }
 
-        const finalisedMeals: any[] = [];
+      const results: Array<Array<{ meal: any; outcome: string; logData: MealLogData }>> = [];
+      const worklist: Array<{ d: number; m: number }> = [];
 
-        for (let mealIdx = 0; mealIdx < (day.meals as any[]).length; mealIdx++) {
-          const origMeal = day.meals[mealIdx];
-          const result   = await validateAndFinaliseMeal({
-            originalMeal: origMeal,
-            mealIndex:    mealIdx,
-            mealsPerDay,
-            dailyTargets,
-            userProfile:  profile,
-            dayIdx,
-            attemptsUsed,
-            cnFailureCount,
-            cnSlotFailures,
+      // ── PASS A — clean CN classification for EVERY meal, ZERO Claude calls ────
+      // All CN reads happen before any correction, so this invocation is never
+      // poisoned by an Anthropic call and CN succeeds for ~all meals. The old
+      // per-slot fast-track cascade (which disabled CN for days 3+ after a couple
+      // of transient failures) is bypassed in cnOnly mode. Meals more than the
+      // tolerance off target are deferred to Pass B as 'needs_regen'.
+      for (let d = 0; d < daysToValidate; d++) {
+        results[d] = [];
+        const meals = planData.days[d].meals as any[];
+        for (let m = 0; m < meals.length; m++) {
+          const r = await validateAndFinaliseMeal({
+            originalMeal: meals[m], mealIndex: m, mealsPerDay, dailyTargets,
+            userProfile: profile, dayIdx: d,
+            attemptsUsed: { count: 0 }, cnFailureCount: {}, cnSlotFailures,
+            cnOnly: true,
           });
-
-          finalisedMeals.push(result.meal);
+          results[d][m] = r;
           cnChecksTotal++;
-          pendingLogEntries.push({ dayIdx, mealIdx, origMeal, logData: result.logData });
-
-          console.log(
-            `[MealTarget] Day${dayIdx+1} Meal${mealIdx+1}` +
-            ` type="${result.meal.type}" outcome=${result.outcome}` +
-            ` final=${result.meal.calories}kcal`,
-          );
+          if (r.outcome === 'needs_regen') worklist.push({ d, m });
         }
+      }
+      console.log(`[CN Pass A] classified ${cnChecksTotal} meals cleanly — ${worklist.length} need regeneration`);
 
-        if (finalisedMeals.length !== mealsPerDay) {
-          console.error(
-            `[Plan] Day${dayIdx+1} has ${finalisedMeals.length} meals,` +
-            ` expected ${mealsPerDay}. Filling missing slots with originals.`,
-          );
-          for (let i = 0; i < mealsPerDay; i++) {
-            if (!finalisedMeals[i]) {
-              finalisedMeals[i] = day.meals[i];
-              console.error(`[Plan] Filled missing slot ${i} with original Claude meal`);
-            }
-          }
+      // ── PASS B — correct ONLY the off-target meals (Claude), per-meal budget ──
+      // Each meal gets its own small budget so one hard meal can't starve its
+      // siblings (the old per-day shared budget did). Bounded plan-wide too. The
+      // recheck after a correction can be mildly degraded (this invocation now has
+      // Claude calls), but only for this subset — Pass A already validated the rest.
+      if (worklist.length > 0) {
+        sendEvent('progress', { step: 'Refining meals to hit your macro targets...' });
+      }
+      const PASS_B_PER_MEAL   = 2;
+      const PASS_B_GLOBAL_CAP = Math.max(12, mealsPerDay * 3);
+      let passBClaudeCalls = 0;
+      for (const { d, m } of worklist) {
+        if (passBClaudeCalls >= PASS_B_GLOBAL_CAP) {
+          console.log(`[CN Pass B] global correction cap (${PASS_B_GLOBAL_CAP}) reached — remaining meals keep Claude estimate`);
+          break;
         }
+        const att = { count: 0 };
+        const r = await validateAndFinaliseMeal({
+          originalMeal: (planData.days[d].meals as any[])[m], mealIndex: m, mealsPerDay, dailyTargets,
+          userProfile: profile, dayIdx: d,
+          attemptsUsed: att, cnFailureCount: {}, cnSlotFailures,
+          maxAttempts: PASS_B_PER_MEAL,
+        });
+        results[d][m] = r;
+        passBClaudeCalls += att.count;
+        cnCorrectionsTotal += att.count;
+      }
+      console.log(`[CN Pass B] ${passBClaudeCalls} Claude correction call(s) across ${worklist.length} meal(s)`);
 
-        cnCorrectionsTotal += attemptsUsed.count;
+      // ── Apply results + per-day calorie-budget correction + totals + logging ──
+      for (let dayIdx = 0; dayIdx < daysToValidate; dayIdx++) {
+        const day = planData.days[dayIdx];
+        const finalisedMeals: any[] = results[dayIdx].map(r => r.meal);
+        for (let i = 0; i < mealsPerDay; i++) {
+          if (!finalisedMeals[i]) finalisedMeals[i] = origMeals[dayIdx][i];
+        }
         day.meals = finalisedMeals;
 
+        for (let m = 0; m < finalisedMeals.length; m++) {
+          pendingLogEntries.push({ dayIdx, mealIdx: m, origMeal: origMeals[dayIdx][m], logData: results[dayIdx][m].logData });
+          console.log(
+            `[MealTarget] Day${dayIdx+1} Meal${m+1} outcome=${results[dayIdx][m].outcome}` +
+            ` final=${finalisedMeals[m].calories}kcal`,
+          );
+        }
+
         const dayBudget = checkDayBudget(day.meals, dailyTargets);
-
         console.log(
-          `[DayBudget] Day${dayIdx+1}:` +
-          ` total=${dayBudget.dayTotalCalories}` +
-          ` target=${dayBudget.targetCalories}` +
-          ` dev=${dayBudget.deviationPct}%` +
-          ` valid=${dayBudget.isValid}`,
+          `[DayBudget] Day${dayIdx+1}: total=${dayBudget.dayTotalCalories}` +
+          ` target=${dayBudget.targetCalories} dev=${dayBudget.deviationPct}% valid=${dayBudget.isValid}`,
         );
-
         let finalDayBudget = dayBudget;
-
         if (!dayBudget.isValid) {
           sendEvent('progress', { step: `Adjusting Day ${dayIdx + 1} calorie budget...` });
-
           const largestMeal       = day.meals[dayBudget.largestMealIndex];
-          const largestMealTarget = getMealMacroTargets(
-            dailyTargets, mealsPerDay,
-            largestMeal.type, dayBudget.largestMealIndex,
-          );
-
-          if (attemptsUsed.count < MAX_CLAUDE_ATTEMPTS_PER_DAY) {
-            const dayPrompt = buildDayLevelCorrectionPrompt(
-              largestMeal,
-              largestMealTarget,
-              dayBudget.dayTotalCalories,
-              dayBudget.targetCalories,
-              profile,
-            );
-
-            try {
-              attemptsUsed.count++;
-
-              const dayText = await callLLM(dayPrompt, { maxTokens: 600 });
-              const dayMeal = JSON.parse(dayText.replace(/```json|```/g, '').trim());
-              dayMeal.type  = normaliseMealType(
-                dayMeal.type, dayBudget.largestMealIndex, mealsPerDay,
-              );
-
-              const dayResult = await validateAndFinaliseMeal({
-                originalMeal: dayMeal,
-                mealIndex:    dayBudget.largestMealIndex,
-                mealsPerDay,
-                dailyTargets,
-                userProfile:  profile,
-                dayIdx,
-                attemptsUsed,
-                cnFailureCount,
-                cnSlotFailures,
-              });
-
-              day.meals[dayBudget.largestMealIndex] = dayResult.meal;
-
-              finalDayBudget = checkDayBudget(day.meals, dailyTargets);
-              console.log(
-                `[DayBudget] Day${dayIdx+1} after replacement:` +
-                ` total=${finalDayBudget.dayTotalCalories} valid=${finalDayBudget.isValid}`,
-              );
-              if (!finalDayBudget.isValid) {
-                console.log(`[DayBudget] Day${dayIdx+1} still unresolved — accepting best result`);
-              }
-
-              pendingLogEntries.push({
-                dayIdx,
-                mealIdx:  dayBudget.largestMealIndex,
-                origMeal: largestMeal,
-                logData:  dayResult.logData,
-                dayLevelExtra: {
-                  wasDayLevelReplacement:    true,
-                  dayTotalBeforeReplacement: dayBudget.dayTotalCalories,
-                  dayTotalAfterReplacement:  finalDayBudget.dayTotalCalories,
-                },
-              });
-
-            } catch (err: any) {
-              console.error(`[DayBudget] Day${dayIdx+1} replacement failed:`, err.message);
-            }
-          } else {
-            console.log(`[DayBudget] Day${dayIdx+1} — no attempts left for day-level correction`);
+          const largestMealTarget = getMealMacroTargets(dailyTargets, mealsPerDay, largestMeal.type, dayBudget.largestMealIndex);
+          const dayAtt = { count: 0 };
+          try {
+            const dayPrompt = buildDayLevelCorrectionPrompt(largestMeal, largestMealTarget, dayBudget.dayTotalCalories, dayBudget.targetCalories, profile);
+            dayAtt.count++;
+            const dayText = await callLLM(dayPrompt, { maxTokens: 600 });
+            const dayMeal = JSON.parse(dayText.replace(/```json|```/g, '').trim());
+            dayMeal.type  = normaliseMealType(dayMeal.type, dayBudget.largestMealIndex, mealsPerDay);
+            const dayResult = await validateAndFinaliseMeal({
+              originalMeal: dayMeal, mealIndex: dayBudget.largestMealIndex, mealsPerDay, dailyTargets,
+              userProfile: profile, dayIdx,
+              attemptsUsed: dayAtt, cnFailureCount: {}, cnSlotFailures, maxAttempts: 1,
+            });
+            day.meals[dayBudget.largestMealIndex] = dayResult.meal;
+            cnCorrectionsTotal += dayAtt.count;
+            finalDayBudget = checkDayBudget(day.meals, dailyTargets);
+            console.log(`[DayBudget] Day${dayIdx+1} after replacement: total=${finalDayBudget.dayTotalCalories} valid=${finalDayBudget.isValid}`);
+            pendingLogEntries.push({
+              dayIdx, mealIdx: dayBudget.largestMealIndex, origMeal: largestMeal, logData: dayResult.logData,
+              dayLevelExtra: {
+                wasDayLevelReplacement:    true,
+                dayTotalBeforeReplacement: dayBudget.dayTotalCalories,
+                dayTotalAfterReplacement:  finalDayBudget.dayTotalCalories,
+              },
+            });
+          } catch (err: any) {
+            console.error(`[DayBudget] Day${dayIdx+1} replacement failed:`, err.message);
           }
         }
 
         planData.days[dayIdx].meals         = day.meals;
-        planData.days[dayIdx].totalCalories = day.meals.reduce((s: number, m: any) => s + (m.calories || 0), 0);
-        planData.days[dayIdx].totalProtein  = day.meals.reduce((s: number, m: any) => s + (m.protein  || 0), 0);
-        planData.days[dayIdx].totalCarbs    = day.meals.reduce((s: number, m: any) => s + (m.carbs    || 0), 0);
-        planData.days[dayIdx].totalFat      = day.meals.reduce((s: number, m: any) => s + (m.fat      || 0), 0);
-        planData.days[dayIdx].totalFibre    = day.meals.reduce((s: number, m: any) => s + (m.fibre    || 0), 0);
+        planData.days[dayIdx].totalCalories = day.meals.reduce((s: number, mm: any) => s + (mm.calories || 0), 0);
+        planData.days[dayIdx].totalProtein  = day.meals.reduce((s: number, mm: any) => s + (mm.protein  || 0), 0);
+        planData.days[dayIdx].totalCarbs    = day.meals.reduce((s: number, mm: any) => s + (mm.carbs    || 0), 0);
+        planData.days[dayIdx].totalFat      = day.meals.reduce((s: number, mm: any) => s + (mm.fat      || 0), 0);
+        planData.days[dayIdx].totalFibre    = day.meals.reduce((s: number, mm: any) => s + (mm.fibre    || 0), 0);
 
         const dayAnnotation: DayBudgetAnnotation = {
           dayTotalCalories: planData.days[dayIdx].totalCalories,
@@ -1162,12 +1165,9 @@ async function runMacroValidation(
           isValid:          finalDayBudget.isValid,
         };
         for (const e of pendingLogEntries) {
-          if (e.dayIdx === dayIdx && !e.dayBudgetResult) {
-            e.dayBudgetResult = dayAnnotation;
-          }
+          if (e.dayIdx === dayIdx && !e.dayBudgetResult) e.dayBudgetResult = dayAnnotation;
         }
       }
-
       const failedSlots = Object.entries(cnSlotFailures);
       if (failedSlots.length > 0) {
         console.log('[CN] Plan-level slot failure summary:');
