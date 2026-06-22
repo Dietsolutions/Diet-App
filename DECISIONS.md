@@ -1056,3 +1056,84 @@ risk that 23/28-with-fallback doesn't justify yet.
 | `client/src/lib/api.ts` | new `streamSSE()` helper (shared XHR-SSE POST with Bearer) |
 | `client/src/components/Onboarding.tsx` | call `/validate-plan` after generation |
 | `client/src/components/ProfileTab.tsx` | call `/validate-plan` after regeneration |
+
+## 21. Per-meal macro target equal-split — found in the logger, plus two latent log bugs (2026-06-22)
+
+### The reported bug (and where it actually was)
+
+Report: `getMealMacroTargets` divides protein/carbs/fat equally by `mealsPerDay`
+while calories use the slot weight, so a 4-meal snack is targeted at 152/4 = 38g
+protein instead of ~15g — supposedly causing oversized snacks that fail CN.
+
+**Step 0 found the premise was stale.** `getMealMacroTargets` was already fully
+proportional in both the working tree and `origin/main` (fixed in `3e5f92f`,
+verified in §19). The current lines:
+
+```ts
+proteinG: Math.round(dailyTargets.proteinG * weight * 10) / 10,
+carbsG:   Math.round(dailyTargets.carbsG   * weight * 10) / 10,
+fatG:     Math.round(dailyTargets.fatG     * weight * 10) / 10,
+```
+
+Every consumer already uses it as the single source of truth: the Claude prompt
+(`buildMealTargetsSection`, ai.ts), the per-meal validation/correction target
+(ai.ts), and the day-level correction. So generation was **never** mis-targeting
+meals — the author's claimed consequence (oversized snacks failing CN) does not
+follow from this code.
+
+**The real equal-split was in the validation logger** —
+`macroValidationLogger.ts`, the per-meal target it WRITES to `macro_validation_logs`:
+
+```ts
+// OLD (bug): calories weighted, the other three equal-split
+calories: Math.round(entry.targets.dailyCalories * mealCalPct),
+protein:  entry.targets.dailyProtein / entry.mealsPerDay,   // 152/4 = 38g for a snack
+carbs:    entry.targets.dailyCarbs   / entry.mealsPerDay,
+fat:      entry.targets.dailyFat     / entry.mealsPerDay,
+```
+
+That is the 38g the author saw — it came from the **log**, not the meal sizing.
+Fix routes all four macros through the same `getMealWeightPct` (matching
+`getMealMacroTargets`). It only ever corrupted the logged target columns and their
+protein/carbs/fat deltas; routing uses CN-vs-Claude calorie deviation, computed
+separately, so meals were unaffected.
+
+### Two latent log bugs surfaced while verifying (Step 5)
+
+Confirming the fix in a real generation was blocked because **no** validation logs
+were persisting. Two further bugs, both pre-existing:
+
+1. **8s write race in two-phase `/validate-plan`** — log inserts were raced against
+   an 8s ceiling, then `res.end()` froze the serverless instance and killed the
+   in-flight writes. Fixed: await all inserts fully (Prisma writes complete fine in
+   that invocation) and return the count as `logsWritten`.
+
+2. **Schema drift — missing `cnAttempted` column (the actual blocker).** The model
+   has `cnAttempted Boolean @default(false)` and the logger writes it, but the prod
+   table never got the column (earlier migrations used `CREATE TABLE IF NOT EXISTS`,
+   which skips existing tables). Every insert threw `column "cnAttempted" does not
+   exist`, and the logger's try/catch swallowed it — so `logsWritten:28` reported
+   success while 0 rows reached the DB. Fixed with an additive `ALTER TABLE ADD
+   COLUMN IF NOT EXISTS`, applied to prod and committed as an idempotent migration.
+
+### Verification
+
+- `testMacroSplit.ts` (extended): proportional split holds, and the logger-path
+  guard asserts snack protein = `152 × 0.10 = 15.2g`, not `152/4 = 38g`. Passes.
+- **Pre-fix prod log (bug live):** a real run logged all four slots at 32.5g
+  (= 130/4) — identical across breakfast/lunch/snack/dinner.
+- **Post-fix prod run:** `logsWritten:28` AND **28 rows actually in the DB**; Day-1
+  protein targets `39.5 / 55.3 / 15.8 / 47.4g` (25/35/10/30% — not identical);
+  **snack `mealTargetProtein` = 15.8g** (weighted ×0.10), not 39.5g equal-split.
+- Commits on `origin/main`: `0ed5871` (logger split), `9625043` (await log writes),
+  `5104f55` (cnAttempted migration). Vercel auto-deploys `origin/main`.
+
+### Files
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidationLogger.ts` | per-meal protein/carbs/fat target now weighted (`* mealCalPct`), not `/ mealsPerDay` |
+| `server/src/routes/ai.ts` | `persistValidationLogs` awaits all inserts fully + returns count; `/validate-plan` done event reports `logsWritten` |
+| `server/src/scripts/testMacroSplit.ts` | added logger-path guard (snack protein weighted, not 38g) |
+| `server/src/prisma/migrations/20260622000000_add_cn_attempted_column/migration.sql` | new — idempotent ADD COLUMN for prod drift |
+| production DB | `ALTER TABLE macro_validation_logs ADD COLUMN IF NOT EXISTS "cnAttempted"` applied |
