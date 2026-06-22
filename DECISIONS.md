@@ -1137,3 +1137,72 @@ were persisting. Two further bugs, both pre-existing:
 | `server/src/scripts/testMacroSplit.ts` | added logger-path guard (snack protein weighted, not 38g) |
 | `server/src/prisma/migrations/20260622000000_add_cn_attempted_column/migration.sql` | new — idempotent ADD COLUMN for prod drift |
 | production DB | `ALTER TABLE macro_validation_logs ADD COLUMN IF NOT EXISTS "cnAttempted"` applied |
+
+## 22. Two-pass macro validation + scale-first routing — CN coverage 11/28 → 28/28 (2026-06-22)
+
+### Deep analysis (now possible — §21 restored the logs)
+
+A real 28-meal run broke down as: `cn_plan_fast_track` 17, `attempts_exhausted` 8,
+`accepted_after_scaling` 3 — i.e. **only ~11/28 meals were genuinely CN-validated**.
+Two failure engines, both downstream of the same root cause (the AI call degrades
+later outbound HTTPS in the same invocation — §20):
+
+1. **Fast-track cascade (dominant, 17/28).** When a meal *slot* failed CN twice
+   across days (`CN_FAST_TRACK_THRESHOLD=2`), CN was disabled for that slot for the
+   rest of the plan. Because corrections were interleaved with CN checks, the early
+   days' Claude calls poisoned later CN calls; by day 3 every slot had 2 failures,
+   so **days 3–6 were skipped entirely** (no CN call at all). Designed for genuinely
+   CN-blind foods, it was firing on transient poisoning.
+2. **Interleaving + per-day budget starvation (8/28).** Days interleaved CN with
+   Claude corrections (poisoning later reads) and the shared `MAX_CLAUDE_ATTEMPTS_PER_DAY=5`
+   budget was burned by the first hard meals, leaving siblings `attempts_exhausted`.
+
+### Fix 1 — two-pass orchestration (`runMacroValidation`)
+
+`validateAndFinaliseMeal` gained `cnOnly` and `maxAttempts`; scaling/guards/logging
+otherwise unchanged.
+- **Pass A (cnOnly, zero Claude calls):** CN-check + accept/scale EVERY meal before
+  any correction, so the invocation stays clean and CN succeeds for ~all meals. The
+  plan-level fast-track is bypassed in cnOnly mode, killing the cascade. Off-target
+  meals are deferred as `needs_regen`.
+- **Pass B (corrections):** only the deferred meals get Claude regeneration, each
+  with its OWN small budget (no sibling starvation), bounded plan-wide; any meal left
+  `needs_regen` is relabelled (keeps Claude estimate — CN still read it cleanly).
+
+**Result (verified live):** CN coverage **11/28 → 28/28**, `cn_plan_fast_track` → **0**.
+
+### Fix 2 — scale-first routing (`computeDeviation`)
+
+After Fix 1, ~21/28 meals routed to Claude `regenerate` (CN-vs-Claude >35%) and the
+corrections did NOT converge — even though the CN rechecks succeeded. The realisation:
+CN gives the meal's *true* macros, so a large CN-vs-Claude gap just means Claude
+mis-estimated; **scaling (deterministic portion math) hits a calorie target far more
+reliably than asking Claude to regenerate.** Raised `DEVIATION_SCALE_MAX_PCT` 35 → 200
+so calorie-magnitude deviations scale first. Scaling self-limits — the factor is
+clamped to `[0.5, 1.20]` and a post-scale CN re-check escalates to `regenerate` only
+when portions genuinely can't reach target. Protein *ratio* errors (`protDev > 50`)
+still regenerate (scaling can't fix a ratio).
+
+### Verification
+
+- Live run: CN `cnApiSuccess` **28/28**, zero fast-track (Fix 1).
+- Routing unit test (no API): 30/50/90% calorie-over → `scale` (was `regenerate`);
+  225% → `regenerate`; protein-ratio 200% → `regenerate(protein)`; in-tolerance →
+  `accept_cn`. All pass (Fix 2).
+- **Pending:** the end-to-end post-Fix-2 outcome distribution (expected: most meals
+  `accepted_cn`/`accepted_after_scaling`, few regenerate) was not captured live —
+  the Anthropic key hit its daily rate limit after ~12 full test generations, so fresh
+  generation returns the generic error (a 429 isn't mapped in the generate catch).
+  Code is deployed and clean; re-run a generation once the key resets to capture it.
+
+### Files
+
+| File | Change |
+|---|---|
+| `server/src/routes/ai.ts` | `validateAndFinaliseMeal` gains `cnOnly`/`maxAttempts`; `runMacroValidation` rewritten as plan-wide Pass A (clean CN classify) + Pass B (targeted corrections) + apply/day-budget/logging; `needs_regen` safety relabel |
+| `server/src/services/macroValidation.ts` | `DEVIATION_SCALE_MAX_PCT` 35 → 200 (scale-first for calorie magnitude) |
+
+### Follow-up (not done)
+A 429/overload branch in the generate-meal-plan catch would surface "service busy,
+try again" instead of the generic failure — worth adding so users get an accurate
+message when the AI provider is rate-limited.
