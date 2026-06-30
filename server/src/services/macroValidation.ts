@@ -322,9 +322,14 @@ export function computeProportionalScaleFactor(
   const protFactor = cn.protein  > 0 ? claude.protein  / cn.protein  : 1.0;
   const carbFactor = cn.carbs    > 0 ? claude.carbs    / cn.carbs    : 1.0;
 
-  // Weighted blend: calories 50%, protein 35%, carbs 15%
+  // Calorie-dominant blend (calories 80%, protein 15%, carbs 5%). Post-scale
+  // acceptance is calorie-based, and protein is now taken from CN's real reading
+  // rather than corrected — so the old 50/35/15 blend let the protein term drag
+  // the factor off the calorie target, the post-scale recheck missed, and the meal
+  // escalated to a (non-converging) regeneration. Weighting calories makes scaling
+  // reliably hit the calorie target so the meal is accepted after scaling. See §22.
   // Fat excluded — CN fat estimates are too noisy for Indian cooking.
-  const blendedRaw = (calFactor * 0.50) + (protFactor * 0.35) + (carbFactor * 0.15);
+  const blendedRaw = (calFactor * 0.80) + (protFactor * 0.15) + (carbFactor * 0.05);
 
   // Clamp: never scale below 50% or above 120% of original
   const scaleFactor = Math.min(Math.max(blendedRaw, 0.50), SCALE_UP_MAX_FACTOR);
