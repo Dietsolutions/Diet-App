@@ -457,12 +457,34 @@ async function validateAndFinaliseMeal(params: {
     // ── 2. Route by deviation action ──────────────────────────────────────
     let needRegeneration = false;
 
+    // On-target short-circuit: CN gives the meal's TRUE macros. If they land
+    // within tolerance of the meal TARGET, the meal is already correct — accept
+    // CN's values regardless of how far they diverge from Claude's (often wrong)
+    // estimate. This stops the pipeline from churning non-converging Claude
+    // corrections on meals that are already on target (the CN-vs-Claude gap is
+    // not a defect to fix once the meal hits the target). See DECISIONS §22.
+    const cnOnTarget = cnResult.success
+      && checkMealAgainstTarget(cnResult.macros.calories, mealTarget).withinTarget;
+
     if (deviation.action === 'cn_failure' || deviation.action === 'partial_match_failure') {
       // Track this CN failure for fast-track detection on future iterations
       cnFailureCount[mealIndex] = (cnFailureCount[mealIndex] ?? 0) + 1;
       if (deviation.action === 'partial_match_failure') partialMatchGuardFlag = true;
       currentMeal  = { ...originalMeal };
       finalOutcome = deviation.action;
+      resolved     = true;
+
+    } else if (cnOnTarget) {
+      // Meal already hits its calorie target — accept CN's real macros, done.
+      currentMeal = {
+        ...currentMeal,
+        calories: cnResult.macros.calories,
+        protein:  cnResult.macros.proteinG,
+        carbs:    cnResult.macros.carbsG,
+        fat:      cnResult.macros.fatG,
+        fibre:    cnResult.macros.fibreG,
+      };
+      finalOutcome = 'accepted_cn';
       resolved     = true;
 
     } else if (deviation.action === 'accept_cn') {
