@@ -16,7 +16,12 @@ export const DEVIATION_SCALE_MAX_PCT = 200  // 15–200 → scale; only absurd g
 // ── Secondary macro routing thresholds ───────────────────────────────────────
 // Fat is excluded from routing — CN fat estimates are too noisy for Indian
 // cooking (tiny ghee/oil quantities cause large percentage swings).
-export const PROTEIN_REGEN_PCT  = 50   // protein >50% off → escalate to regenerate
+// Protein deviation no longer forces a (non-converging) Claude regeneration:
+// CN gives the meal's TRUE protein, and scaling toward the calorie target adjusts
+// portions deterministically. A large CN-vs-Claude protein gap is Claude's estimate
+// error, not a meal defect to regenerate — set effectively-infinite so protein
+// routes to scale/accept, not regenerate. See DECISIONS §22.
+export const PROTEIN_REGEN_PCT  = 9_999_999  // (was 50) protein never forces regenerate
 export const PROTEIN_SCALE_PCT  = 30   // protein >30% off → escalate to scale
 export const CARB_SCALE_PCT     = 40   // carbs >40% off → escalate to scale
 
