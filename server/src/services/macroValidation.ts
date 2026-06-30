@@ -47,12 +47,15 @@ export const DAY_BUDGET_TOLERANCE    = 0.15  // ±15% of daily calorie target
 // ── Attempt budget ────────────────────────────────────────────────────────────
 export const MAX_CLAUDE_ATTEMPTS_PER_DAY = 5  // Claude regeneration calls per day plan
 
-// ── Plan-level CN slot failure fast-track ─────────────────────────────────────
-// Once a meal slot (by mealIndex) accumulates this many confirmed CN failures
-// across the entire plan, all future meals at that slot skip CN entirely and
-// accept Claude's estimate. Prevents burning Claude regeneration attempts on
-// food types that CN consistently cannot validate (e.g. Indian fish preparations).
-export const CN_FAST_TRACK_THRESHOLD = 2
+// ── Plan-level CN slot failure fast-track (DISABLED in the two-pass design) ───
+// Legacy from single-pass validation: once a slot accumulated this many CN
+// failures, all future meals at that slot skipped CN. In the two-pass pipeline
+// (DECISIONS §22) Pass A already CN-checks every meal in a clean invocation, so
+// the only failures left are Pass B's poisoned post-correction rechecks — and
+// fast-tracking those just cascaded (disabling CN for whole days, keeping the
+// uncorrected meal). Set effectively-infinite so the cascade never fires; a
+// meal whose recheck fails now falls back individually without poisoning others.
+export const CN_FAST_TRACK_THRESHOLD = 9_999_999
 
 // ── Canonical meal type names ─────────────────────────────────────────────────
 export const CANONICAL_MEAL_TYPES: Record<number, string[]> = {
