@@ -1206,3 +1206,59 @@ still regenerate (scaling can't fix a ratio).
 A 429/overload branch in the generate-meal-plan catch would surface "service busy,
 try again" instead of the generic failure — worth adding so users get an accurate
 message when the AI provider is rate-limited.
+
+## 23. Validation tuning to completion — CN 28/28, churn 28→7 corrections (2026-07-01)
+
+§22's two-pass + scale-first got CN reads to 28/28 but live runs still showed a
+cascade and heavy correction churn. Driving from the (now-reliable) logs, five more
+changes — each measured on production via a manual deploy — took it the rest of the way.
+
+### The deploy gap (root of the "it regressed" confusion)
+The `diet-app` Vercel project **was not auto-deploying from GitHub** — production was
+8 days stale, so scale-first (and others) sat on `main` un-deployed while live runs
+showed old behaviour. Builds succeed when triggered manually. **Deploy via CLI**
+(`vercel link --project diet-app --scope harsh1tv-4567s-projects`, then
+`vercel deploy --prod`) after every push, or reconnect the Git integration. Runtime
+logs via `vercel logs <url> --json` (needs a live request) — this is how the
+"generation failure" was finally pinned to Anthropic's monthly usage cap (a `400`
+`invalid_request_error`, not a 429), not a code bug.
+
+### The tuning chain (each verified live)
+1. **Disable the plan-level fast-track cascade** (`CN_FAST_TRACK_THRESHOLD` → ∞). In the
+   two-pass design Pass A already CN-checks every meal cleanly, so the only failures
+   left were Pass B's poisoned rechecks — fast-tracking them disabled CN for whole days.
+   Result: cascade 15→0, CN coverage → 28/28. But all 28 then `attempts_exhausted`.
+2. **On-target short-circuit** (routes/ai.ts). CN gives true macros; if they're within
+   ±15% of the meal *target*, accept them — don't churn corrections to make CN match
+   Claude's (wrong) estimate. 6→9 meals accepted directly.
+3. **Protein no longer forces regenerate** (`PROTEIN_REGEN_PCT` → ∞). A CN-vs-Claude
+   protein gap is Claude's estimate error, not a meal defect; route protein to scale/
+   accept. Eliminated all `regenerate` routing (deviationAction scale=26).
+4. **Calorie-dominant scale factor** (50/35/15 → **80/15/5** cal/prot/carb). The protein
+   term was dragging the blend off the calorie-optimal so post-scale calories missed and
+   the meal escalated to a non-converging regeneration. Post-scale acceptance is
+   calorie-based and protein is taken from CN, so weight calories. This was the unlock.
+
+### Final result (live)
+CN coverage **28/28**; cleanly validated (accept_cn + accepted_after_scaling) **24/28**;
+within meal target ±15% **28/28**; Claude corrections **7** (was ~16–28). Remaining ~4
+fall back gracefully (genuinely hard meals: scaling clamp can't reach, or CN partial
+match). Progression of cleanly-validated across the chain: 0 → 9 → 13 → **24**.
+
+### Philosophy shift captured here
+Validation now trusts CN as the source of truth and uses **deterministic scaling toward
+the calorie target** as the primary tool; Claude regeneration is a last resort, not the
+default. The old routing "fixed" CN-vs-Claude disagreement even when the meal was already
+on target — pure churn. CN-vs-*target* is what matters.
+
+### Files
+
+| File | Change |
+|---|---|
+| `server/src/services/macroValidation.ts` | `CN_FAST_TRACK_THRESHOLD`→∞; `PROTEIN_REGEN_PCT`→∞; scale blend 80/15/5 |
+| `server/src/routes/ai.ts` | on-target short-circuit before scale/regenerate |
+
+### Follow-ups (not done)
+- Reconnect Vercel↔GitHub auto-deploy (or keep deploying manually).
+- Map Anthropic `400` usage-cap / `429` in the generate catch → accurate "service busy" message.
+- The 3 pre-existing `TS2835` import-extension warnings (`auth.ts`/`plan.ts`/`refreshToken.ts`) are non-fatal but worth cleaning.
