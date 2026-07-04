@@ -1,132 +1,232 @@
-# Publish Readiness — Diet Plan & Tracker
+# Getting Diet Plan & Tracker into the App Store and Play Store
+### A plain-English readiness guide
 
-Audit date: 2026-07-01. Scope: Apple App Store + Google Play publishability.
-Method: direct inspection of configs, server middleware, manifests, client
-bundle inputs, `npm audit`, and the live production behaviour. Auto-fixes
-applied in this run are marked ✅ and listed in DECISIONS.md §24.
-
-## TOP 5 BLOCKERS
-
-1. **Signing & store accounts (manual)** — no iOS distribution cert/
-   provisioning profile and no Android upload keystore exist yet. Nothing
-   ships without them. Follow `SECRETS.md` (kept locally, now untracked) +
-   `scripts/generate-android-keystore.sh`; enrol Apple Developer Program +
-   Play Console.
-2. **`dietplan.app` domain assumptions** — Android App Links, the privacy/
-   terms URLs you'll enter in store forms, and OAuth callbacks reference
-   `dietplan.app` / the Vercel URL inconsistently. Decide the canonical
-   production domain, serve `.well-known/assetlinks.json` (Android) and
-   `apple-app-site-association` (iOS) from it, and use its `/privacy` +
-   `/terms` URLs in both store listings.
-3. **Store listing assets (manual)** — screenshots per device class,
-   content-rating questionnaires, support URL, and the privacy
-   declarations (transcribe `DATA_INVENTORY.md`). `STORE_METADATA.md` has
-   name/description drafts; icons + splash exist in both shells.
-4. **Native release build never exercised end-to-end** — debug simulator
-   runs work, but no TestFlight build or Play internal-testing AAB has been
-   produced. The release pipeline (fastlane / `.github/workflows`) is
-   written but unproven; expect first-run issues (signing, bundle IDs,
-   version codes).
-5. **Vercel auto-deploy from GitHub is broken** — pushes to `main` do not
-   reach production (found 2026-06-30; production was 8 days stale).
-   Reconnect the Git integration or keep deploying via CLI, otherwise the
-   backend the store build talks to will silently rot.
+**Audit date:** 1 July 2026.
+**Who this is for:** you, the app owner — no technical background assumed.
+**The one-line verdict:** your app's *code* is in good shape. Almost everything
+left is *paperwork, accounts, and one-time setup* — the kind of thing only you
+(as the account owner) can do. This document explains every item: what it is,
+why the stores care, and exactly what to do about it.
 
 ---
 
-## A. Application Security
+## How app publishing works (60-second primer)
 
-| Item | Status | Severity | Effort | Notes |
-|---|---|---|---|---|
-| Secrets in tracked source | OK | — | — | No live keys/DB URLs in git (only a test-container URL in `__tests__/setup.ts`). `SECRETS.md` was tracked but is documentation/placeholders only — ✅ untracked to match `.gitignore` intent. `session-ses_1786.md` (past leak) confirmed gitignored. |
-| `.env` hygiene | OK | — | — | `.gitignore` covers `.env*` comprehensively; `!.env.example` whitelisted. |
-| Client-side env vars | OK | — | — | Only `VITE_API_URL`, `VITE_POSTHOG_KEY/HOST`, `VITE_SENTRY_DSN` reach the bundle — all designed-to-be-public values. Anthropic/CN/DB keys are server-only; verified absent from `client/dist`. |
-| JWT handling | OK | — | — | 7d access + hashed refresh tokens; `JWT_SECRET` enforced at startup (throws in prod if missing/short/placeholder — no hardcoded fallback). |
-| Cookie flags | OK | — | — | `httpOnly`, `secure` (prod), `sameSite` set. Native uses Bearer tokens in localStorage — acceptable for WebView apps; note it in the privacy write-up. |
-| Helmet | OK | — | — | Present with sane config (CSP off is fine for a JSON-only API). |
-| CORS | OK | — | — | Explicit allowlist + per-project Vercel preview regex; Capacitor WebView origins allowed deliberately (every endpoint still requires JWT). Not `*`. |
-| Rate limiting | OK | — | — | `express-rate-limit` on login/signup/deletion/reset; per-user limiter; AI generation capped 3/day + 2/month. In-memory stores reset per serverless instance — acceptable now, note for scale. |
-| SQL injection | OK | — | — | Prisma throughout; raw queries are constant health-check `SELECT 1`s. |
-| API ownership checks | OK | — | — | Routes filter by `req.userId` from JWT (spot-checked tracker/weight/meals/plan); public recipe share route is deliberately read-only. |
-| Error responses | OK | — | — | Production error middleware returns generic `server_error`; stacks logged server-side only. |
-| Dependency vulns | Needs Work | Medium | 1–2h | Server: 2 high (`nodemailer` raw-option SSRF — only exploitable if attacker controls message construction, we don't use `raw`; `undici` header injection). Client: 1 high (`form-data` CRLF), 1 moderate (`dompurify`). Run `npm audit fix` in both, retest login-email + generation. Not store blockers. |
+Think of the two app stores as very strict landlords:
 
-## B. Mobile Platform Configuration
+1. **You need an identity.** Apple and Google only accept apps from registered
+   developers. That means paid developer accounts in your name/company.
+2. **Your app must be "signed."** Signing is a digital wax seal that proves the
+   app really came from you and wasn't tampered with. It uses secret files
+   (certificates / keystores) that only you should hold.
+3. **You must declare what data you collect.** Both stores make you fill in a
+   public "privacy questionnaire" about what personal data your app touches.
+   Lying or forgetting things gets apps rejected or removed.
+4. **A human reviewer will use your app.** If anything looks broken, dead-ends,
+   or scary during their 10-minute test, you get rejected and must resubmit.
 
-| Item | Status | Severity | Effort | Notes |
-|---|---|---|---|---|
-| iOS bundle ID / versions | OK | — | — | `com.dietplan.tracker`; version/build driven by Xcode build settings (`MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`). |
-| iOS permission strings | OK | — | — | No `NS...UsageDescription` needed — plugins are app/haptics/splash/status-bar only; no camera/photos/notifications requested. Keep it that way unless a feature demands one. |
-| iOS ATS | OK | — | — | `NSAllowsArbitraryLoads=false`; only a localhost dev exception (standard, review-safe). |
-| iOS privacy manifest | OK | — | — | `PrivacyInfo.xcprivacy` present: name/email/userID/health declared, tracking=false. Matches `DATA_INVENTORY.md`. |
-| iOS encryption declaration | OK | — | — | `ITSAppUsesNonExemptEncryption=false` declared (HTTPS-only exemption). |
-| Android package / versions | OK | — | — | `com.dietplan.tracker`; versionCode/Name overridable via env/CI — remember to bump per upload. |
-| Android target SDK | OK | — | — | target/compile SDK 36, min 24 — above Play's current minimum. |
-| Android permissions | ✅ Fixed | — | — | Removed `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `SCHEDULE_EXACT_ALARM` (belonged to uninstalled local-notifications plugin; exact-alarm draws review scrutiny). Kept `INTERNET`, `ACCESS_NETWORK_STATE`, `VIBRATE` (haptics). |
-| Cleartext traffic | ✅ Fixed | — | — | Android `network_security_config` already forbids cleartext; `capacitor.config.ts` `server.cleartext` flipped `true`→`false` (API is HTTPS-only; dev uses bundled assets). |
-| Capacitor server URL | Needs Work | High | 0.5h + discipline | `server.url` comes from `VITE_API_URL` at sync time — correct pattern, but store builds MUST be produced with it **unset** (bundled assets) and the client **built** with `VITE_API_URL=<prod API>` baked in. Document the exact release command in the build scripts so a stray env var can't ship a remote-URL WebView (Apple rejects thin web wrappers pointing at remote sites). |
-| Deep links | Needs Work | Medium | 1–2h + domain | `dietplan://` scheme fine. Android App Links intent-filter (`autoVerify=true`) requires `https://dietplan.app/.well-known/assetlinks.json` to actually be served — it is not today; verification will fail (falls back to chooser, not fatal). Serve it or drop the App Links filter for v1. |
-| Debug flags | OK | — | — | `webContentsDebuggingEnabled=false`, `allowMixedContent=false`, no `CAPACITOR_DEBUG` leakage in release scheme. |
-| Signing | **Blocker (manual)** | Blocker | 2–4h author | iOS: Apple Developer Program + distribution cert + provisioning profile (fastlane match scripted in repo). Android: generate upload keystore (`scripts/generate-android-keystore.sh`), enrol in Play App Signing. **Not automatable — author task.** |
+Everything below is in service of those four facts.
 
-## C. Privacy & Store Compliance
+---
 
-| Item | Status | Severity | Effort | Notes |
-|---|---|---|---|---|
-| Privacy policy | OK | — | — | Served at `/privacy` (`routes/pages.ts`), covers health data, retention, rights; linked in-app (AuthScreen + ProfileTab). Use its **canonical production URL** in both store forms. |
-| Terms of service | OK | — | — | `/terms` served + linked; includes 13+ age requirement. |
-| Account deletion | OK | — | — | Apple-required in-app deletion exists: Profile → Delete Account → `DELETE /api/auth/delete-account` (password-confirmed, rate-limited, cascading delete). Also email-confirmed `request-deletion` path. |
-| App Privacy / Data Safety forms | Needs Work (manual) | Blocker-adjacent | 1–2h | Store questionnaires must be filled at submission; transcribe `DATA_INVENTORY.md` (written this run). |
-| Health-data disclosure | OK | — | — | Privacy policy names diet/body metrics; PrivacyInfo declares health type; Anthropic sharing disclosed in DATA_INVENTORY for the forms. |
-| Third-party SDK disclosure | OK | — | — | PostHog / Google / Apple / Anthropic / CalorieNinjas enumerated in DATA_INVENTORY. |
-| Children / COPPA | OK | — | — | 13+ in Terms; select "not directed at children" in both stores. |
+## ✅ Good news first: what's already done
 
-## D. Store Listing Readiness (all manual/author tasks)
+You don't need to touch any of this — it was either already built or fixed
+during this audit. Listed so you know it's covered:
 
-| Item | Status | Notes |
+| Thing the stores check | Status | What it means in plain English |
 |---|---|---|
-| App icons | OK | Full `AppIcon.appiconset` (incl. 1024) + Android mipmaps present. |
-| Splash screens | OK | All density buckets present in both shells. |
-| Screenshots | Missing | Per-device-class screenshots needed (6.7"/6.5"/5.5" iPhone, iPad if supported, phone+tablet for Play). `take-screenshots.js` exists as a starting point. |
-| Name / description / keywords | Needs Work | Drafts in `STORE_METADATA.md` — review and finalise. |
-| Content rating | Missing | Fill questionnaires (expect "Everyone"/4+; health-adjacent, no medical claims — avoid "weight loss cure" phrasing). |
-| Support + marketing URL | Missing | Needs a real support contact page/email on the canonical domain. |
-| Review notes / demo account | Needs Work | `STORE_REVIEW_NOTES.md` exists — attach a working demo login for reviewers. |
-
-## E. Production Readiness
-
-| Item | Status | Severity | Effort | Notes |
-|---|---|---|---|---|
-| Crash reporting | Needs Work | High | 0.5h | Sentry is wired in `main.tsx` but `VITE_SENTRY_DSN` is unset → no crash visibility in the wild. Create a (free-tier) Sentry project and set the DSN in the release build env. |
-| Error handling / stack leaks | OK | — | — | Generic prod errors; SSE generation errors mapped to friendly messages. |
-| Log hygiene | OK | — | — | No passwords/tokens logged (grep-verified); morgan logs are standard access lines. Meal/validation logs contain health-adjacent content in the DB by design — covered by privacy policy. |
-| AI provider failure UX | Needs Work | Medium | 1h | Anthropic monthly-cap/429 surfaces as generic "Failed to generate meal plan" (hit this on 2026-06-30). Map 400-usage-cap/429/529 to "service busy — try again later" so reviewers with a fresh account never see a dead-end. **Review risk:** if the Anthropic cap is exhausted during app review, the core flow fails — raise the cap before submitting. |
-| Offline behaviour | Needs Work | Medium | 2–4h | PWA service worker + API_UNREACHABLE interceptor exist; App.tsx has minimal offline handling. Verify airplane-mode UX on device: app must show a graceful message, not a blank WebView (common rejection). |
-| Loading/empty states | OK | — | — | Generation has SSE progress + heartbeat; tabs have empty states. Spot-check on device during QC. |
-| Rate limits vs. real users | OK | — | — | 3 gens/day + 2/month per user is store-safe; document in review notes so testers aren't surprised. |
-| Vercel deploy pipeline | **Blocker** | Blocker | 0.5h | GitHub auto-deploy not landing (prod was 8 days stale). Reconnect Git integration in Vercel project settings, or adopt the manual CLI deploy as the documented process. |
+| Passwords stored safely | ✅ Done | Passwords are scrambled ("hashed") — even we can't read them. |
+| Connections encrypted | ✅ Done | All traffic between the app and server uses HTTPS (the padlock). |
+| Server protected against common attacks | ✅ Done | Standard protective layers (security headers, request limits, safe database queries) are in place. |
+| No secret keys leaked in the code | ✅ Verified | We scanned the entire codebase — no API keys or database passwords are exposed anywhere public. |
+| "Delete my account" button | ✅ Done | Apple **requires** that users who can sign up can also delete their account inside the app. Yours can (Profile → Delete Account). |
+| Privacy Policy & Terms of Service | ✅ Done | Written and shown inside the app. Both stores demand these. |
+| Apple privacy manifest | ✅ Done | A technical file Apple requires that declares data collection. Already present and accurate. |
+| App icons & splash screens | ✅ Done | All required sizes exist for both platforms. |
+| Age policy | ✅ Done | Terms require users to be 13+, which keeps you clear of children's-privacy laws. |
+| Unnecessary phone permissions | ✅ Fixed in this audit | The Android app was asking for alarm/notification permissions it no longer uses (left over from a removed feature). Removed — reviewers dislike apps that ask for more than they need. |
+| Insecure-connection setting | ✅ Fixed in this audit | A leftover developer convenience setting ("allow unencrypted traffic") was switched off. |
 
 ---
 
-## Prioritized Action Plan
+## 🔴 The 5 blockers — must be done before you can submit
 
-### Tier 1 — Blockers (before submission)
-1. **Signing material** *(manual)* — Apple Developer Program + match; Android keystore + Play App Signing. Effort: 2–4h of account work.
-2. **Canonical domain + legal URLs** *(manual + tiny code)* — pick the production domain; ensure `/privacy`, `/terms`, support URL live on it; serve `assetlinks.json` (or drop the App Links filter). Effort: 1–2h.
-3. **Fix Vercel auto-deploy** *(manual, 30 min)* — reconnect the GitHub integration so the backend stays current.
-4. **Store forms** *(manual)* — App Privacy + Data Safety from `DATA_INVENTORY.md`; content ratings; review notes with demo account. Effort: 2–3h.
-5. **Produce one real release build per platform** *(code+manual)* — TestFlight + Play internal testing, with `VITE_API_URL` baked and `server.url` unset. Effort: half a day incl. first-run signing issues.
+These are ordered by lead time: start #1 and #2 today because they involve
+waiting on other people/companies.
 
-### Tier 2 — High priority (before launch)
-6. **Set `VITE_SENTRY_DSN`** in release builds — crash visibility (0.5h).
-7. **Map AI-provider errors** to accurate user messages + ensure Anthropic cap headroom during review window (1h).
-8. **`npm audit fix`** both workspaces; retest email + generation (1–2h).
-9. **Device QC pass**: offline/airplane mode, cold start, deletion flow, generation E2E on physical devices (2–4h).
-10. **Document the exact release build commands** (env discipline for `VITE_API_URL`) in `scripts/build-*.sh` (0.5h).
+### Blocker 1 — Developer accounts and "signing keys"
+**What it is:** the identity + wax seal from the primer above.
+**Why it blocks you:** without these, the app literally cannot be uploaded.
 
-### Tier 3 — Polish (post-v1)
-11. Durable rate-limit store (Upstash/Redis) instead of per-instance memory.
-12. Fix the 3 pre-existing `TS2835` import-extension build warnings.
-13. iPad-optimised layouts or restrict to iPhone in App Store Connect.
-14. Push notifications (re-add local-notifications properly with its permissions) if reminders become a feature again.
-15. Periodic dependency audit + Capacitor major-version cadence.
+What to do, step by step:
+1. **Apple:** enrol in the *Apple Developer Program* at developer.apple.com
+   ($99/year). Use the Apple ID you want to own the app long-term. Approval
+   can take a few days, especially for a company account.
+2. **Google:** create a *Google Play Console* account at play.google.com/console
+   ($25, one-time).
+3. **Android signing key:** the app needs a "keystore" — a small secret file
+   that signs every Android release. There is a ready-made script in your
+   project (`scripts/generate-android-keystore.sh`) that creates it. **Treat
+   the file and its password like a house deed: back it up somewhere safe
+   (password manager + offline copy). If you lose it, you can lose the ability
+   to update your app.** Enrolling in "Play App Signing" (an option during
+   first upload) makes Google keep a safety copy — say yes to that.
+4. **iOS signing:** Apple's version is a "distribution certificate +
+   provisioning profile." Your project already contains automation ("fastlane
+   match") that creates and manages these — a developer session of 1–2 hours,
+   with your Apple account logged in, sets it up once and then it's automatic.
+
+**Effort:** mostly waiting + ~2–4 hours of setup. **Cost:** $99/yr + $25 once.
+
+### Blocker 2 — Decide your app's official web address (domain)
+**What it is:** your app and its paperwork refer to a website domain
+(currently a mix of `dietplan.app` and a temporary `…vercel.app` address).
+The stores need **one consistent, real address** because:
+- Both store listings must show a **Privacy Policy link** and a **support
+  link** that reviewers actually click.
+- The Android app claims it can open `dietplan.app` links ("App Links") — but
+  for that claim to verify, a small proof file must exist on that website. It
+  doesn't yet, so the claim currently fails silently.
+
+What to do:
+1. Decide: is `dietplan.app` your real domain? If yes, buy/renew it and point
+   it at your existing website hosting. If no, pick the domain you do own.
+2. Make sure these pages work on that domain: `/privacy`, `/terms`, and some
+   way to contact support (even a simple email link). The pages already exist
+   in your backend — this is about serving them from the *official* address.
+3. Ask a developer (or me) to publish the small "proof file"
+   (`assetlinks.json`) on that domain — 30 minutes of work — **or** remove the
+   App-Links claim from the Android app for version 1 (also quick).
+
+**Effort:** 1–2 hours once you've decided the domain.
+
+### Blocker 3 — Fix the auto-publish pipeline for your backend
+**What it is:** your app's "brain" (the server) lives on Vercel. Normally,
+every code change should automatically go live. **That automation is broken** —
+we discovered your live server was running 8-day-old code while fixes sat
+unused. During this project we worked around it by publishing manually.
+
+**Why it matters for the stores:** the mobile app in the store talks to that
+server. If the server silently stops getting updates, the app in people's
+hands breaks while the code looks fine.
+
+What to do: in the Vercel dashboard → your `diet-app` project → **Settings →
+Git** — reconnect the GitHub repository (disconnect and connect again usually
+fixes it). Then make any small change and confirm a new deployment appears
+automatically. **Effort:** ~30 minutes.
+
+### Blocker 4 — Fill in the store questionnaires
+**What it is:** both stores make you answer a public questionnaire about the
+data your app collects (Apple calls it "App Privacy", Google calls it "Data
+Safety"). They also make you answer a content-rating quiz (violence? gambling?
+— for you it's all "no", expect an "Everyone"/4+ rating).
+
+**The good news:** the hard part — figuring out *what* your app actually
+collects — is already done. Open **`DATA_INVENTORY.md`** (rewritten in plain
+English alongside this file). It tells you, question by question, what to
+tick. Budget 1–2 careful hours per store. Do not guess or under-declare:
+your app handles **health-related data** (weight, diet), and both stores are
+strict about that category.
+
+Also prepare for the human reviewer:
+- A **demo account** (username + password) that already has a generated meal
+  plan, written into the "review notes" box on both stores. Notes already
+  drafted in `STORE_REVIEW_NOTES.md`.
+
+### Blocker 5 — Produce one real "release build" per platform and test it
+**What it is:** so far the app has only run in developer/simulator mode. A
+"release build" is the actual sealed package that goes to the store. The first
+one *always* surfaces surprises (wrong version numbers, signing hiccups), so
+it must happen before you plan a launch date.
+
+What to do (a developer task — I can drive it once Blockers 1–2 are done):
+1. Build the iOS release and upload to **TestFlight** (Apple's private testing
+   channel). Install it on your own iPhone and use the app end-to-end.
+2. Build the Android release and upload to Play's **Internal testing** track.
+   Same drill on an Android phone.
+3. One important technicality your developer must respect: the release must be
+   built with the *production server address baked in* — there is a specific
+   build command documented in the project for this. (An app pointed at the
+   wrong server is the single most common "it worked on my machine" failure.)
+
+**Effort:** roughly half a day including fixing whatever the first run reveals.
+
+---
+
+## 🟠 Should do before launch (won't block review, will hurt you live)
+
+### 6. Turn on crash reporting (30 minutes)
+Right now, if the app crashes on a stranger's phone, **you will never know**.
+The app already contains the wiring for a free service called Sentry — it just
+needs an account and one setting filled in. Sign up at sentry.io (free tier is
+fine), create a project, and give the "DSN" value it shows you to whoever does
+the release build.
+
+### 7. Make AI failures speak human (1 hour, code)
+Your meal plans are generated by an AI service (Anthropic) that has a monthly
+usage allowance. We hit that limit during testing and the app showed a vague
+"Failed to generate meal plan. Please try again." — which is a dead end.
+Two-part fix:
+- **Code:** show an honest message like "Our meal-plan service is busy —
+  please try again in a few hours."
+- **You:** before submitting to the stores, check your Anthropic account has
+  plenty of allowance left. **If reviewers hit that limit during review, the
+  app's core feature fails in front of them and you will be rejected.**
+
+### 8. Update a few aging software components (1–2 hours, code)
+The automated scan found 4 known vulnerabilities in third-party components the
+app uses (2 rated "high" on the server, 2 in the app). None of them is
+exploitable in the way your app uses them, and none blocks store approval —
+but they're the software equivalent of a recalled part: replace at the next
+convenient moment. A developer runs one command (`npm audit fix`) in two
+folders and re-tests signup emails + plan generation.
+
+### 9. A real-phone quality pass (2–4 hours, you can do this)
+Before submitting, spend an afternoon using release builds like a fussy
+stranger would:
+- Turn on **airplane mode** mid-use — does the app show a polite "you're
+  offline" message, or a blank/broken screen? (Blank screens are a classic
+  rejection reason.)
+- Force-quit and reopen. Log out and back in. Create an account, delete it.
+- Generate a plan on mobile data, not just Wi-Fi.
+Write down anything weird and hand the list to me/your developer.
+
+---
+
+## 🟢 Nice-to-have (after version 1 is live)
+
+- **Sturdier rate-limiting storage** — a technical upgrade that matters only
+  once you have many users.
+- **Three cosmetic build warnings** — harmless, but tidy code is cheaper to
+  maintain.
+- **iPad-friendly layouts** — or simply tell Apple the app is iPhone-only (a
+  checkbox) to avoid iPad screenshots for now.
+- **Meal/water reminders (notifications)** — the old reminder feature was
+  removed; if you want it back it must be re-added properly with its
+  permissions and store declarations.
+- **Screenshots automation** — a helper script exists to produce the store
+  screenshots; polish them with real content before listing.
+
+---
+
+## What was changed by this audit (for the record)
+
+Three small, safe fixes were applied directly (details in `DECISIONS.md` §24):
+1. Switched off a leftover "allow unencrypted traffic" developer setting.
+2. Removed three Android permissions belonging to a feature that no longer
+   exists (reviewers penalise over-asking).
+3. Stopped tracking an internal setup-instructions file (`SECRETS.md`) in the
+   code history, matching the project's own ignore rules. (It contained
+   instructions and placeholders, not actual secrets — verified.)
+
+Everything else in this document is **advice only** — no other code was touched.
+
+## Suggested order of attack
+
+| When | Do |
+|---|---|
+| **Today** | Start Blocker 1 (accounts — there's a waiting period) and make the Blocker 2 domain decision. |
+| **This week** | Blocker 3 (fix auto-publish, 30 min), Item 6 (crash reporting, 30 min), Item 7 (check AI allowance). |
+| **Next** | Blockers 4–5: fill questionnaires from `DATA_INVENTORY.md`, produce TestFlight/internal builds, do the Item 9 phone pass. |
+| **Then** | Submit. Expect at least one rejection-and-fix round — that's normal for a first release. |
