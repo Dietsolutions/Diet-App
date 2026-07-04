@@ -62,12 +62,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Notifications — required by @capacitor/local-notifications -->
-    <!-- POST_NOTIFICATIONS is a runtime permission on Android 13+ (API 33+) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Vibration — required by @capacitor/haptics -->
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- Survive device reboot: reschedule pending notifications -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Exact alarms for meal/water reminder precision; user can revoke via Settings -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- POST_NOTIFICATIONS / RECEIVE_BOOT_COMPLETED / SCHEDULE_EXACT_ALARM removed:
+         they belonged to @capacitor/local-notifications, which is uninstalled.
+         SCHEDULE_EXACT_ALARM in particular draws Play review scrutiny. -->
 </manifest>

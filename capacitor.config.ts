@@ -10,7 +10,10 @@ const config: CapacitorConfig = {
   // webview uses the bundled static files and hits your local proxy.
   server: {
     url: process.env.VITE_API_URL || undefined,
-    cleartext: true,
+    // The app talks exclusively to HTTPS endpoints (Vercel API); local dev
+    // loads bundled assets with no server.url, so cleartext is never needed.
+    // Keeping it off avoids a Play pre-launch / review flag.
+    cleartext: false,
   },
 
   // Plugins that need store-friendly UX

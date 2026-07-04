@@ -1262,3 +1262,28 @@ on target — pure churn. CN-vs-*target* is what matters.
 - Reconnect Vercel↔GitHub auto-deploy (or keep deploying manually).
 - Map Anthropic `400` usage-cap / `429` in the generate catch → accurate "service busy" message.
 - The 3 pre-existing `TS2835` import-extension warnings (`auth.ts`/`plan.ts`/`refreshToken.ts`) are non-fatal but worth cleaning.
+
+## 24. Publish-readiness audit + safe auto-fixes (2026-07-01)
+
+Audit-and-plan pass for App Store / Play Store publishability. Full findings in
+`PUBLISH_READINESS.md` (domain-by-domain tables + three-tier action plan, Top-5
+blockers at the top); privacy-form inventory in `DATA_INVENTORY.md`.
+
+Overall: the security fundamentals were already in place (helmet, CORS
+allowlist, rate limiting, cookie flags, Prisma parameterisation, generic prod
+errors, JWT_SECRET startup enforcement, account deletion, privacy/terms pages,
+PrivacyInfo.xcprivacy). The real gaps are operational: signing material, the
+canonical domain for legal/App-Link URLs, store forms/screenshots, one proven
+release build per platform, and the broken Vercel↔GitHub auto-deploy.
+
+Auto-fixes applied (the narrow safe list only):
+
+| File | Change |
+|---|---|
+| `capacitor.config.ts` | `server.cleartext` true → false (API is HTTPS-only; dev uses bundled assets) |
+| `android/app/src/main/AndroidManifest.xml` | removed `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `SCHEDULE_EXACT_ALARM` — leftovers from the uninstalled local-notifications plugin (exact-alarm is a Play review flag); kept `VIBRATE` for @capacitor/haptics |
+| `SECRETS.md` | `git rm --cached` — gitignore already listed it under "never commit"; it stays locally (content is placeholder documentation, no live secrets — verified) |
+
+Explicitly NOT done (report-only per constraints): `npm audit fix` (2 high
+server / 1 high + 1 moderate client — details in report), signing/keystores,
+store submissions, Sentry DSN, AI-provider error mapping.

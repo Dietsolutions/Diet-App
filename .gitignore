@@ -109,3 +109,4 @@ session-ses*.md
 *.ipa
 *.aab
 *.app
+.env*
