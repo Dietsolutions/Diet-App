@@ -101,20 +101,20 @@ What to do:
 
 **Effort:** 1–2 hours once you've decided the domain.
 
-### Blocker 3 — Fix the auto-publish pipeline for your backend
-**What it is:** your app's "brain" (the server) lives on Vercel. Normally,
-every code change should automatically go live. **That automation is broken** —
-we discovered your live server was running 8-day-old code while fixes sat
-unused. During this project we worked around it by publishing manually.
+### Blocker 3 — Fix the auto-publish pipeline for your backend — ✅ RESOLVED (4 July 2026)
+**What it was:** your app's "brain" (the server) lives on Vercel. Every code
+change should automatically go live, but that automation was broken — the live
+server was once running 8-day-old code while fixes sat unused.
 
-**Why it matters for the stores:** the mobile app in the store talks to that
-server. If the server silently stops getting updates, the app in people's
-hands breaks while the code looks fine.
+**How it was fixed:** you disconnected and reconnected the GitHub repository in
+the Vercel dashboard (Settings → Git). We then **verified it end-to-end**: a
+test change was pushed to GitHub and appeared on the live site within about a
+minute, with no manual publishing. (The test left a harmless marker file at
+`/version.txt` on the site — it doubles as a quick way to check what's
+deployed.)
 
-What to do: in the Vercel dashboard → your `diet-app` project → **Settings →
-Git** — reconnect the GitHub repository (disconnect and connect again usually
-fixes it). Then make any small change and confirm a new deployment appears
-automatically. **Effort:** ~30 minutes.
+**Nothing more to do here.** From now on, anything pushed to GitHub goes live
+by itself.
 
 ### Blocker 4 — Fill in the store questionnaires
 **What it is:** both stores make you answer a public questionnaire about the
@@ -227,6 +227,6 @@ Everything else in this document is **advice only** — no other code was touche
 | When | Do |
 |---|---|
 | **Today** | Start Blocker 1 (accounts — there's a waiting period) and make the Blocker 2 domain decision. |
-| **This week** | Blocker 3 (fix auto-publish, 30 min), Item 6 (crash reporting, 30 min), Item 7 (check AI allowance). |
+| **This week** | ~~Blocker 3 (auto-publish)~~ ✅ done 4 July. Item 6 (crash reporting, 30 min), Item 7 (check AI allowance). |
 | **Next** | Blockers 4–5: fill questionnaires from `DATA_INVENTORY.md`, produce TestFlight/internal builds, do the Item 9 phone pass. |
 | **Then** | Submit. Expect at least one rejection-and-fix round — that's normal for a first release. |
