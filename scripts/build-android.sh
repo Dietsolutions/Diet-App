@@ -51,15 +51,31 @@ if [ -z "${ANDROID_HOME:-}" ]; then
   exit 1
 fi
 
-if ! command -v java &> /dev/null; then
-  print_err "Java not found. Install JDK 17+: brew install --cask temurin@17"
-  exit 1
+# ── Java (Capacitor 8's Android libraries need JDK 21) ───────────────────────
+# If JAVA_HOME isn't already a JDK 21+, auto-detect one — preferring the JDK
+# that Android Studio bundles (the "JBR"), then any registered JDK 21.
+java_major() { "$1/bin/java" -version 2>&1 | head -1 | grep -oE '[0-9]+' | head -1; }
+
+if [ -z "${JAVA_HOME:-}" ] || [ ! -x "${JAVA_HOME:-}/bin/java" ] || [ "$(java_major "$JAVA_HOME" 2>/dev/null || echo 0)" -lt 21 ] 2>/dev/null; then
+  for cand in \
+    "/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+    "$HOME/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+    "$(/usr/libexec/java_home -v 21 2>/dev/null || true)"; do
+    if [ -n "$cand" ] && [ -x "$cand/bin/java" ] && [ "$(java_major "$cand" 2>/dev/null || echo 0)" -ge 21 ] 2>/dev/null; then
+      export JAVA_HOME="$cand"
+      print_warn "Using JDK 21 at: $JAVA_HOME"
+      break
+    fi
+  done
 fi
 
-JAVA_VER=$(java -version 2>&1 | head -1 | grep -oE '"[0-9]+' | head -1 | tr -d '"' || echo "")
-if [ -n "$JAVA_VER" ] && [ "$JAVA_VER" -lt 17 ] 2>/dev/null; then
-  print_warn "Java $JAVA_VER detected. Capacitor 8 requires JDK 17+. Set JAVA_HOME explicitly."
+if [ -z "${JAVA_HOME:-}" ] || [ "$(java_major "$JAVA_HOME" 2>/dev/null || echo 0)" -lt 21 ] 2>/dev/null; then
+  print_err "JDK 21 not found. Capacitor 8's Android build needs it."
+  echo "  Easiest: install Android Studio (bundles JDK 21), or: brew install --cask temurin@21"
+  echo "  Then re-run — this script auto-detects it."
+  exit 1
 fi
+export PATH="$JAVA_HOME/bin:$PATH"
 
 if [ ! -d "android" ]; then
   print_err "android/ directory missing. Run: npx cap add android"
@@ -73,12 +89,23 @@ npm run build --prefix client
 print_step "Syncing to native project"
 npx cap sync android
 
-# ── Bump versionCode ───────────────────────────────────────────────────────
-print_step "Bumping versionCode"
-PREV_CODE=$(grep -oE 'versionCode [0-9]+' android/app/build.gradle | head -1 | grep -oE '[0-9]+')
-NEW_CODE=$((PREV_CODE + 1))
-sed -i "s/versionCode $PREV_CODE/versionCode $NEW_CODE/" android/app/build.gradle
-print_warn "versionCode: $PREV_CODE → $NEW_CODE"
+# ── Bump versionCode (release only) ──────────────────────────────────────────
+# Only relevant for Play Store uploads (each must have a unique, higher code).
+# Debug/side-load builds don't need it. Also: build.gradle reads the version from
+# ANDROID_VERSION_CODE / -PversionCode with a literal fallback, so if there is no
+# literal `versionCode <n>` to rewrite we skip rather than fail. Uses `sed -i.bak`
+# which is portable across macOS (BSD sed) and Linux/CI (GNU sed).
+if [ "$MODE" = "release" ]; then
+  print_step "Bumping versionCode"
+  PREV_CODE=$(grep -oE 'versionCode [0-9]+' android/app/build.gradle | head -1 | grep -oE '[0-9]+' || true)
+  if [ -n "$PREV_CODE" ]; then
+    NEW_CODE=$((PREV_CODE + 1))
+    sed -i.bak "s/versionCode $PREV_CODE/versionCode $NEW_CODE/" android/app/build.gradle && rm -f android/app/build.gradle.bak
+    print_warn "versionCode: $PREV_CODE → $NEW_CODE"
+  else
+    print_warn "versionCode is dynamic (env/property based) — set it with ANDROID_VERSION_CODE=<n>. Skipping literal bump."
+  fi
+fi
 
 # ── Verify keystore (release only) ────────────────────────────────────────
 if [ "$MODE" = "release" ]; then
@@ -92,8 +119,15 @@ if [ "$MODE" = "release" ]; then
 fi
 
 # ── Build ──────────────────────────────────────────────────────────────────
-print_step "Building .aab"
-(cd android && ./gradlew "assemble${MODE^}" bundle"${MODE^}" --no-daemon)
+# Capitalise MODE portably: bash 3.2 (macOS default) has no ${VAR^} operator.
+CAP_MODE="$(printf '%s' "${MODE:0:1}" | tr '[:lower:]' '[:upper:]')${MODE:1}"
+if [ "$MODE" = "release" ]; then
+  print_step "Building signed .aab (release)"
+  (cd android && ./gradlew "bundle${CAP_MODE}" --no-daemon)
+else
+  print_step "Building .apk (debug)"
+  (cd android && ./gradlew "assemble${CAP_MODE}" --no-daemon)
+fi
 
 # Locate artifact
 if [ "$MODE" = "release" ]; then
