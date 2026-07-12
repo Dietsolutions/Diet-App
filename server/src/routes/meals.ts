@@ -47,7 +47,7 @@ Structure:
 Output plain text only. No JSON. No headers. No bullet points.
 Write as natural spoken English — short sentences, easy to follow while cooking.`;
 
-  const text = await callLLM(prompt, { maxTokens: 800 });
+  const text = await callLLM(prompt, { maxTokens: 800, timeout: 60_000 });
 
   // Hard cap at 2800 chars to stay within Unreal Speech limit
   return text.trim().substring(0, 2800);
@@ -531,7 +531,9 @@ Respond ONLY with valid JSON matching this exact structure:
   "substitution": string
 }`;
 
-    const aiText = await callLLM(prompt, { maxTokens: 4096 });
+    // Detailed instructions are a large (~4k token) response that regularly takes
+    // 40-70s — well past callLLM's 30s default, which would abort it. Give it room.
+    const aiText = await callLLM(prompt, { maxTokens: 4096, timeout: 110_000 });
     const jsonMatch = aiText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) { res.status(500).json({ error: 'AI returned invalid format. Please try again.' }); return; }
     const parsed = JSON.parse(jsonMatch[0]);

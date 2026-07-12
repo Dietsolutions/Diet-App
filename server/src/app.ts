@@ -131,10 +131,13 @@ export function createApp(): Express {
   }
 
   // ── Request Timeout ──────────────────────────────────────────────────────
-  // Prevents hung connections from consuming serverless instances.
-  // Set to 25s so the outer Vercel timeout (30s on Hobby) can return a clean
-  // response before the platform hard-kills the function.
-  app.use(requestTimeout(25_000));
+  // Returns a clean 503 before the platform hard-kills the function. The Vercel
+  // function maxDuration is 300s (see vercel.json), so 25s was far too aggressive —
+  // it killed non-streaming AI endpoints (e.g. cooking-instruction generation, which
+  // makes a multi-second Claude call) before they could respond. 120s comfortably
+  // covers the slowest single AI call while still well under the 300s platform limit.
+  // (SSE endpoints flush headers immediately, so this timer is a no-op for them.)
+  app.use(requestTimeout(120_000));
 
   // Health check (used by Vercel + monitoring)
   app.get('/api/health', async (_req: Request, res: Response) => {
