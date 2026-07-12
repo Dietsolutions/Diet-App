@@ -531,9 +531,10 @@ Respond ONLY with valid JSON matching this exact structure:
   "substitution": string
 }`;
 
-    // Detailed instructions are a large (~4k token) response that regularly takes
-    // 40-70s — well past callLLM's 30s default, which would abort it. Give it room.
-    const aiText = await callLLM(prompt, { maxTokens: 4096, timeout: 110_000 });
+    // Detailed, beginner-friendly instructions are a large response. 4096 tokens
+    // truncated the JSON mid-array (→ parse failure → 500), so give it 8000. Generation
+    // runs ~60-70s at this size — past callLLM's 30s default — so allow 110s too.
+    const aiText = await callLLM(prompt, { maxTokens: 8000, timeout: 110_000 });
     const jsonMatch = aiText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) { res.status(500).json({ error: 'AI returned invalid format. Please try again.' }); return; }
     const parsed = JSON.parse(jsonMatch[0]);
