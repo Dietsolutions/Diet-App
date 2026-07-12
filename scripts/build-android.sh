@@ -84,8 +84,15 @@ fi
 
 # ── Web build ──────────────────────────────────────────────────────────────
 print_step "Building web app"
+# VITE_API_URL (if set) is baked into the JS bundle here as the API base.
 npm run build --prefix client
 
+# CRITICAL: capacitor.config.ts sets server.url = process.env.VITE_API_URL. If we let
+# VITE_API_URL leak into `cap sync`, the native app loads the REMOTE site instead of the
+# bundled local assets — so local web changes never appear and the app depends on the web
+# deploy. A shipped app must load its own bundle, so unset it before sync (the API base is
+# already baked into the JS above).
+unset VITE_API_URL
 print_step "Syncing to native project"
 npx cap sync android
 
