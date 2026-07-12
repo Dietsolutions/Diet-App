@@ -138,7 +138,9 @@ export function MealDetailSheet({
     cookGenStartRef.current = Date.now();
     track('cooking_instructions_generate_tapped', { meal_name: name, servings });
     try {
-      const r = await axios.post('/api/meals/instructions/generate', { mealPlanId, dayIndex, mealIndex, servings, language: instructionLanguage }, { withCredentials: true });
+      // Detailed instructions take ~45-60s to generate; the global axios default is
+      // only 15s, so override per-request (must exceed the backend's timeouts).
+      const r = await axios.post('/api/meals/instructions/generate', { mealPlanId, dayIndex, mealIndex, servings, language: instructionLanguage }, { withCredentials: true, timeout: 130000 });
       setCookInstr(r.data.instructions);
       setCookExpanded(true);
       track('cooking_instructions_generated', {
@@ -160,7 +162,7 @@ export function MealDetailSheet({
     audioGenStartRef.current = Date.now();
     track('audio_guide_generate_tapped', { meal_name: name });
     try {
-      const r = await axios.post('/api/meals/instructions/generate-audio', { mealPlanId, dayIndex, mealIndex, language: 'en' }, { withCredentials: true });
+      const r = await axios.post('/api/meals/instructions/generate-audio', { mealPlanId, dayIndex, mealIndex, language: 'en' }, { withCredentials: true, timeout: 130000 });
       setCookInstr(r.data.instructions);
       track('audio_guide_generated', {
         meal_name:        name,
@@ -625,7 +627,7 @@ export function MealDetailSheet({
                       GENERATING…
                     </div>
                     <div style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer, marginTop: 6 }}>
-                      About 10 seconds
+                      Up to a minute
                     </div>
                   </div>
                 )}
