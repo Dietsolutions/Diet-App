@@ -1287,3 +1287,49 @@ Auto-fixes applied (the narrow safe list only):
 Explicitly NOT done (report-only per constraints): `npm audit fix` (2 high
 server / 1 high + 1 moderate client — details in report), signing/keystores,
 store submissions, Sentry DSN, AI-provider error mapping.
+
+## 25. Cooking instructions "Failed to generate" — three stacked timeouts + a truncation (2026-07-12)
+
+On-device QC found the cooking-instructions feature (meal detail → GENERATE
+INSTRUCTIONS) always showed "Failed to generate. Try again." Audio (next step)
+also failed. Root-caused four distinct problems, three of which stacked on the
+same request:
+
+1. **25s request-timeout middleware** (`server/src/app.ts`). The global
+   `requestTimeout(25_000)` dated from the old Hobby 30s assumption. A cooking-
+   instruction generation makes a multi-second Claude call and takes ~45-60s, so
+   the middleware returned a 503 at 26s before the handler could respond. Raised
+   to 120s (the Vercel function `maxDuration` is 300s; SSE endpoints flush headers
+   immediately so the timer is a no-op for them).
+
+2. **callLLM 30s default timeout** (`server/src/routes/meals.ts`). Even past the
+   middleware, `callLLM` defaults to a 30s `AbortSignal.timeout`, so the Claude
+   call self-aborted. Set explicit timeouts: `110_000` for `/instructions/generate`,
+   `60_000` for the audio-script (`buildEnglishAudioScript`).
+
+3. **maxTokens 4096 truncation** (`meals.ts`). The instruction prompt asks for a
+   full JSON object (steps + ingredients + tips). A complex recipe (e.g. Masala
+   Dosa with Sambar: 16 steps, 17 ingredients) is ~14k chars and ran past 4096
+   tokens, ending mid-array → JSON.parse threw → generic 500. Raised to 8000.
+
+4. **Client axios 15s default** (`client/src/components/MealDetailSheet.tsx`). The
+   real kicker for the app: `axios.defaults.timeout = 15000` (in `lib/api.ts`)
+   aborts *every* request at 15s. Even with the server fixed (200 in ~57s), the
+   WebView gave up at 15s and showed the fallback error. The long-poll meal-gen
+   path uses a raw XHR with `timeout = 300000`, but the instruction/audio calls
+   used plain `axios.post` and inherited the 15s default. Added `timeout: 130000`
+   per request (above the 120s server middleware). Relabelled the spinner copy
+   "About 10 seconds" → "Up to a minute" to match reality.
+
+Verified: `curl` to `/api/meals/instructions/generate` → HTTP 200 in 57s with a
+complete recipe. New debug APK (loads the local bundle with the client timeout
+fix) clean-installed on the Pixel 6a.
+
+**Audio is a separate, config-only issue** (NOT code): `/instructions/generate-audio`
+returns 500 because `UNREAL_SPEECH_API_KEY` isn't set in Vercel prod (local repro
+throws "No TTS API key configured"). `BLOB_READ_WRITE_TOKEN` has a base64
+data-URL fallback so it's optional. Once the TTS key is added to Vercel env and
+redeployed, audio should work with no code change.
+
+Commits: 0222b97 (middleware+LLM timeouts), 5b54181 (maxTokens), 626c98c (client
+axios timeout + label).
