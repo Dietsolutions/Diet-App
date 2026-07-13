@@ -69,14 +69,14 @@ export function MealShareSheet({
     }
 
     lines.push('');
-    lines.push('Shared via Diet Plan & Tracker — https://ai-dpt.vercel.app');
+    lines.push('Shared via Diet Plan & Tracker — https://diet-app-gules.vercel.app');
     return lines.join('\n');
   }
 
   const shareText = buildShareText();
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
   const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(
-    audioUrl || 'https://ai-dpt.vercel.app',
+    audioUrl || 'https://diet-app-gules.vercel.app',
   )}&text=${encodeURIComponent(shareText)}`;
   const supportsNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
 
