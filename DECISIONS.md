@@ -1385,3 +1385,34 @@ collects no email (`AuthScreen`), so password reset is only reachable for
 accounts that already have an email (e.g. Google/Apple) — consider adding an
 optional email at signup; (3) confirm `FRONTEND_URL` in Vercel points at
 `https://diet-app-gules.vercel.app` so the emailed reset link isn't `localhost`.
+
+## 27. Email at signup + login by username-or-email (2026-07-13)
+
+Native signup previously collected only username + password, so accounts had no
+email — which made password reset unreachable for username/password users (see
+§26) and meant "log in with email" was impossible. Changed both:
+
+- **Signup now requires an email** (validated + unique). New `validateEmail` in
+  the shared `api/validation.ts` (client) and a mirrored local helper in
+  `server/routes/auth.ts`. Signup de-dupes email up front (409 `email_taken`) and
+  the P2002 catch is now target-aware (`err.meta.target`) so a race reports the
+  right field. Email is normalised (trim + lowercase) before store/compare.
+- **Login accepts a username OR an email** as the identifier. An `@` routes the
+  lookup to `email`, otherwise `username` (with the existing mixed-case legacy
+  fallback). The client sends `{ identifier, password }`; the server reads
+  `identifier ?? username`, so older native builds that still POST `{ username }`
+  keep working.
+- Client: `AuthScreen` gains an EMAIL field on signup and relabels the login
+  identifier to "USERNAME OR EMAIL"; `useAuth.login(identifier)` /
+  `useAuth.signup(username, email, …)`.
+
+Verified against production (commit 01b2e5e) with curl: signup-without-email
+400; signup-with-email 201; login by username 200; login by email 200; wrong
+password 401; duplicate email 409 `email_taken`; legacy `{username}` shape 200;
+bad email format 400. UI confirmed on the deployed web app (email field on
+signup, "USERNAME OR EMAIL" on login).
+
+Note: existing accounts (including Google/Apple and older username-only signups)
+are unaffected — username login still works; only new signups are required to
+add an email. The native app needs a `cap sync` + rebuild to pick up the new
+signup/login UI.
