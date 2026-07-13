@@ -1333,3 +1333,55 @@ redeployed, audio should work with no code change.
 
 Commits: 0222b97 (middleware+LLM timeouts), 5b54181 (maxTokens), 626c98c (client
 axios timeout + label).
+
+## 26. Password reset broken in prod — missing `password_reset_tokens` table (2026-07-13)
+
+While wiring the real support email and testing password reset, `POST
+/api/auth/forgot-password` returned `{error:"server_error"}` (HTTP 500) for a
+known-good email. It was **not** an SMTP problem: the handler threw at
+`prisma.passwordResetToken.create()` because the **`password_reset_tokens` table
+did not exist in the production Neon DB**. The `PasswordResetToken` model is in
+`schema.prisma` but no migration in `prisma/migrations/` creates it, and it was
+never `db push`ed to this prod DB — so the whole feature had never worked in
+production. The outer try/catch turns the "relation does not exist" error into a
+generic `server_error`, which masked the real cause (same failure shape as the
+earlier `macro_validation_logs` missing-`cnAttempted` drift, §—).
+
+Fix: created the table directly in prod with idempotent, non-destructive DDL
+(matching Prisma's expected camelCase columns and the `"User"` FK target — the
+User model has no `@@map`, so its table is `"User"`):
+
+```sql
+CREATE TABLE IF NOT EXISTS "password_reset_tokens" (
+  "id" TEXT NOT NULL,
+  "userId" TEXT NOT NULL,
+  "tokenHash" TEXT NOT NULL,
+  "expiresAt" TIMESTAMP(3) NOT NULL,
+  "usedAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "password_reset_tokens_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "password_reset_tokens_tokenHash_key" ON "password_reset_tokens"("tokenHash");
+CREATE INDEX IF NOT EXISTS "password_reset_tokens_tokenHash_idx" ON "password_reset_tokens"("tokenHash");
+CREATE INDEX IF NOT EXISTS "password_reset_tokens_userId_idx" ON "password_reset_tokens"("userId");
+-- FK guarded so re-running is a no-op:
+DO $$ BEGIN
+  ALTER TABLE "password_reset_tokens"
+    ADD CONSTRAINT "password_reset_tokens_userId_fkey"
+    FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+```
+
+Verified: `prisma.passwordResetToken.count()` = 0 (no error), then re-ran
+forgot-password → HTTP 200 `{success:true}` in 4.1s, a token row was written for
+the target user with a correct 1-hour expiry, and the 200 (rather than the inner
+"Failed to send email" 500) confirms `transporter.sendMail` succeeded — i.e. the
+Gmail SMTP config the user added to Vercel works.
+
+Open follow-ups (not code): (1) the prod DB drifts from `schema.prisma` because
+the deploy pipeline has no `prisma migrate deploy`/`db push` step — worth adding
+so this class of "missing table/column → 500" stops recurring; (2) native signup
+collects no email (`AuthScreen`), so password reset is only reachable for
+accounts that already have an email (e.g. Google/Apple) — consider adding an
+optional email at signup; (3) confirm `FRONTEND_URL` in Vercel points at
+`https://diet-app-gules.vercel.app` so the emailed reset link isn't `localhost`.
