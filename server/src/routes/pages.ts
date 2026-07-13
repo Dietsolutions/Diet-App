@@ -178,7 +178,7 @@ p{margin:0 0 12px}
 <p>We may update this policy. Material changes will be notified via the app or by email. Continued use after changes constitutes acceptance of the updated policy.</p>
 
 <h2>Contact</h2>
-<p>For privacy inquiries or data requests, contact: support@dietplan.app or through the App Store / Play Store listing.</p>
+<p>For privacy inquiries or data requests, contact: dietplan.support@gmail.com or through the App Store / Play Store listing.</p>
 
 <h2>Governing Law</h2>
 <p>This policy is governed by the laws of India. For users in the European Union, the General Data Protection Regulation (GDPR) also applies.</p>
@@ -233,7 +233,7 @@ p{margin:0 0 12px}
 <p>These terms are governed by the laws of India. Any disputes arising from these terms shall be resolved through binding arbitration in accordance with the Arbitration and Conciliation Act, 1996. The arbitration shall be conducted in English in Mumbai, India. You agree to resolve disputes on an individual basis and waive the right to participate in a class action.</p>
 
 <h2>Contact</h2>
-<p>For questions about these terms, contact: support@dietplan.app or through the App Store / Play Store listing.</p>
+<p>For questions about these terms, contact: dietplan.support@gmail.com or through the App Store / Play Store listing.</p>
 </body></html>`;
 
 router.get('/reset-password', (_req: Request, res: Response) => {

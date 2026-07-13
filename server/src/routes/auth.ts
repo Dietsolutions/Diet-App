@@ -76,7 +76,7 @@ const SMTP_HOST = process.env.SMTP_HOST || '';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
 const SMTP_USER = process.env.SMTP_USER || '';
 const SMTP_PASS = process.env.SMTP_PASS || '';
-const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@dietplan.app';
+const EMAIL_FROM = process.env.EMAIL_FROM || 'dietplan.support@gmail.com';
 
 function createTransporter() {
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) return null;
@@ -1007,7 +1007,7 @@ router.post('/request-deletion', requireAuth, deleteAccountLimiter, async (req: 
     if (!transporter || !user.email) {
       res.status(400).json({
         error: 'email_not_configured',
-        message: 'Account deletion requires email confirmation, but no email is on file or SMTP is not configured. Please contact support@dietplan.app.',
+        message: 'Account deletion requires email confirmation, but no email is on file or SMTP is not configured. Please contact dietplan.support@gmail.com.',
       });
       return;
     }

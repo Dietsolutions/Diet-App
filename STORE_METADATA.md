@@ -259,5 +259,5 @@ What's new in 1.0.0:
 • 7/30/90 day adherence charts.
 • Dark theme throughout.
 
-We'd love your feedback — reach us at support@dietplan.app.
+We'd love your feedback — reach us at dietplan.support@gmail.com.
 ```

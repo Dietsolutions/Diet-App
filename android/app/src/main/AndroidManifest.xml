@@ -33,18 +33,14 @@
                 <data android:scheme="dietplan" />
             </intent-filter>
 
-            <!-- App Links: https://dietplan.app/* — for Universal Links /
-                 web→app handoff. autoVerify is true once the
-                 .well-known/assetlinks.json file is served from
-                 dietplan.app. -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" />
-                <data android:host="dietplan.app" />
-                <data android:host="www.dietplan.app" />
-            </intent-filter>
+            <!-- App Links (https://dietplan.app/*) removed for v1: we ship on the
+                 free diet-app-gules.vercel.app address and don't own/serve
+                 dietplan.app, so autoVerify="true" would fail at install (no
+                 .well-known/assetlinks.json), showing a "deep links not verified"
+                 warning in Play Console and declaring a domain we can't back.
+                 Re-add with the real host + assetlinks.json once a custom domain
+                 is live. The custom dietplan:// scheme above (Apple Sign-In
+                 handoff) is unaffected. -->
         </activity>
 
         <provider
