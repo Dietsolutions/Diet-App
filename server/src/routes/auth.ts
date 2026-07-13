@@ -201,6 +201,15 @@ function validatePassword(password: string, username: string): { valid: boolean;
   return { valid: true };
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function validateEmail(email: string): { valid: boolean; message?: string } {
+  if (typeof email !== 'string' || email.trim().length === 0) return { valid: false, message: 'Email is required' };
+  const e = email.trim();
+  if (e.length > 254) return { valid: false, message: 'Email is too long' };
+  if (!EMAIL_REGEX.test(e)) return { valid: false, message: 'Enter a valid email address' };
+  return { valid: true };
+}
+
 // Rate limit: 100 login attempts per IP per 15 minutes
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -291,26 +300,29 @@ function setTokenCookies(res: Response, accessToken: string, refreshToken: strin
 // POST /api/auth/login (username + password)
 router.post('/login', loginLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { username, password } = req.body;
-    const cleanUsername = sanitizeText(username);
+    // Accept either a username or an email as the identifier. Older native
+    // builds still send { username }, so fall back to that key.
+    const { identifier, username, password } = req.body;
+    const cleanId = sanitizeText(identifier ?? username);
     const cleanPassword = sanitizeText(password);
 
-    if (!cleanUsername || !cleanPassword) {
+    if (!cleanId || !cleanPassword) {
       res.status(400).json({ error: 'Username and password required' });
       return;
     }
 
-    // Case-insensitive lookup (usernames are stored lowercase for new accounts)
-    const normalisedUsername = cleanUsername.toLowerCase();
+    // Case-insensitive lookup (usernames + emails are stored lowercase for new accounts)
+    const normalisedId = cleanId.toLowerCase();
+    const isEmail = normalisedId.includes('@');
 
     // Check per-account lockout before verifying credentials
-    const lockMs = getLockoutRemainingMs(normalisedUsername);
+    const lockMs = getLockoutRemainingMs(normalisedId);
     if (lockMs > 0) {
       const remainingMinutes = Math.ceil(lockMs / 60000);
       logSecurityEvent('account_locked', {
         ip: req.ip,
         path: req.path,
-        username: normalisedUsername,
+        username: normalisedId,
         remainingMinutes,
       });
       res.status(429).json({
@@ -319,10 +331,13 @@ router.post('/login', loginLimiter, async (req: Request, res: Response): Promise
       });
       return;
     }
-    let user = await prisma.user.findUnique({ where: { username: normalisedUsername } });
-    // Fallback: check original case for legacy accounts stored with mixed case
-    if (!user && normalisedUsername !== cleanUsername) {
-      user = await prisma.user.findUnique({ where: { username: cleanUsername } });
+    // An '@' means it's an email (usernames can't contain '@'); otherwise a username.
+    let user = isEmail
+      ? await prisma.user.findUnique({ where: { email: normalisedId } })
+      : await prisma.user.findUnique({ where: { username: normalisedId } });
+    // Fallback: check original case for legacy accounts stored with mixed-case username
+    if (!user && !isEmail && normalisedId !== cleanId) {
+      user = await prisma.user.findUnique({ where: { username: cleanId } });
     }
 
     if (!user || !user.passwordHash) {
@@ -330,7 +345,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response): Promise
         ip: req.ip,
         path: req.path,
         reason: 'user_not_found',
-        username: normalisedUsername,
+        username: normalisedId,
       });
       res.status(401).json({ error: 'Invalid credentials' });
       return;
@@ -345,12 +360,12 @@ router.post('/login', loginLimiter, async (req: Request, res: Response): Promise
         reason: 'wrong_password',
         userId: user.id,
       });
-      const locked = recordFailedAttempt(normalisedUsername);
+      const locked = recordFailedAttempt(normalisedId);
       if (locked) {
         logSecurityEvent('account_locked', {
           ip: req.ip,
           path: req.path,
-          username: normalisedUsername,
+          username: normalisedId,
           durationMinutes: 15,
         });
       }
@@ -358,7 +373,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response): Promise
       return;
     }
 
-    resetFailedAttempts(normalisedUsername);
+    resetFailedAttempts(normalisedId);
 
     const { accessToken, refreshToken } = await issueTokenPair(user.id);
     setTokenCookies(res, accessToken, refreshToken);
@@ -390,9 +405,10 @@ router.post('/login', loginLimiter, async (req: Request, res: Response): Promise
 // POST /api/auth/signup
 router.post('/signup', signupLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { username, password, confirmPassword } = req.body || {};
+    const { username, email, password, confirmPassword } = req.body || {};
     // Strip NUL bytes / control chars that Postgres TEXT cannot store
     const cleanUsername     = sanitizeText(username);
+    const cleanEmail        = sanitizeText(email);
     const cleanPassword     = sanitizeText(password);
     const cleanConfirm      = sanitizeText(confirmPassword);
 
@@ -400,6 +416,12 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response): Promi
     const usernameCheck = validateUsername(cleanUsername);
     if (!usernameCheck.valid) {
       res.status(400).json({ error: 'validation_error', field: 'username', message: usernameCheck.message });
+      return;
+    }
+
+    const emailCheck = validateEmail(cleanEmail);
+    if (!emailCheck.valid) {
+      res.status(400).json({ error: 'validation_error', field: 'email', message: emailCheck.message });
       return;
     }
 
@@ -421,9 +443,15 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response): Promi
     // below handles that case so the second request gets a clean 409 too
     // (not a 500).
     const normalisedUsername = cleanUsername.toLowerCase();
+    const normalisedEmail    = cleanEmail.trim().toLowerCase();
     const existing = await prisma.user.findUnique({ where: { username: normalisedUsername } });
     if (existing) {
       res.status(409).json({ error: 'username_taken', message: 'This username is already taken' });
+      return;
+    }
+    const existingEmail = await prisma.user.findUnique({ where: { email: normalisedEmail } });
+    if (existingEmail) {
+      res.status(409).json({ error: 'email_taken', message: 'An account with this email already exists' });
       return;
     }
 
@@ -432,19 +460,25 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response): Promi
 
     // Create user. If a concurrent signup won the race, Prisma throws
     // P2002 (unique constraint violation) — we translate to 409 instead
-    // of a 500.
+    // of a 500. err.meta.target tells us which unique field collided.
     let user;
     try {
       user = await prisma.user.create({
         data: {
           username: normalisedUsername,
+          email: normalisedEmail,
           passwordHash,
           onboardingDone: false
         }
       });
     } catch (err: any) {
       if (err?.code === 'P2002') {
-        res.status(409).json({ error: 'username_taken', message: 'This username is already taken' });
+        const target = Array.isArray(err?.meta?.target) ? err.meta.target.join(',') : String(err?.meta?.target || '');
+        if (target.includes('email')) {
+          res.status(409).json({ error: 'email_taken', message: 'An account with this email already exists' });
+        } else {
+          res.status(409).json({ error: 'username_taken', message: 'This username is already taken' });
+        }
         return;
       }
       throw err;

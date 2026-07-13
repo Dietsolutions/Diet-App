@@ -18,8 +18,9 @@ export function useAuth() {
     return () => controller.abort();
   }, []);
 
-  const login = async (username: string, password: string) => {
-    const res = await axios.post('/api/auth/login', { username, password }, { withCredentials: true });
+  const login = async (identifier: string, password: string) => {
+    // identifier is a username OR an email; the server accepts either.
+    const res = await axios.post('/api/auth/login', { identifier, password }, { withCredentials: true });
     // Native: the auth cookie won't persist (cross-origin WebView), so keep the
     // returned JWT as a Bearer token. Harmless on web (cookie still primary).
     if (res.data.token) setBearerToken(res.data.token);
@@ -29,10 +30,10 @@ export function useAuth() {
     return res.data.user;
   };
 
-  const signup = async (username: string, password: string, confirmPassword: string) => {
+  const signup = async (username: string, email: string, password: string, confirmPassword: string) => {
     const res = await axios.post(
       '/api/auth/signup',
-      { username, password, confirmPassword },
+      { username, email, password, confirmPassword },
       { withCredentials: true }
     );
     // Native: persist the JWT as a Bearer token (cookie won't survive in WebView).

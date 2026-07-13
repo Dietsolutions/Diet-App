@@ -46,3 +46,22 @@ export function validatePassword(password: string, username: string): Validation
   }
   return { valid: true };
 }
+
+// Deliberately permissive — we only guard against obviously malformed input
+// (missing @, missing domain, spaces). Real deliverability is proven by the
+// account actually receiving mail, not by a stricter regex.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function validateEmail(email: string): ValidationResult {
+  if (typeof email !== 'string' || email.trim().length === 0) {
+    return { valid: false, message: 'Email is required' };
+  }
+  const e = email.trim();
+  if (e.length > 254) {
+    return { valid: false, message: 'Email is too long' };
+  }
+  if (!EMAIL_REGEX.test(e)) {
+    return { valid: false, message: 'Enter a valid email address' };
+  }
+  return { valid: true };
+}

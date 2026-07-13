@@ -9,7 +9,7 @@ import { identifyUser } from '../lib/analytics';
 import { useAuthStore } from '../store/authStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel } from './ui';
-import { validateUsername as sharedValidateUsername, validatePassword as sharedValidatePassword } from '@shared/validation';
+import { validateUsername as sharedValidateUsername, validatePassword as sharedValidatePassword, validateEmail as sharedValidateEmail } from '@shared/validation';
 
 type AuthMode = 'login' | 'signup';
 type Strength = 'weak' | 'good' | 'strong';
@@ -38,8 +38,14 @@ function validatePassword(password: string, username: string): string | null {
   return result.valid ? null : (result.message ?? null);
 }
 
+function validateEmailFormat(email: string): string | null {
+  const result = sharedValidateEmail(email);
+  return result.valid ? null : (result.message ?? null);
+}
+
 interface Errors {
   username?: string;
+  email?: string;
   password?: string;
   confirmPassword?: string;
   general?: string;
@@ -122,6 +128,7 @@ export function AuthScreen() {
   });
 
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -160,6 +167,7 @@ export function AuthScreen() {
 
   const confirmTouchedRef = useRef(false);
   const usernameInputRef  = useRef<HTMLInputElement>(null);
+  const emailInputRef     = useRef<HTMLInputElement>(null);
   const passwordInputRef  = useRef<HTMLInputElement>(null);
   const confirmInputRef   = useRef<HTMLInputElement>(null);
   const debounceRef       = useRef<number | null>(null);
@@ -253,7 +261,7 @@ export function AuthScreen() {
     setErrors({});
 
     if (mode === 'login') {
-      if (!username.trim() || !password) { setErrors({ general: 'Please enter your username and password' }); return; }
+      if (!username.trim() || !password) { setErrors({ general: 'Please enter your username or email and password' }); return; }
       setIsSubmitting(true);
       try { await login(username.trim(), password); }
       catch (err: any) {
@@ -270,6 +278,8 @@ export function AuthScreen() {
     const usernameErr = validateUsernameFormat(username);
     if (usernameErr) newErrors.username = usernameErr;
     else if (usernameAvailable === false) newErrors.username = 'This username is already taken';
+    const emailErr = validateEmailFormat(email);
+    if (emailErr) newErrors.email = emailErr;
     const passwordErr = validatePassword(password, username);
     if (passwordErr) newErrors.password = passwordErr;
     if (password !== confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
@@ -277,6 +287,7 @@ export function AuthScreen() {
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       if (newErrors.username) usernameInputRef.current?.focus();
+      else if (newErrors.email) emailInputRef.current?.focus();
       else if (newErrors.password) passwordInputRef.current?.focus();
       else if (newErrors.confirmPassword) confirmInputRef.current?.focus();
       return;
@@ -284,7 +295,7 @@ export function AuthScreen() {
 
     setIsSubmitting(true);
     try {
-      await signup(username, password, confirmPassword);
+      await signup(username, email.trim().toLowerCase(), password, confirmPassword);
       setSuccessBurst(true);
       setTimeout(() => setSuccessBurst(false), 800);
     } catch (err: any) {
@@ -292,6 +303,9 @@ export function AuthScreen() {
       if (data?.error === 'username_taken') {
         setErrors({ username: 'This username is already taken' });
         usernameInputRef.current?.focus();
+      } else if (data?.error === 'email_taken') {
+        setErrors({ email: 'An account with this email already exists' });
+        emailInputRef.current?.focus();
       } else if (data?.error === 'validation_error' && data?.field) {
         setErrors({ [data.field]: data.message } as Errors);
       } else if (data?.error === 'rate_limit') {
@@ -484,20 +498,36 @@ export function AuthScreen() {
         {/* ── Form ──────────────────────────────────────────────────────── */}
         <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* Username */}
+          {/* Username (or email, when logging in) */}
           <Field
-            label="USERNAME"
+            label={isSignup ? 'USERNAME' : 'USERNAME OR EMAIL'}
             inputRef={usernameInputRef}
             type="text"
             value={username}
             onChange={handleUsernameChange}
-            placeholder="yourname"
-            autoComplete={isSignup ? 'username' : 'username'}
+            placeholder={isSignup ? 'yourname' : 'yourname or you@email.com'}
+            autoComplete="username"
             autoCapitalize="none"
             spellCheck={false}
             error={errors.username || (isSignup && !errors.username && username.length >= 3 && usernameAvailable === false ? 'Already taken' : undefined)}
-            rightSlot={UsernameIndicator ?? undefined}
+            rightSlot={isSignup ? (UsernameIndicator ?? undefined) : undefined}
           />
+
+          {/* Email (signup only) */}
+          {isSignup && (
+            <Field
+              label="EMAIL"
+              inputRef={emailInputRef}
+              type="email"
+              value={email}
+              onChange={(v: string) => { setEmail(v); if (errors.email) setErrors(e => ({ ...e, email: undefined })); }}
+              placeholder="you@email.com"
+              autoComplete="email"
+              autoCapitalize="none"
+              spellCheck={false}
+              error={errors.email}
+            />
+          )}
 
           {/* Password */}
           <Field
