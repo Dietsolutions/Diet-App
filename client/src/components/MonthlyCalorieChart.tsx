@@ -106,9 +106,12 @@ function makeTooltip(macro: MacroKey) {
         background: s2.surface2,
         border: `1px solid ${s2.lineStrong}`,
         padding: '8px 12px',
-        fontFamily: s2.mono,
+        fontFamily: s2.sans,
         fontSize: 10,
+        fontWeight: 600,
         lineHeight: 1.7,
+        fontVariantNumeric: 'tabular-nums',
+        borderRadius: 12,
       }}>
         <div style={{ color: s2.textDim, marginBottom: 2 }}>{dateLabel}</div>
         <div style={{ color: s2.textDim }}>
@@ -137,15 +140,15 @@ function makeTooltip(macro: MacroKey) {
 // ── Skeleton ───────────────────────────────────────────────────────────────
 function Skeleton() {
   return (
-    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
+    <div style={{ background: s2.surface, borderRadius: 26, padding: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div style={{ width: 140, height: 10, background: s2.surface2 }} />
-        <div style={{ width: 80, height: 10, background: s2.surface2 }} />
+        <div style={{ width: 140, height: 10, background: s2.surface2, borderRadius: 6 }} />
+        <div style={{ width: 80, height: 10, background: s2.surface2, borderRadius: 6 }} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12 }}>
-        {[0, 1, 2].map(i => <div key={i} style={{ height: 56, background: s2.surface2 }} />)}
+        {[0, 1, 2].map(i => <div key={i} style={{ height: 56, background: s2.surface2, borderRadius: 14 }} />)}
       </div>
-      <div style={{ height: 160, background: s2.surface2 }} />
+      <div style={{ height: 160, background: s2.surface2, borderRadius: 14 }} />
     </div>
   );
 }
@@ -154,18 +157,19 @@ function Skeleton() {
 function StatCell({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div style={{
-      border: `1px solid ${s2.line}`,
       background: s2.surface2,
-      padding: '10px 8px',
+      borderRadius: 18,
+      padding: '12px 8px',
       textAlign: 'center',
     }}>
-      <HairLabel style={{ marginBottom: 6, fontSize: 7 }}>{label}</HairLabel>
+      <HairLabel style={{ marginBottom: 6, fontSize: 7.5 }}>{label}</HairLabel>
       <div style={{
-        fontFamily: s2.mono,
+        fontFamily: s2.sans,
         fontSize: 14,
-        fontWeight: 500,
+        fontWeight: 800,
         color: color ?? s2.text,
         letterSpacing: '-0.02em',
+        fontVariantNumeric: 'tabular-nums',
       }}>
         {value}
       </div>
@@ -186,9 +190,10 @@ function MacroTab({
         background: selected ? 'transparent' : 'transparent',
         border: 'none',
         borderBottom: selected ? `2px solid ${color}` : '2px solid transparent',
-        fontFamily: s2.mono,
-        fontSize: 8,
-        letterSpacing: '0.12em',
+        fontFamily: s2.sans,
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: '0.1em',
         color: selected ? color : s2.textDimmer,
         cursor: 'pointer',
         textTransform: 'uppercase',
@@ -273,7 +278,7 @@ export function MonthlyCalorieChart() {
 
   if (loading) return <Skeleton />;
   if (error || !data) return (
-    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
+    <div style={{ background: s2.surface, borderRadius: 26, padding: 16 }}>
       <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, textAlign: 'center' }}>
         {error || 'No data'}
       </div>
@@ -300,7 +305,7 @@ export function MonthlyCalorieChart() {
   const deltaStr  = `${deltaSign}${fmtAmount(macroTot.delta, cfg.unit)}${cfg.unit === 'g' ? 'g' : ''}`;
 
   return (
-    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
+    <div style={{ background: s2.surface, borderRadius: 26, padding: 16 }}>
 
       {/* ── Header with month navigator ────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -315,8 +320,8 @@ export function MonthlyCalorieChart() {
             }}
           >‹</button>
           <span style={{
-            fontFamily: s2.mono, fontSize: 9,
-            letterSpacing: '0.15em', textTransform: 'uppercase',
+            fontFamily: s2.sans, fontSize: 10, fontWeight: 800,
+            letterSpacing: '0.1em', textTransform: 'uppercase',
             color: s2.text, minWidth: 96, textAlign: 'center',
           }}>
             {MONTH_NAMES[chartM - 1]} {chartY}
@@ -377,8 +382,9 @@ export function MonthlyCalorieChart() {
         {/* Progress days text */}
         {!noData && (
           <div style={{
-            fontFamily: s2.mono,
-            fontSize: 9,
+            fontFamily: s2.sans,
+            fontSize: 9.5,
+            fontWeight: 700,
             color: s2.textDimmer,
             letterSpacing: '0.1em',
             marginBottom: 14,
@@ -386,6 +392,25 @@ export function MonthlyCalorieChart() {
             <span style={{ color: s2.text }}>{planDaysElapsed}</span> OF{' '}
             <span style={{ color: s2.text }}>{totalPlanDaysInMonth}</span> PLAN DAYS PROGRESSED{' '}
             ({Math.round((planDaysElapsed / totalPlanDaysInMonth) * 100)}%)
+          </div>
+        )}
+
+        {/* Daily avg / under / over — recomputed per macro tab (ref: V3Kcal) */}
+        {!noData && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 14 }}>
+            {([
+              { k: 'DAILY AVG',     v: cfg.unit === 'kcal' ? macroTot.dailyAvg.toLocaleString() : String(Math.round(macroTot.dailyAvg)), u: cfg.unit,  bg: s2.accentFill },
+              { k: 'UNDER TARGET',  v: String(chartData.filter(d => d.hasData && d.delta < 0).length), u: 'days', bg: s2.mint  },
+              { k: 'OVER TARGET',   v: String(chartData.filter(d => d.hasData && d.delta > 0).length), u: 'days', bg: s2.peach },
+            ]).map(c => (
+              <div key={c.k} style={{ background: c.bg, borderRadius: 18, padding: '12px 10px' }}>
+                <HairLabel color="rgba(15,20,15,0.5)" style={{ fontSize: 7.5 }}>{c.k}</HairLabel>
+                <div style={{ fontFamily: s2.disp, fontSize: 22, fontWeight: 700, color: s2.ink, letterSpacing: '-0.035em', lineHeight: 1, marginTop: 7, fontVariantNumeric: 'tabular-nums' }}>
+                  {c.v}
+                  <span style={{ fontFamily: s2.sans, fontSize: 10, fontWeight: 600, color: 'rgba(15,20,15,0.55)', marginLeft: 4 }}>{c.u}</span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -419,7 +444,7 @@ export function MonthlyCalorieChart() {
                     tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}
                     axisLine={false} tickLine={false} tickCount={5}
                   />
-                  <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(255,182,128,0.05)' }} />
+                  <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(15,20,15,0.05)' }} />
                   <ReferenceLine y={0} stroke={s2.lineStrong} strokeDasharray="3 3" />
                   <ReferenceLine
                     y={deficitZoneLine}
@@ -443,8 +468,8 @@ export function MonthlyCalorieChart() {
                 display: 'flex',
                 justifyContent: 'space-between',
                 marginTop: 6,
-                fontFamily: s2.mono,
-                fontSize: 9,
+                fontFamily: s2.sans,
+                fontSize: 9.5, fontWeight: 600,
                 color: s2.textDimmer,
               }}>
                 <span>0</span>
@@ -455,8 +480,8 @@ export function MonthlyCalorieChart() {
               </div>
               <div style={{
                 marginTop: 6,
-                fontFamily: s2.mono,
-                fontSize: 9,
+                fontFamily: s2.sans,
+                fontSize: 9.5, fontWeight: 600,
                 color: macroTot.delta > 0 ? s2.warn : s2.fibre,
                 letterSpacing: '0.04em',
               }}>
@@ -465,8 +490,8 @@ export function MonthlyCalorieChart() {
               </div>
               <div style={{
                 marginTop: 4,
-                fontFamily: s2.mono,
-                fontSize: 9,
+                fontFamily: s2.sans,
+                fontSize: 9.5, fontWeight: 600,
                 color: s2.textDimmer,
               }}>
                 Daily avg:{' '}
@@ -484,9 +509,9 @@ export function MonthlyCalorieChart() {
 
             {/* Insight */}
             <div style={{
-              border: `1px solid ${s2.line}`,
               background: s2.surface2,
-              padding: '10px 12px',
+              borderRadius: 16,
+              padding: '12px 14px',
               fontFamily: s2.sans,
               fontSize: 12,
               color: s2.textDim,
