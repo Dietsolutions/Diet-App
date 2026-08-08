@@ -65,5 +65,16 @@ export function useTracker() {
     }
   }, [toggleMealEaten, setStats]);
 
-  return { weekData, stats, weekStart, toggleMeal, loadWeekData };
+  // Mark every meal of a day eaten (day-detail "Mark all eaten"). Optimistic, then reloads.
+  const markAllEaten = useCallback(async (date: string, mealsPerDay: number) => {
+    for (let i = 0; i < mealsPerDay; i++) toggleMealEaten(date, i, true);
+    try {
+      await axios.post(`/api/tracker/${date}/mark-all-eaten`, {}, { withCredentials: true });
+      await loadWeekData(weekStart || undefined);
+    } catch {
+      await loadWeekData(weekStart || undefined);
+    }
+  }, [toggleMealEaten, loadWeekData, weekStart]);
+
+  return { weekData, stats, weekStart, toggleMeal, markAllEaten, loadWeekData };
 }
