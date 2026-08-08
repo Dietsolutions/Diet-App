@@ -223,7 +223,7 @@ export default function App() {
 
         {/* Safe-area spacer (AppBar renders this) */}
         <ErrorBoundary>
-          <AppBar title="Diet Plan & Tracker" />
+          <AppBar title="Plan Your Plate" />
         </ErrorBoundary>
 
         {/* PWA install banner */}

@@ -446,30 +446,27 @@ export function AuthScreen() {
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           {/* Square logo mark */}
           <div style={{
-            width: 52,
-            height: 52,
+            width: 56,
+            height: 56,
             background: s2.accentFill,
-            border: `1px solid ${s2.accent}`,
+            borderRadius: s2.rLg,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             margin: '0 auto 16px',
           }}>
-            <span style={{ fontSize: 26 }}>🍽️</span>
+            <span style={{ fontSize: 28 }}>🍽️</span>
           </div>
-          <div style={{ fontFamily: s2.sans, fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text }}>
-            Diet Plan
+          <div style={{ fontFamily: s2.disp, fontSize: 30, fontWeight: 700, letterSpacing: '-0.042em', lineHeight: 1.02, color: s2.text }}>
+            Plan Your Plate
           </div>
-          <div style={{ fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.2em', color: s2.accent, marginTop: 3 }}>
-            & TRACKER
-          </div>
-          <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, marginTop: 8 }}>
-            AI-powered nutrition companion
+          <div style={{ fontFamily: s2.sans, fontSize: 12, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: s2.textDim, marginTop: 8 }}>
+            YOUR NUTRITION COMPANION
           </div>
         </div>
 
-        {/* ── Mode toggle ────────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', marginBottom: 24, border: `1px solid ${s2.lineStrong}`, position: 'relative' }}>
+        {/* ── Mode toggle (pill segmented control) ─────────────────────────── */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: s2.surface2, borderRadius: s2.rPill, padding: 4 }}>
           {(['login', 'signup'] as const).map(m => (
             <button
               key={m}
@@ -478,15 +475,15 @@ export function AuthScreen() {
               style={{
                 flex: 1,
                 padding: '11px 0',
-                background: mode === m ? s2.surface : 'transparent',
+                background: mode === m ? s2.accentFill : 'transparent',
                 border: 'none',
-                borderBottom: `2px solid ${mode === m ? s2.accent : 'transparent'}`,
-                fontFamily: s2.mono,
-                fontSize: 10,
-                letterSpacing: '0.18em',
-                color: mode === m ? s2.accent : s2.textDimmer,
+                borderRadius: s2.rPill,
+                fontFamily: s2.sans,
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                color: mode === m ? s2.ink : s2.textDim,
                 cursor: 'pointer',
-                textTransform: 'uppercase',
                 transition: 'all 150ms',
               }}
             >

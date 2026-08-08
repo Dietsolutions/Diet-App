@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.dietplan.tracker',
-  appName: 'Diet Plan & Tracker',
+  appName: 'Plan Your Plate',
   webDir: 'client/dist',
 
   // Live API URL — change this to your production backend.

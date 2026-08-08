@@ -215,7 +215,7 @@ export function ProfileTab() {
   // ── Share & rate helpers ───────────────────────────────────────────────
   const handleShare = async () => {
     const shareData = {
-      title: 'Diet Plan & Tracker',
+      title: 'Plan Your Plate',
       text: 'AI-powered meal planning that actually works 🥗 Check it out!',
       url: APP_STORE_URL,
     };
@@ -711,7 +711,7 @@ export function ProfileTab() {
         {/* ── App version ─────────────────────────────────────────────────── */}
         <div style={{ textAlign: 'center', paddingBottom: 4 }}>
           <div style={{ fontFamily: s2.mono, fontSize: 10, color: s2.textDimmer, letterSpacing: '0.1em' }}>
-            DIET PLAN & TRACKER v{APP_VERSION}
+            PLANYOURPLATE v{APP_VERSION}
           </div>
         </div>
 

@@ -69,7 +69,7 @@ export function MealShareSheet({
     }
 
     lines.push('');
-    lines.push('Shared via Diet Plan & Tracker — https://diet-app-gules.vercel.app');
+    lines.push('Shared via Plan Your Plate — https://diet-app-gules.vercel.app');
     return lines.join('\n');
   }
 
