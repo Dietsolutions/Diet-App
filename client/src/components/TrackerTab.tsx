@@ -1,22 +1,20 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { PullRefreshWrapper } from './ui/PullRefreshWrapper';
-import { format, parseISO, startOfMonth, addMonths, subMonths, getDaysInMonth, getDay, addDays, startOfWeek } from 'date-fns';
+import { format, parseISO, startOfMonth, getDaysInMonth, getDay, addDays, startOfWeek } from 'date-fns';
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
 import { getPlanDayIndex } from '../utils/planUtils';
-import { track, trackPage } from '../lib/analytics';
+import { trackPage } from '../lib/analytics';
 import { notifyPlanExpiringSoon } from '../lib/notifications';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
-import { useAdditionalMealsStore } from '../store/additionalMealsStore';
 import { useTracker } from '../hooks/useTracker';
 import { TrackerSummary, GoalCountdown } from '../types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { MonthlyCalorieChart } from './MonthlyCalorieChart';
 import { s2 } from '../theme/tokens';
-import { HairLabel, Card, Bar } from './ui';
+import { HairLabel, Card, Bar, Btn, H } from './ui';
 
 // ── helpers ────────────────────────────────────────────────────────────────
-function getMonthStr(date: Date): string { return format(date, 'yyyy-MM'); }
 function todayStr(): string { return format(new Date(), 'yyyy-MM-dd'); }
 function getWeekStartStr(): string {
   const today = new Date();
@@ -27,16 +25,42 @@ function getWeekStartStr(): string {
 function getMondayOfWeek(dateStr: string): string {
   return format(startOfWeek(parseISO(dateStr), { weekStartsOn: 1 }), 'yyyy-MM-dd');
 }
+
+// ── Metric switcher config (ref: V3_TRK) ───────────────────────────────────
+type MetricKey = 'kcal' | 'protein' | 'carbs' | 'fat' | 'fibre' | 'water' | 'adh';
+
+const METRICS: Record<MetricKey, { label: string; unit: string; color: string; higherIsBetter: boolean }> = {
+  kcal:    { label: 'Calories',  unit: 'kcal', color: s2.accentFill, higherIsBetter: false },
+  protein: { label: 'Protein',   unit: 'g',    color: s2.protein,    higherIsBetter: true  },
+  carbs:   { label: 'Carbs',     unit: 'g',    color: s2.carbs,      higherIsBetter: false },
+  fat:     { label: 'Fat',       unit: 'g',    color: s2.fat,        higherIsBetter: false },
+  fibre:   { label: 'Fibre',     unit: 'g',    color: s2.fibre,      higherIsBetter: true  },
+  water:   { label: 'Water',     unit: 'L',    color: s2.water,      higherIsBetter: true  },
+  adh:     { label: 'Adherence', unit: '%',    color: s2.lilac,      higherIsBetter: true  },
+};
+
+interface DayMacroEntry {
+  date: string;
+  hasData: boolean;
+  adherencePct?: number;
+  eaten?: number;
+  planned?: number;
+  calories: { consumed: number; target: number };
+  protein:  { consumed: number; target: number };
+  carbs:    { consumed: number; target: number };
+  fat:      { consumed: number; target: number };
+  fibre:    { consumed: number; target: number };
+}
+
 // ── TrackerTab ─────────────────────────────────────────────────────────────
 export function TrackerTab() {
-  const { weekData, stats, loadWeekData } = useTracker();
+  const { weekData, stats, loadWeekData, markAllEaten } = useTracker();
   const {
-    selectedDate, setSelectedDate,
-    trackerCalendarMonth, setTrackerCalendarMonth,
+    selectedDate, setSelectedDate, setActiveTab,
+    trackerCalendarMonth,
     mealsPerDay, planDuration, planWeekStartDate,
   } = useAppStore();
   const { fetchReplacementsForWeek } = useMealReplacerStore();
-  const { fetchForDate, getForDate } = useAdditionalMealsStore();
 
   const handleRefresh = useCallback(async () => {
     await Promise.all([
@@ -48,21 +72,18 @@ export function TrackerTab() {
   const [weeklySummary,  setWeeklySummary]  = useState<TrackerSummary | null>(null);
   const [monthlySummary, setMonthlySummary] = useState<TrackerSummary | null>(null);
   const [goalCountdown,  setGoalCountdown]  = useState<GoalCountdown  | null>(null);
+  const [metric,         setMetric]         = useState<MetricKey>('kcal');
+  const [dailyMacros,    setDailyMacros]    = useState<DayMacroEntry[]>([]);
+  const [waterDays,      setWaterDays]      = useState<Record<string, number>>({});
+  const [waterGoal,      setWaterGoal]      = useState(8);
+  const monthlyChartRef = useRef<HTMLDivElement>(null);
 
   // Track page view once on mount
   useEffect(() => { trackPage('tracker_tab'); }, []);
 
   const today = todayStr();
-  const currentMonthStr  = format(new Date(), 'yyyy-MM');
-  const canGoForwardMonth = trackerCalendarMonth < currentMonthStr;
 
   useEffect(() => { fetchReplacementsForWeek(); }, [fetchReplacementsForWeek]);
-
-  useEffect(() => {
-    if (selectedDate && selectedDate <= today) fetchForDate(selectedDate);
-  }, [selectedDate, fetchForDate]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const additionalMeals = getForDate(selectedDate);
 
   useEffect(() => {
     const weekStartStr = getWeekStartStr();
@@ -86,6 +107,27 @@ export function TrackerTab() {
     });
   }, [trackerCalendarMonth]);
 
+  // Per-day macro series + adherence for the visible month (metric switcher + calendar)
+  useEffect(() => {
+    axios.get('/api/tracker/monthly-macros', { params: { month: trackerCalendarMonth }, withCredentials: true })
+      .then(res => setDailyMacros(Array.isArray(res.data?.dailyData) ? res.data.dailyData : []))
+      .catch(() => setDailyMacros([]));
+  }, [trackerCalendarMonth]);
+
+  // Water series — rolling 14 days ending today
+  useEffect(() => {
+    const end   = todayStr();
+    const start = format(addDays(new Date(), -13), 'yyyy-MM-dd');
+    axios.get('/api/water/range', { params: { start, end }, withCredentials: true })
+      .then(res => {
+        const map: Record<string, number> = {};
+        (res.data?.days ?? []).forEach((d: { date: string; glasses: number }) => { map[d.date] = d.glasses; });
+        setWaterDays(map);
+        if (res.data?.goalGlasses) setWaterGoal(res.data.goalGlasses);
+      })
+      .catch(() => setWaterDays({}));
+  }, []);
+
   const weekDataByDate: Record<string, typeof weekData[0]> = {};
   weekData.forEach(d => { weekDataByDate[d.date] = d; });
 
@@ -103,8 +145,56 @@ export function TrackerTab() {
   const selectedDayIndex = getPlanDayIndex(selectedDate, planWeekStartDate, planDuration);
   const eatenCount       = selectedDayData?.meals.filter(m => m.eaten).length ?? 0;
   const allEaten         = eatenCount === mealsPerDay;
+  const selectedPct      = mealsPerDay > 0 ? eatenCount / mealsPerDay : 0;
 
-  // Calendar grid
+  // ── Metric series (last 14 entries with data) ────────────────────────────
+  const m = METRICS[metric];
+  const { series, target, avg } = (() => {
+    if (metric === 'water') {
+      const dates = Array.from({ length: 14 }, (_, i) => format(addDays(new Date(), i - 13), 'yyyy-MM-dd'));
+      const s = dates.map(d => (waterDays[d] ?? 0) * 0.25);
+      const t = waterGoal * 0.25;
+      const a = s.length ? s.reduce((x, y) => x + y, 0) / s.length : 0;
+      return { series: s, target: t, avg: a };
+    }
+    const window14 = dailyMacros.slice(-14);
+    if (metric === 'adh') {
+      const s = window14.map(d => d.adherencePct ?? 0);
+      const a = s.length ? s.reduce((x, y) => x + y, 0) / s.length : 0;
+      return { series: s, target: 100, avg: a };
+    }
+    const key = metric === 'kcal' ? 'calories' : metric;
+    const s = window14.map(d => (d as any)[key]?.consumed ?? 0);
+    const t = window14.length ? ((window14[window14.length - 1] as any)[key]?.target ?? 0) : 0;
+    const a = s.length ? s.reduce((x, y) => x + y, 0) / s.length : 0;
+    return { series: s, target: t, avg: a };
+  })();
+
+  const fmtVal = (v: number) => metric === 'water' ? v.toFixed(1) : String(Math.round(v));
+  const delta      = avg - target;
+  const deltaGood  = m.higherIsBetter ? delta >= 0 : delta <= 0;
+  const deltaLabel = `${delta >= 0 ? '+' : '−'}${fmtVal(Math.abs(delta))} / day`;
+
+  // Chart geometry (ref: V3Tracker)
+  const W = 300, CH = 104, PT = 10, PB = 10;
+  const hasSeries = series.length >= 2;
+  const maxV = Math.max(target, ...series, 1) * 1.06;
+  const minV = Math.max(0, Math.min(...(series.length ? series : [0])) * 0.86);
+  const xs = series.map((_, i) => (i / Math.max(series.length - 1, 1)) * W);
+  const ys = series.map(v => CH - PB - ((v - minV) / (maxV - minV)) * (CH - PT - PB));
+  const tY = CH - PB - ((target - minV) / (maxV - minV)) * (CH - PT - PB);
+  const linePath = xs.map((x, i) => `${i ? 'L' : 'M'} ${x} ${ys[i]}`).join(' ');
+  const windowDates = metric === 'water'
+    ? { first: format(addDays(new Date(), -13), 'd MMM'), last: format(new Date(), 'd MMM') }
+    : {
+        first: dailyMacros.length ? format(parseISO(dailyMacros.slice(-14)[0].date), 'd MMM') : '',
+        last:  dailyMacros.length ? format(parseISO(dailyMacros[dailyMacros.length - 1].date), 'd MMM') : '',
+      };
+
+  // ── Adherence calendar cells ─────────────────────────────────────────────
+  const adherenceByDate: Record<string, DayMacroEntry> = {};
+  dailyMacros.forEach(d => { adherenceByDate[d.date] = d; });
+
   const calendarMonthDate = parseISO(trackerCalendarMonth + '-01');
   const firstDayOfMonth   = startOfMonth(calendarMonthDate);
   const daysInMonth       = getDaysInMonth(calendarMonthDate);
@@ -112,61 +202,216 @@ export function TrackerTab() {
   const calendarCells: Array<string | null> = [
     ...Array(firstDayWeekday).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) =>
-      addDays(firstDayOfMonth, i).toISOString().split('T')[0]
+      format(addDays(firstDayOfMonth, i), 'yyyy-MM-dd')
     ),
   ];
   while (calendarCells.length % 7 !== 0) calendarCells.push(null);
+  const calendarWeeks = Array.from({ length: calendarCells.length / 7 }, (_, i) => calendarCells.slice(i * 7, i * 7 + 7));
 
   return (
-    <PullRefreshWrapper onRefresh={handleRefresh} style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 90 }}>
+    <PullRefreshWrapper onRefresh={handleRefresh} style={{ background: s2.bg, minHeight: '100%', color: s2.text, paddingBottom: 110 }}>
 
       {/* ── Section header ────────────────────────────────────────────────── */}
       <div style={{ padding: '14px 20px 0' }}>
         <HairLabel>{format(calendarMonthDate, 'MMMM yyyy').toUpperCase()}</HairLabel>
-        <div style={{ fontFamily: s2.sans, fontSize: 30, fontWeight: 400, letterSpacing: '-0.025em', marginTop: 4, lineHeight: 1 }}>
-          Tracker
-        </div>
+        <H size={32} style={{ marginTop: 6 }}>Tracker</H>
       </div>
 
       {/* ── Empty state ── shown when no meals have ever been logged ─────── */}
       {stats != null && stats.total === 0 && weekData.length === 0 && (
         <div style={{ padding: '24px 20px 0' }}>
-          <div style={{
-            border: `1px solid ${s2.lineStrong}`,
-            background: s2.surface,
-            padding: '24px 20px',
-            textAlign: 'center',
-          }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
-            <div style={{ fontFamily: s2.sans, fontSize: 16, fontWeight: 500, color: s2.text, marginBottom: 6 }}>
+          <Card padding={28} radius={28} border={s2.lineStrong} style={{ textAlign: 'center' }}>
+            <div style={{ width: 56, height: 56, borderRadius: s2.rPill, background: s2.bg, margin: '0 auto 14px', display: 'grid', placeItems: 'center', fontSize: 24 }}>📋</div>
+            <div style={{ fontFamily: s2.sans, fontSize: 16, fontWeight: 700, color: s2.text }}>
               No data yet
             </div>
-            <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDimmer, lineHeight: 1.6, maxWidth: 260, margin: '0 auto' }}>
+            <div style={{ fontFamily: s2.sans, fontSize: 13, fontWeight: 500, color: s2.textDimmer, lineHeight: 1.6, maxWidth: 260, margin: '8px auto 0' }}>
               Start logging meals on the Meals tab and your tracking stats will appear here.
             </div>
-          </div>
+          </Card>
         </div>
       )}
 
-      {/* ── Big-3 summary ─────────────────────────────────────────────────── */}
-      <div style={{ padding: '18px 20px 0', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+      {/* ── Big-3 pastel summary ──────────────────────────────────────────── */}
+      <div style={{ padding: '20px 20px 0', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
         <StatCard
+          bg={s2.mint}
           label="THIS WEEK"
           big={`${Math.round(weeklySummary?.adherencePct ?? adherenceValue)}`}
           unit="%"
-          sub={`${weeklySummary?.eaten ?? stats?.eaten ?? 0}/${weeklySummary?.total ?? stats?.total ?? 0}`}
+          sub={`${weeklySummary?.eaten ?? stats?.eaten ?? 0} / ${weeklySummary?.total ?? stats?.total ?? 0} meals`}
         />
         <StatCard
+          bg={s2.butter}
           label="THIS MONTH"
           big={`${Math.round(monthlySummary?.adherencePct ?? 0)}`}
           unit="%"
-          sub={`${monthlySummary?.eaten ?? 0}/${monthlySummary?.total ?? 0}`}
+          sub={`${monthlySummary?.eaten ?? 0} / ${monthlySummary?.total ?? 0} meals`}
         />
         <GoalStatCard goalCountdown={goalCountdown} />
       </div>
 
-      {/* ── Monthly calorie chart ──────────────────────────────────────────── */}
-      <div style={{ padding: '18px 20px 0' }}>
+      {/* ── Metric switcher chart (dark card) ─────────────────────────────── */}
+      <div style={{ padding: '12px 20px 0' }}>
+        <Card bg={s2.ink} radius={30} padding={18}>
+          {/* metric pills */}
+          <div className="scrollbar-hide" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, marginBottom: 16 }}>
+            {(Object.keys(METRICS) as MetricKey[]).map(k => {
+              const on = k === metric;
+              return (
+                <button key={k} onClick={() => setMetric(k)} style={{
+                  border: 'none', cursor: 'pointer', borderRadius: s2.rPill, padding: '7px 13px', flexShrink: 0,
+                  background: on ? METRICS[k].color : 'rgba(246,247,243,0.09)',
+                  color: on ? s2.ink : s2.onDarkDim, fontFamily: s2.sans, fontSize: 11.5, fontWeight: 700,
+                }}>{METRICS[k].label}</button>
+              );
+            })}
+          </div>
+
+          {/* average + delta */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+            <div>
+              <HairLabel color={s2.onDarkDimmer}>DAILY AVERAGE · 14 DAYS</HairLabel>
+              <div style={{ fontFamily: s2.disp, fontSize: 40, fontWeight: 700, letterSpacing: '-0.045em', color: s2.onDark, lineHeight: 1, marginTop: 7 }}>
+                {fmtVal(avg)}
+                <span style={{ fontFamily: s2.sans, fontSize: 14, fontWeight: 600, color: s2.onDarkDim, marginLeft: 5 }}>{m.unit}</span>
+              </div>
+            </div>
+            <span style={{
+              fontFamily: s2.sans, fontSize: 10.5, fontWeight: 700,
+              background: deltaGood ? 'rgba(198,242,78,0.16)' : 'rgba(229,72,77,0.18)',
+              color: deltaGood ? s2.accentFill : '#FF8A8D',
+              borderRadius: s2.rPill, padding: '6px 11px', whiteSpace: 'nowrap',
+            }}>
+              {delta <= 0 ? '▼' : '▲'} {deltaLabel}
+            </span>
+          </div>
+
+          {/* line chart */}
+          <div style={{ height: CH, marginTop: 14 }}>
+            {hasSeries ? (
+              <svg width="100%" height="100%" viewBox={`0 0 ${W} ${CH}`} preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id={`trkGrad_${metric}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={m.color} stopOpacity="0.4" />
+                    <stop offset="100%" stopColor={m.color} stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                <line x1="0" y1={tY} x2={W} y2={tY} stroke="rgba(246,247,243,0.28)" strokeDasharray="3,4" strokeWidth="0.7" />
+                <path d={`${linePath} L ${W} ${CH} L 0 ${CH} Z`} fill={`url(#trkGrad_${metric})`} />
+                <path d={linePath} fill="none" stroke={m.color} strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                <circle cx={xs[xs.length - 1]} cy={ys[ys.length - 1]} r="3.4" fill={m.color} />
+              </svg>
+            ) : (
+              <div style={{ height: '100%', display: 'grid', placeItems: 'center', fontFamily: s2.sans, fontSize: 12, fontWeight: 600, color: s2.onDarkDimmer }}>
+                Not enough data yet
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontFamily: s2.sans, fontSize: 10, fontWeight: 600, color: s2.onDarkDimmer, fontVariantNumeric: 'tabular-nums' }}>
+            <span>{windowDates.first}</span>
+            <span>Target {fmtVal(target)}{m.unit}</span>
+            <span>{windowDates.last}</span>
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Plan adherence calendar ───────────────────────────────────────── */}
+      <div style={{ padding: '12px 20px 0' }}>
+        <Card radius={26} padding={16}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+            <HairLabel>PLAN ADHERENCE · {format(calendarMonthDate, 'MMMM').toUpperCase()}</HairLabel>
+            <span
+              style={{ fontFamily: s2.sans, fontSize: 12, fontWeight: 700, color: s2.accent, cursor: 'pointer' }}
+              onClick={() => monthlyChartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            >
+              Monthly macros →
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 5, marginBottom: 6 }}>
+            {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+              <div key={i} style={{ textAlign: 'center', fontFamily: s2.sans, fontSize: 9.5, fontWeight: 700, color: s2.textDimmer }}>{d}</div>
+            ))}
+          </div>
+          {calendarWeeks.map((week, wi) => (
+            <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 5, marginBottom: 5 }}>
+              {week.map((date, di) => {
+                if (!date) return <div key={di} />;
+                const entry   = adherenceByDate[date];
+                const pct     = entry?.adherencePct ?? null;
+                const has     = pct != null && date <= today;
+                const isToday = date === today;
+                const dayNum  = parseInt(date.slice(8), 10);
+                return (
+                  <div
+                    key={di}
+                    onClick={() => setSelectedDate(date)}
+                    style={{
+                      aspectRatio: '1', borderRadius: 11, display: 'grid', placeItems: 'center', cursor: 'pointer',
+                      background: !has
+                        ? 'rgba(15,20,15,0.04)'
+                        : pct! >= 100
+                          ? s2.accentFill
+                          : `rgba(198,242,78,${0.25 + (pct! / 100) * 0.5})`,
+                      boxShadow: isToday
+                        ? `inset 0 0 0 1.5px ${s2.ink}`
+                        : date === selectedDate
+                          ? `inset 0 0 0 1.5px ${s2.accent}`
+                          : 'none',
+                    }}
+                  >
+                    <span style={{ fontFamily: s2.sans, fontSize: 10, fontWeight: isToday ? 800 : 700, color: has ? s2.ink : s2.textDimmer }}>
+                      {dayNum}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+            {([['All meals', s2.accentFill], ['Partial', 'rgba(198,242,78,0.5)'], ['No data', 'rgba(15,20,15,0.04)']] as const).map(([label, color]) => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{ width: 9, height: 9, borderRadius: 3, background: color }} />
+                <HairLabel style={{ fontSize: 7.5 }}>{label}</HairLabel>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Selected day detail ───────────────────────────────────────────── */}
+      {selectedDayIndex >= 0 && (
+        <div style={{ padding: '12px 20px 0' }}>
+          <Card radius={26} padding={18}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <HairLabel>DAY {selectedDayIndex + 1} OF {planDuration}</HairLabel>
+                <H size={22} style={{ marginTop: 6 }}>{format(parseISO(selectedDate), 'EEEE, d MMM')}</H>
+              </div>
+              <span style={{
+                fontFamily: s2.sans, fontSize: 11, fontWeight: 700,
+                background: s2.accentWash, color: s2.ink,
+                borderRadius: s2.rPill, padding: '6px 11px', whiteSpace: 'nowrap',
+              }}>
+                {eatenCount} / {mealsPerDay} eaten
+              </span>
+            </div>
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', fontFamily: s2.sans, fontSize: 11.5, fontWeight: 700, color: s2.textDim, marginBottom: 7 }}>
+              <span>Meals logged</span><span>{Math.round(selectedPct * 100)}%</span>
+            </div>
+            <Bar pct={selectedPct} h={9} />
+            <div style={{ display: 'flex', gap: 9, marginTop: 16 }}>
+              <Btn small kind="lime" onClick={() => setActiveTab('meals')}>View plan</Btn>
+              {!allEaten && selectedDate <= today && (
+                <Btn small kind="light" onClick={() => markAllEaten(selectedDate, mealsPerDay)}>Mark all eaten</Btn>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Monthly macros chart ──────────────────────────────────────────── */}
+      <div ref={monthlyChartRef} style={{ padding: '18px 20px 0' }}>
         <ErrorBoundary fallback={<div />}>
           <MonthlyCalorieChart />
         </ErrorBoundary>
@@ -177,44 +422,30 @@ export function TrackerTab() {
   );
 }
 
-// ── StatCard ───────────────────────────────────────────────────────────────
-function StatCard({ label, big, unit, sub }: { label: string; big: string; unit: string; sub: string }) {
+// ── StatCard (pastel) ──────────────────────────────────────────────────────
+function StatCard({ bg, label, big, unit, sub }: { bg: string; label: string; big: string; unit: string; sub: string }) {
   return (
-    <div style={{ border: `1px solid ${s2.line}`, padding: '12px 10px', background: s2.surface }}>
-      <HairLabel>{label}</HairLabel>
-      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, color: s2.accent, letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6 }}>
-        {big}<span style={{ fontSize: 14, color: s2.textDim }}>{unit}</span>
+    <Card bg={bg} radius={20} padding={14}>
+      <HairLabel color="rgba(15,20,15,0.5)">{label}</HairLabel>
+      <div style={{ fontFamily: s2.disp, fontSize: 30, fontWeight: 700, color: s2.ink, letterSpacing: '-0.04em', lineHeight: 1, marginTop: 8 }}>
+        {big}<span style={{ fontSize: 14 }}>{unit}</span>
       </div>
-      <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDim, letterSpacing: '0.15em', marginTop: 4 }}>{sub}</div>
-    </div>
+      <div style={{ fontFamily: s2.sans, fontSize: 9.5, fontWeight: 600, color: 'rgba(15,20,15,0.5)', marginTop: 5, fontVariantNumeric: 'tabular-nums' }}>{sub}</div>
+    </Card>
   );
 }
 
-// ── GoalStatCard ───────────────────────────────────────────────────────────
+// ── GoalStatCard (peach) ───────────────────────────────────────────────────
 function GoalStatCard({ goalCountdown }: { goalCountdown: GoalCountdown | null }) {
   if (!goalCountdown) {
-    return (
-      <div style={{ border: `1px solid ${s2.line}`, padding: '12px 10px', background: s2.surface }}>
-        <HairLabel>GOAL ETA</HairLabel>
-        <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, color: s2.textDimmer, letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6 }}>
-          —
-        </div>
-        <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDimmer, letterSpacing: '0.15em', marginTop: 4 }}>loading</div>
-      </div>
-    );
+    return <StatCard bg={s2.peach} label="GOAL ETA" big="—" unit="" sub="loading" />;
   }
 
   const { daysLeft, goalDate, targetWeight } = goalCountdown;
 
   // Server returns null for users without a weight goal (e.g. eat_healthy, maintain)
   if (daysLeft == null || !goalDate) {
-    return (
-      <div style={{ border: `1px solid ${s2.line}`, padding: '12px 10px', background: s2.surface }}>
-        <HairLabel>GOAL ETA</HairLabel>
-        <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, color: s2.textDimmer, letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6 }}>—</div>
-        <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDimmer, letterSpacing: '0.15em', marginTop: 4 }}>no weight goal set</div>
-      </div>
-    );
+    return <StatCard bg={s2.peach} label="GOAL ETA" big="—" unit="" sub="no weight goal set" />;
   }
 
   let bigText: string;
@@ -228,14 +459,6 @@ function GoalStatCard({ goalCountdown }: { goalCountdown: GoalCountdown | null }
   })();
 
   return (
-    <div style={{ border: `1px solid ${s2.line}`, padding: '12px 10px', background: s2.surface }}>
-      <HairLabel>GOAL ETA</HairLabel>
-      <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, color: s2.accent, letterSpacing: '-0.03em', lineHeight: 1, marginTop: 6 }}>
-        {bigText}<span style={{ fontSize: 14, color: s2.textDim }}>{bigUnit}</span>
-      </div>
-      <div style={{ fontFamily: s2.mono, fontSize: 9, color: s2.textDim, letterSpacing: '0.15em', marginTop: 4 }}>
-        {targetWeight}kg · {goalDateLabel}
-      </div>
-    </div>
+    <StatCard bg={s2.peach} label="GOAL ETA" big={bigText} unit={bigUnit} sub={`${targetWeight} kg · ${goalDateLabel}`} />
   );
 }

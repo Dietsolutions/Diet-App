@@ -34,6 +34,33 @@ router.get('/', requireAuth, async (req: AuthRequest, res: Response): Promise<vo
   }
 });
 
+// GET /api/water/range?start=YYYY-MM-DD&end=YYYY-MM-DD
+// Per-day glasses over a window — feeds the tracker metric switcher's water series.
+router.get('/range', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const start = (req.query.start as string || '').trim();
+    const end   = (req.query.end   as string || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end) {
+      res.status(400).json({ error: 'start and end must be YYYY-MM-DD with start <= end' });
+      return;
+    }
+
+    const [logs, profile] = await Promise.all([
+      prisma.waterLog.findMany({
+        where: { userId, date: { gte: start, lte: end } },
+        select: { date: true, glasses: true, goalGlasses: true },
+      }),
+      prisma.userProfile.findUnique({ where: { userId } }),
+    ]);
+    const goalGlasses = profile?.waterIntakeGoal || 8;
+    res.json({ days: logs, goalGlasses });
+  } catch (err) {
+    console.error('Water range error:', err instanceof Error ? err.message : err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
 // POST /api/water
 router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
