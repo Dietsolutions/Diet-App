@@ -8,13 +8,14 @@ interface Props {
   h?: number;
 }
 
-/** Vertical progress bar that fills from the bottom — used in macro detail views. */
+/** Vertical progress bar that fills from the bottom — rounded. Used in macro detail views. */
 export function VBar({ pct, color, h = 80 }: Props) {
   return (
     <div style={{
       width: 10,
       height: h,
-      background: s2.line,
+      background: 'rgba(15,20,15,0.10)',
+      borderRadius: s2.rPill,
       position: 'relative',
       overflow: 'hidden',
     }}>
@@ -24,7 +25,9 @@ export function VBar({ pct, color, h = 80 }: Props) {
         left: 0,
         right: 0,
         height: `${Math.min(100, Math.max(0, pct * 100))}%`,
-        background: color ?? s2.accentFill,
+        borderRadius: s2.rPill,
+        background: color ?? s2.accentSoft,
+        transition: 'height 400ms ease-out',
       }} />
     </div>
   );

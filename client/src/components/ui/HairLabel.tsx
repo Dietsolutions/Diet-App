@@ -7,16 +7,16 @@ interface Props {
   style?: CSSProperties;
 }
 
-/** 9 px IBM Plex Mono uppercase kicker — the eyebrow label of the design system. */
+/** Uppercase kicker/eyebrow label — 10px Plus Jakarta Sans, weight 700. (ref: V3Kick) */
 export function HairLabel({ children, color, style }: Props) {
   return (
     <div style={{
-      fontFamily: s2.mono,
-      fontSize: 9,
-      letterSpacing: '0.22em',
-      color: color ?? s2.textDimmer,
-      fontWeight: 500,
+      fontFamily: s2.sans,
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: '0.14em',
       textTransform: 'uppercase',
+      color: color ?? s2.textDimmer,
       ...style,
     }}>
       {children}

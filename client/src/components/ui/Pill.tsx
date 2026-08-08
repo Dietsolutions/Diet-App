@@ -7,20 +7,23 @@ interface Props {
   filled?: boolean;
 }
 
-/** 9 px mono chip — outlined by default, solid when filled=true. */
+/** Pill chip — outlined by default, solid lime (or `color`) when filled. (ref: V3Chip) */
 export function Pill({ children, color, filled }: Props) {
   return (
     <span style={{
-      display: 'inline-block',
-      fontFamily: s2.mono,
-      fontSize: 9,
-      letterSpacing: '0.15em',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 5,
+      fontFamily: s2.sans,
+      fontSize: 11,
       fontWeight: 600,
-      textTransform: 'uppercase',
+      letterSpacing: '-0.01em',
+      whiteSpace: 'nowrap',
       color: filled ? s2.ink : (color ?? s2.text),
       background: filled ? (color ?? s2.accentFill) : 'transparent',
       border: filled ? 'none' : `1px solid ${color ?? s2.lineStrong}`,
-      padding: '3px 7px',
+      borderRadius: s2.rPill,
+      padding: '6px 11px',
     }}>
       {children}
     </span>

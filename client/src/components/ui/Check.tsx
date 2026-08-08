@@ -6,14 +6,15 @@ interface Props {
   size?: number;
 }
 
-/** Square checkbox — filled accent when on, hairline border when off. No border-radius. */
+/** Round checkbox — filled lime when on, hairline border when off. (ref: V3Check) */
 export function Check({ on, color, size = 14 }: Props) {
-  const c = color ?? s2.accent;
+  const c = color ?? s2.accentFill;
   return (
     <div style={{
       width: size,
       height: size,
-      border: `1px solid ${on ? c : s2.lineStrong}`,
+      borderRadius: s2.rPill,
+      border: on ? 'none' : `1.5px solid ${s2.lineStrong}`,
       background: on ? c : 'transparent',
       display: 'flex',
       alignItems: 'center',
@@ -27,7 +28,7 @@ export function Check({ on, color, size = 14 }: Props) {
             stroke={s2.ink}
             strokeWidth="1.8"
             fill="none"
-            strokeLinecap="square"
+            strokeLinecap="round"
           />
         </svg>
       )}
