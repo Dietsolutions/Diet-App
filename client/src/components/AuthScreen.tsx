@@ -157,6 +157,7 @@ export function AuthScreen() {
   const [errors, setErrors] = useState<Errors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successBurst, setSuccessBurst] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
 
   // ── Forgot-password modal state ─────────────────────────────────────────
   const [showForgot, setShowForgot] = useState(false);
@@ -708,37 +709,51 @@ export function AuthScreen() {
           <HairLabel>AI-POWERED NUTRITION PLANNING</HairLabel>
         </div>
 
-        <div style={{
-          marginTop: 20, padding: '12px 14px',
-          border: `1px solid ${s2.line}`,
-          fontSize: 11, lineHeight: 1.5, color: s2.textDimmer,
-          fontFamily: s2.sans, textAlign: 'center',
-        }}>
-          <strong style={{ color: s2.textDim }}>Medical Disclaimer:</strong>{' '}
-          This app provides AI-generated meal plans for informational purposes only.
-          It is not a substitute for professional medical advice, diagnosis, or treatment.
-          Always consult a qualified healthcare provider before starting any diet or nutrition program.
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 14, paddingBottom: 8 }}>
+        {/* Legal row — disclaimer is a link (expands inline), per the Fresh Light spec */}
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20, paddingBottom: 8, flexWrap: 'wrap' }}>
           <a
             href={apiUrl('/privacy')}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer }}
+            style={{ fontFamily: s2.sans, fontSize: 11, fontWeight: 600, color: s2.textDimmer }}
           >
             Privacy Policy
           </a>
-          <span style={{ color: s2.line }}>|</span>
+          <span style={{ color: s2.lineStrong }}>·</span>
           <a
             href={apiUrl('/terms')}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer }}
+            style={{ fontFamily: s2.sans, fontSize: 11, fontWeight: 600, color: s2.textDimmer }}
           >
             Terms of Service
           </a>
+          <span style={{ color: s2.lineStrong }}>·</span>
+          <button
+            type="button"
+            onClick={() => setShowDisclaimer(s => !s)}
+            style={{
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              fontFamily: s2.sans, fontSize: 11, fontWeight: 600, color: s2.textDimmer,
+              textDecoration: 'underline',
+            }}
+          >
+            Medical Disclaimer
+          </button>
         </div>
+        {showDisclaimer && (
+          <div style={{
+            marginTop: 8, padding: '12px 14px',
+            background: s2.surface, borderRadius: s2.rMd,
+            fontSize: 11, lineHeight: 1.5, color: s2.textDimmer,
+            fontFamily: s2.sans, textAlign: 'center',
+          }}>
+            <strong style={{ color: s2.textDim }}>Medical Disclaimer:</strong>{' '}
+            This app provides AI-generated meal plans for informational purposes only.
+            It is not a substitute for professional medical advice, diagnosis, or treatment.
+            Always consult a qualified healthcare provider before starting any diet or nutrition program.
+          </div>
+        )}
       </div>
 
       {/* ── Forgot-password modal ────────────────────────────────────────── */}
