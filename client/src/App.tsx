@@ -168,7 +168,7 @@ export default function App() {
             <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, marginBottom: 20 }}>Please reload the page</div>
             <button
               onClick={() => window.location.reload()}
-              style={{ padding: '11px 24px', background: s2.accent, border: 'none', fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.18em', color: s2.bg, cursor: 'pointer' }}
+              style={{ padding: '11px 24px', background: s2.accentFill, border: 'none', fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.18em', color: s2.ink, cursor: 'pointer' }}
             >
               RELOAD
             </button>
@@ -229,7 +229,7 @@ export default function App() {
         {/* PWA install banner */}
         {showInstallBanner && (
           <div style={{
-            background: s2.accent,
+            background: s2.accentFill,
             padding: '10px 20px',
             display: 'flex',
             alignItems: 'center',
@@ -237,7 +237,7 @@ export default function App() {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span>📱</span>
-              <span style={{ fontFamily: s2.sans, fontSize: 13, color: s2.bg, fontWeight: 500 }}>Add to Home Screen</span>
+              <span style={{ fontFamily: s2.sans, fontSize: 13, color: s2.ink, fontWeight: 500 }}>Add to Home Screen</span>
             </div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <button

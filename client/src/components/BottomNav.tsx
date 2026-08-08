@@ -66,7 +66,7 @@ export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
                 transform: 'translateX(-50%)',
                 width: 16,
                 height: 2,
-                background: s2.accent,
+                background: s2.accentFill,
               }} />
             )}
           </button>

@@ -82,7 +82,7 @@ export function WaterIntakeCard({ date, onExpand }: Props) {
                 style={{
                   width: 12,
                   height: 26,
-                  background: filled ? s2.accent : 'transparent',
+                  background: filled ? s2.accentFill : 'transparent',
                   border: `1px solid ${filled ? s2.accent : s2.lineStrong}`,
                   padding: 0,
                   cursor: 'pointer',

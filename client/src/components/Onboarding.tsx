@@ -359,15 +359,15 @@ export function Onboarding({ onComplete, userName }: Props) {
                 <div style={{
                   width: 16, height: 16, flexShrink: 0,
                   border: `1px solid ${done || active ? s2.accent : s2.lineStrong}`,
-                  background: done ? s2.accent : 'transparent',
+                  background: done ? s2.accentFill : 'transparent',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   {done && (
                     <svg width="10" height="10" viewBox="0 0 10 10">
-                      <path d="M1.5 5 L4 7.5 L8.5 2.5" stroke="#0C0907" strokeWidth="1.8" fill="none" strokeLinecap="square" />
+                      <path d="M1.5 5 L4 7.5 L8.5 2.5" stroke={s2.ink} strokeWidth="1.8" fill="none" strokeLinecap="square" />
                     </svg>
                   )}
-                  {active && <div style={{ width: 6, height: 6, background: s2.accent }} />}
+                  {active && <div style={{ width: 6, height: 6, background: s2.accentFill }} />}
                 </div>
                 <div style={{
                   flex: 1, fontFamily: s2.mono, fontSize: 11, letterSpacing: '0.18em', fontWeight: 500,
@@ -495,9 +495,9 @@ export function Onboarding({ onComplete, userName }: Props) {
           <button
             onClick={handleGenerate}
             style={{
-              width: '100%', padding: '15px 0', background: s2.accent, border: 'none',
+              width: '100%', padding: '15px 0', background: s2.accentFill, border: 'none',
               fontFamily: s2.mono, fontSize: 11, letterSpacing: '0.2em', fontWeight: 600,
-              color: s2.bg, cursor: 'pointer', textTransform: 'uppercase', marginBottom: 10,
+              color: s2.ink, cursor: 'pointer', textTransform: 'uppercase', marginBottom: 10,
             }}
           >
             GENERATE MY MEAL PLAN →
@@ -539,7 +539,7 @@ export function Onboarding({ onComplete, userName }: Props) {
         <div style={{ padding: '16px 20px 0' }}>
           <div style={{ display: 'flex', gap: 4 }}>
             {Array.from({ length: totalSteps }, (_, i) => (
-              <div key={i} style={{ flex: 1, height: 2, background: i < step ? s2.accent : s2.line }} />
+              <div key={i} style={{ flex: 1, height: 2, background: i < step ? s2.accentFill : s2.line }} />
             ))}
           </div>
         </div>
@@ -576,10 +576,10 @@ export function Onboarding({ onComplete, userName }: Props) {
             disabled={!canNext()}
             style={{
               width: '100%', padding: '15px 0',
-              background: canNext() ? s2.accent : s2.surface,
+              background: canNext() ? s2.accentFill : s2.surface,
               border: canNext() ? 'none' : `1px solid ${s2.line}`,
               fontFamily: s2.mono, fontSize: 11, letterSpacing: '0.2em', fontWeight: 600,
-              color: canNext() ? s2.bg : s2.textDimmer,
+              color: canNext() ? s2.ink : s2.textDimmer,
               cursor: canNext() ? 'pointer' : 'default',
               textTransform: 'uppercase',
               transition: 'background 150ms, color 150ms',
@@ -1040,7 +1040,7 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
             border: `1px solid ${data.activityLevel === o.val ? s2.accent : s2.lineStrong}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            {data.activityLevel === o.val && <div style={{ width: 8, height: 8, background: s2.accent, borderRadius: '50%' }} />}
+            {data.activityLevel === o.val && <div style={{ width: 8, height: 8, background: s2.accentFill, borderRadius: '50%' }} />}
           </div>
         </div>
       ))}
@@ -1119,7 +1119,7 @@ function StepDiet({ data, update, toggleArr }: { data: OnboardingData; update: (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
             {data.cuisinePreferences.map(c => (
               <button key={c} onClick={() => toggleArr('cuisinePreferences', c, 3)} style={{
-                background: s2.accent, border: 'none', color: s2.bg,
+                background: s2.accentFill, border: 'none', color: s2.ink,
                 fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.15em', fontWeight: 600,
                 padding: '6px 10px', cursor: 'pointer', textTransform: 'uppercase',
               }}>
@@ -1147,9 +1147,9 @@ function StepDiet({ data, update, toggleArr }: { data: OnboardingData; update: (
                       onClick={() => !maxed && toggleArr('cuisinePreferences', c.value, 3)}
                       disabled={maxed}
                       style={{
-                        background: sel ? s2.accent : 'transparent',
+                        background: sel ? s2.accentFill : 'transparent',
                         border: `1px solid ${sel ? s2.accent : s2.lineStrong}`,
-                        color: sel ? s2.bg : maxed ? s2.textDimmer : s2.text,
+                        color: sel ? s2.ink : maxed ? s2.textDimmer : s2.text,
                         fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.12em', fontWeight: 600,
                         padding: '6px 10px', cursor: maxed ? 'default' : 'pointer',
                         textTransform: 'uppercase', opacity: maxed ? 0.5 : 1,
@@ -1320,7 +1320,7 @@ function StepPreferred({ data, toggleArr }: { data: OnboardingData; toggleArr: (
                       background: '#7CE0C4',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <span style={{ color: '#0C0907', fontSize: 8, fontWeight: 700 }}>✓</span>
+                      <span style={{ color: s2.ink, fontSize: 8, fontWeight: 700 }}>✓</span>
                     </div>
                   )}
                   <span style={{ fontSize: 22, marginBottom: 6 }}>{INGREDIENT_ICONS[item] || '🍽️'}</span>
@@ -1644,9 +1644,9 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
                 if (h === 'None') update({ healthConditions: ['None'] });
                 else { toggleArr('healthConditions', h); }
               }} style={{
-                background: on ? s2.accent : 'transparent',
+                background: on ? s2.accentFill : 'transparent',
                 border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
-                color: on ? s2.bg : s2.text,
+                color: on ? s2.ink : s2.text,
                 fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.12em', fontWeight: 600,
                 padding: '7px 12px', cursor: 'pointer', textTransform: 'uppercase',
               }}>
@@ -1700,7 +1700,7 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
               }}>
                 {selected && (
                   <div style={{ position: 'absolute', top: 6, right: 6, width: 14, height: 14, background: '#7CE0C4', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ color: '#0C0907', fontSize: 8, fontWeight: 700 }}>✓</span>
+                    <span style={{ color: s2.ink, fontSize: 8, fontWeight: 700 }}>✓</span>
                   </div>
                 )}
                 <span style={{ fontSize: 22, marginBottom: 6 }}>{EQUIPMENT_ICONS[e] || '🔧'}</span>

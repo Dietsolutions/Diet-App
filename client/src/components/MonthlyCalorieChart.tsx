@@ -411,12 +411,12 @@ export function MonthlyCalorieChart() {
                 <BarChart data={chartData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
                   <XAxis
                     dataKey="day"
-                    tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'IBM Plex Mono, monospace' }}
+                    tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}
                     axisLine={false} tickLine={false} interval="preserveStartEnd"
                   />
                   <YAxis
                     domain={yDomain}
-                    tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'IBM Plex Mono, monospace' }}
+                    tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}
                     axisLine={false} tickLine={false} tickCount={5}
                   />
                   <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(255,182,128,0.05)' }} />

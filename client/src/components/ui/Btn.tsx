@@ -20,8 +20,8 @@ export function Btn({ children, primary, onClick, full, small, disabled, style }
       style={{
         cursor: disabled ? 'default' : 'pointer',
         border: primary ? 'none' : `1px solid ${s2.lineStrong}`,
-        background: primary ? s2.accent : 'transparent',
-        color: primary ? '#0C0907' : s2.text,
+        background: primary ? s2.accentFill : 'transparent',
+        color: primary ? s2.ink : s2.text,
         padding: small ? '10px 14px' : '15px 20px',
         width: full ? '100%' : 'auto',
         fontFamily: s2.mono,

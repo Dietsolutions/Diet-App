@@ -24,7 +24,7 @@ export function Check({ on, color, size = 14 }: Props) {
         <svg width={size - 4} height={size - 4} viewBox="0 0 10 10">
           <path
             d="M1.5 5 L4 7.5 L8.5 2.5"
-            stroke="#0C0907"
+            stroke={s2.ink}
             strokeWidth="1.8"
             fill="none"
             strokeLinecap="square"

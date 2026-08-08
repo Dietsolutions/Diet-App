@@ -11,7 +11,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
       onClick={() => onChange(!on)}
       style={{
         width: 44, height: 24, borderRadius: 12, border: 'none',
-        background: on ? '#4CAF82' : s2.line,
+        background: on ? s2.accentFill : s2.line,
         cursor: 'pointer', position: 'relative', transition: 'background 200ms',
         flexShrink: 0,
       }}

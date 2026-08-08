@@ -302,7 +302,7 @@ export function MealsTab() {
                       style={{
                         width: 3,
                         height: 3,
-                        background: k < eaten ? s2.accent : s2.line,
+                        background: k < eaten ? s2.accentFill : s2.line,
                       }}
                     />
                   ))}

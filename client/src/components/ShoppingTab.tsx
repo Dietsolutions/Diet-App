@@ -65,7 +65,7 @@ export function ShoppingTab() {
           <div style={{
             width: 6, height: 6,
             borderRadius: '50%',
-            background: s2.accent,
+            background: s2.accentFill,
             flexShrink: 0,
           }} />
           <div style={{

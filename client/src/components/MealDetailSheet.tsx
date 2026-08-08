@@ -355,7 +355,7 @@ export function MealDetailSheet({
                   left: `${soFarPct * 100}%`,
                   width: `${(withMealPct - soFarPct) * 100}%`,
                   height: '100%',
-                  background: overTarget ? s2.warn : s2.accent,
+                  background: overTarget ? s2.warn : s2.accentFill,
                   transition: 'width 0.3s',
                 }} />
               </div>
@@ -897,12 +897,12 @@ export function MealDetailSheet({
           style={{
             flex: 2,
             padding: '14px 0',
-            background: eaten ? s2.surface2 : s2.accent,
+            background: eaten ? s2.surface2 : s2.accentFill,
             border: `1px solid ${eaten ? s2.lineStrong : s2.accent}`,
             fontFamily: s2.mono,
             fontSize: 10,
             letterSpacing: '0.15em',
-            color: eaten ? s2.textDim : s2.bg,
+            color: eaten ? s2.textDim : s2.ink,
             cursor: 'pointer',
             textTransform: 'uppercase',
           }}

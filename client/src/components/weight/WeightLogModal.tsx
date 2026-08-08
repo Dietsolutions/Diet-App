@@ -163,7 +163,7 @@ export function WeightLogModal() {
 
           {error && (
             <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '8px 12px' }}>
-              <div style={{ fontFamily: s2.sans, fontSize: 12, color: '#FF3E3E' }}>{error}</div>
+              <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.warn }}>{error}</div>
             </div>
           )}
         </div>
@@ -192,12 +192,12 @@ export function WeightLogModal() {
             style={{
               flex: 1,
               padding: '13px 0',
-              background: saving ? s2.surface : s2.accent,
+              background: saving ? s2.surface : s2.accentFill,
               border: `1px solid ${s2.accent}`,
               fontFamily: s2.mono,
               fontSize: 10,
               letterSpacing: '0.15em',
-              color: saving ? s2.textDimmer : s2.bg,
+              color: saving ? s2.textDimmer : s2.ink,
               cursor: saving ? 'default' : 'pointer',
               textTransform: 'uppercase',
             }}

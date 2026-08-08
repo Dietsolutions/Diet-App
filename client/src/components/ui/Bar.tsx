@@ -19,7 +19,7 @@ export function Bar({ pct, color, h = 2, bg }: Props) {
         left: 0,
         height: '100%',
         width: `${Math.max(0, Math.min(100, pct * 100))}%`,
-        background: color ?? s2.accent,
+        background: color ?? s2.accentFill,
       }} />
     </div>
   );

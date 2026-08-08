@@ -80,7 +80,7 @@ function Toggle({ on }: { on: boolean }) {
   return (
     <div style={{
       width: 44, height: 24, borderRadius: 12,
-      background: on ? s2.accent : s2.lineStrong,
+      background: on ? s2.accentFill : s2.lineStrong,
       position: 'relative',
       transition: 'background 0.2s',
       flexShrink: 0,

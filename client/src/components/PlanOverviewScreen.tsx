@@ -186,12 +186,12 @@ export function PlanOverviewScreen({ onComplete }: PlanOverviewScreenProps) {
           style={{
             width: '100%',
             padding: '15px 0',
-            background: s2.accent,
+            background: s2.accentFill,
             border: 'none',
             fontFamily: s2.mono,
             fontSize: 10,
             letterSpacing: '0.2em',
-            color: s2.bg,
+            color: s2.ink,
             cursor: 'pointer',
             textTransform: 'uppercase',
           }}

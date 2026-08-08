@@ -267,7 +267,7 @@ export function ProfileTab() {
           <div style={{ height: 2, background: s2.line, position: 'relative', overflow: 'hidden' }}>
             <div style={{
               position: 'absolute', top: 0, left: '-60%', height: '100%', width: '60%',
-              background: `linear-gradient(90deg, transparent, ${s2.accent}, transparent)`,
+              background: `linear-gradient(90deg, transparent, ${s2.accentFill}, transparent)`,
               animation: 'shimmer 1.4s infinite',
             }} />
           </div>
@@ -447,11 +447,11 @@ export function ProfileTab() {
                       position: 'absolute',
                       top: -1,
                       right: 8,
-                      background: s2.accent,
+                      background: s2.accentFill,
                       fontFamily: s2.mono,
                       fontSize: 7,
                       letterSpacing: '0.12em',
-                      color: s2.bg,
+                      color: s2.ink,
                       padding: '2px 6px',
                       textTransform: 'uppercase',
                     }}>
@@ -540,7 +540,7 @@ export function ProfileTab() {
             fontFamily: s2.mono,
             fontSize: 10,
             letterSpacing: '0.2em',
-            color: '#FF3E3E',
+            color: s2.warn,
             cursor: 'pointer',
             textTransform: 'uppercase',
           }}
@@ -574,11 +574,11 @@ export function ProfileTab() {
               }}
             />
             {deleteError && (
-              <div style={{ color: '#FF3E3E', fontSize: 12, marginBottom: 8 }}>{deleteError}</div>
+              <div style={{ color: s2.warn, fontSize: 12, marginBottom: 8 }}>{deleteError}</div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={handleDeleteAccount} disabled={deleteDeleting} style={{
-                flex: 1, padding: '10px 0', background: '#FF3E3E', border: 'none',
+                flex: 1, padding: '10px 0', background: s2.warn, border: 'none',
                 fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.2em', color: '#fff',
                 cursor: 'pointer', opacity: deleteDeleting ? 0.6 : 1,
               }}>
@@ -662,7 +662,7 @@ export function ProfileTab() {
             onClick={() => setAnalyticsOptedIn(!analyticsOptedIn)}
             style={{
               width: 44, height: 24, borderRadius: 12, border: 'none',
-              background: analyticsOptedIn ? '#4CAF82' : s2.line,
+              background: analyticsOptedIn ? s2.accentFill : s2.line,
               cursor: 'pointer', position: 'relative', transition: 'background 200ms',
             }}
           >
@@ -853,8 +853,8 @@ function PlanHistoryRow({ plan, index }: { plan: PlanHistoryItem; index: number 
               fontFamily: s2.mono,
               fontSize: 7,
               letterSpacing: '0.12em',
-              background: s2.accent,
-              color: s2.bg,
+              background: s2.accentFill,
+              color: s2.ink,
               padding: '1px 5px',
             }}>ACTIVE</span>
           )}

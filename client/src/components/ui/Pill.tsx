@@ -17,8 +17,8 @@ export function Pill({ children, color, filled }: Props) {
       letterSpacing: '0.15em',
       fontWeight: 600,
       textTransform: 'uppercase',
-      color: filled ? '#0C0907' : (color ?? s2.text),
-      background: filled ? (color ?? s2.accent) : 'transparent',
+      color: filled ? s2.ink : (color ?? s2.text),
+      background: filled ? (color ?? s2.accentFill) : 'transparent',
       border: filled ? 'none' : `1px solid ${color ?? s2.lineStrong}`,
       padding: '3px 7px',
     }}>

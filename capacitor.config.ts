@@ -31,8 +31,8 @@ const config: CapacitorConfig = {
       splashImmersive: true,
     },
     StatusBar: {
-      style: 'DARK',
-      backgroundColor: '#0F1117',
+      style: 'LIGHT',
+      backgroundColor: '#F2F1EC',
     },
   },
 

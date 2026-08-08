@@ -38,7 +38,7 @@ function WaterGlass({ on, index, onClick }: { on: boolean; index: number; onClic
           strokeLinejoin="miter"
         />
         {/* Waterline on filled glasses */}
-        {on && <line x1="4" y1="14" x2="26" y2="14" stroke="#0C0907" strokeWidth="1" opacity="0.35" />}
+        {on && <line x1="4" y1="14" x2="26" y2="14" stroke={s2.ink} strokeWidth="1" opacity="0.35" />}
       </svg>
       {/* Number */}
       <div style={{
@@ -51,7 +51,7 @@ function WaterGlass({ on, index, onClick }: { on: boolean; index: number; onClic
         fontFamily: s2.mono,
         fontSize: 11,
         fontWeight: 600,
-        color: on ? '#0C0907' : s2.textDimmer,
+        color: on ? s2.ink : s2.textDimmer,
         letterSpacing: '0.05em',
         lineHeight: 1,
       }}>
@@ -255,7 +255,7 @@ export function WaterDetailSheet({ date, onClose }: Props) {
                       position: 'absolute',
                       bottom: 0, left: 0, right: 0,
                       height: barH,
-                      background: isToday ? s2.accent : s2.accentSoft,
+                      background: isToday ? s2.accentFill : s2.accentSoft,
                       opacity: isToday ? 1 : 0.4,
                     }} />
                   </div>

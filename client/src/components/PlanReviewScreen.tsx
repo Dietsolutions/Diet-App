@@ -409,10 +409,10 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
           disabled={confirming}
           style={{
             width: '100%', padding: '15px 0',
-            background: confirming ? s2.surface : s2.accent,
+            background: confirming ? s2.surface : s2.accentFill,
             border: 'none',
             fontFamily: s2.mono, fontSize: 11, fontWeight: 600, letterSpacing: '0.2em',
-            color: confirming ? s2.textDimmer : s2.bg,
+            color: confirming ? s2.textDimmer : s2.ink,
             cursor: confirming ? 'default' : 'pointer', textTransform: 'uppercase',
           }}
         >

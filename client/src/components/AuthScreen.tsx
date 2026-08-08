@@ -88,7 +88,7 @@ function Field({
           style={{
             width: '100%',
             background: s2.surface,
-            border: `1px solid ${error ? '#FF3E3E' : focused ? s2.accent : s2.lineStrong}`,
+            border: `1px solid ${error ? s2.warn : focused ? s2.accent : s2.lineStrong}`,
             padding: rightSlot ? '13px 44px 13px 14px' : '13px 14px',
             fontFamily: s2.sans,
             fontSize: 15,
@@ -106,7 +106,7 @@ function Field({
         )}
       </div>
       {error && (
-        <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: '#FF3E3E', marginTop: 6 }}>
+        <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.warn, marginTop: 6 }}>
           ⚠ {error.toUpperCase()}
         </div>
       )}
@@ -406,16 +406,16 @@ export function AuthScreen() {
   const isSignup = mode === 'signup';
 
   // Strength colours
-  const strengthColor = passwordStrength === 'strong' ? '#4CAF82' : passwordStrength === 'good' ? s2.accentSoft : '#FF3E3E';
+  const strengthColor = passwordStrength === 'strong' ? s2.accent : passwordStrength === 'good' ? s2.accentSoft : s2.warn;
 
   // Username availability indicator
   const UsernameIndicator = isSignup && username.length >= 3 && !errors.username ? (
     usernameChecking ? (
       <div style={{ width: 14, height: 14, border: `2px solid ${s2.textDimmer}`, borderTopColor: s2.accent, borderRadius: '50%' }} />
     ) : usernameAvailable === true ? (
-      <span style={{ fontFamily: s2.mono, fontSize: 11, color: '#4CAF82' }}>✓</span>
+      <span style={{ fontFamily: s2.mono, fontSize: 11, color: s2.accent }}>✓</span>
     ) : usernameAvailable === false ? (
-      <span style={{ fontFamily: s2.mono, fontSize: 11, color: '#FF3E3E' }}>✗</span>
+      <span style={{ fontFamily: s2.mono, fontSize: 11, color: s2.warn }}>✗</span>
     ) : null
   ) : null;
 
@@ -572,7 +572,7 @@ export function AuthScreen() {
               rightSlot={
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {confirmPassword.length > 0 && password === confirmPassword && !errors.confirmPassword && (
-                    <span style={{ fontFamily: s2.mono, fontSize: 11, color: '#4CAF82' }}>✓</span>
+                    <span style={{ fontFamily: s2.mono, fontSize: 11, color: s2.accent }}>✓</span>
                   )}
                   <EyeBtn show={showConfirmPassword} onToggle={() => setShowConfirmPassword(s => !s)} />
                 </div>
@@ -587,7 +587,7 @@ export function AuthScreen() {
               background: 'rgba(255,62,62,0.08)',
               padding: '10px 12px',
             }}>
-              <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{errors.general}</div>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{errors.general}</div>
             </div>
           )}
 
@@ -599,12 +599,12 @@ export function AuthScreen() {
             style={{
               width: '100%',
               padding: '14px 0',
-              background: successBurst ? '#4CAF82' : s2.accent,
+              background: successBurst ? s2.accentFill : s2.accentFill,
               border: 'none',
               fontFamily: s2.mono,
               fontSize: 10,
               letterSpacing: '0.2em',
-              color: s2.bg,
+              color: s2.ink,
               fontWeight: 600,
               cursor: isSubmitting || successBurst ? 'default' : 'pointer',
               opacity: isSubmitting ? 0.75 : 1,
@@ -620,7 +620,7 @@ export function AuthScreen() {
               '✓ ACCOUNT CREATED'
             ) : isSubmitting ? (
               <>
-                <div style={{ width: 12, height: 12, border: `1.5px solid ${s2.bg}`, borderTopColor: 'transparent', borderRadius: '50%' }} />
+                <div style={{ width: 12, height: 12, border: `1.5px solid ${s2.ink}`, borderTopColor: 'transparent', borderRadius: '50%' }} />
                 {isSignup ? 'CREATING...' : 'SIGNING IN...'}
               </>
             ) : isSignup ? 'CREATE ACCOUNT →' : 'LOGIN →'}
@@ -838,7 +838,7 @@ export function AuthScreen() {
                     style={{
                       flex: 2, padding: '12px 0',
                       background: forgotSubmitting ? s2.line : s2.text,
-                      color: s2.bg,
+                      color: s2.ink,
                       border: 'none',
                       borderRadius: 8, cursor: forgotSubmitting ? 'wait' : 'pointer',
                       fontFamily: s2.sans, fontSize: 14, fontWeight: 600,

@@ -15,12 +15,12 @@ export function WeightStatsHeader() {
           onClick={() => openLogModal()}
           style={{
             padding: '7px 14px',
-            background: s2.accent,
+            background: s2.accentFill,
             border: 'none',
             fontFamily: s2.mono,
             fontSize: 9,
             letterSpacing: '0.15em',
-            color: s2.bg,
+            color: s2.ink,
             cursor: 'pointer',
             textTransform: 'uppercase',
           }}
@@ -35,7 +35,7 @@ export function WeightStatsHeader() {
   const currentW  = getCurrentWeight();
   const totalLost = getTotalLost();
   const progress  = getProgressPercent();
-  const lostColor = totalLost > 0 ? '#4CAF82' : totalLost < 0 ? s2.warn : s2.text;
+  const lostColor = totalLost > 0 ? s2.accent : totalLost < 0 ? s2.warn : s2.text;
 
   return (
     <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
@@ -46,12 +46,12 @@ export function WeightStatsHeader() {
           onClick={() => openLogModal()}
           style={{
             padding: '6px 12px',
-            background: s2.accent,
+            background: s2.accentFill,
             border: 'none',
             fontFamily: s2.mono,
             fontSize: 9,
             letterSpacing: '0.15em',
-            color: s2.bg,
+            color: s2.ink,
             cursor: 'pointer',
             textTransform: 'uppercase',
           }}

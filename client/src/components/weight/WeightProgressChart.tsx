@@ -79,12 +79,12 @@ export function WeightProgressChart() {
               onClick={() => setTimeRange(r)}
               style={{
                 padding: '4px 8px',
-                background: selectedTimeRange === r ? s2.accent : 'transparent',
+                background: selectedTimeRange === r ? s2.accentFill : 'transparent',
                 border: `1px solid ${selectedTimeRange === r ? s2.accent : s2.lineStrong}`,
                 fontFamily: s2.mono,
                 fontSize: 8,
                 letterSpacing: '0.12em',
-                color: selectedTimeRange === r ? s2.bg : s2.textDim,
+                color: selectedTimeRange === r ? s2.ink : s2.textDim,
                 cursor: 'pointer',
                 textTransform: 'uppercase',
               }}
@@ -102,7 +102,7 @@ export function WeightProgressChart() {
           <span style={{ fontFamily: s2.mono, fontSize: 8, color: s2.textDimmer, letterSpacing: '0.1em' }}>PROJECTED</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ width: 20, height: 2, background: s2.accent }} />
+          <div style={{ width: 20, height: 2, background: s2.accentFill }} />
           <span style={{ fontFamily: s2.mono, fontSize: 8, color: s2.textDimmer, letterSpacing: '0.1em' }}>ACTUAL</span>
         </div>
       </div>
@@ -112,7 +112,7 @@ export function WeightProgressChart() {
           <CartesianGrid strokeDasharray="3 3" stroke={s2.line} />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'IBM Plex Mono, monospace' }}
+            tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}
             tickFormatter={(v: string) => {
               const d = new Date(v);
               return `${d.getDate()}/${d.getMonth() + 1}`;
@@ -124,7 +124,7 @@ export function WeightProgressChart() {
           />
           <YAxis
             domain={domain}
-            tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'IBM Plex Mono, monospace' }}
+            tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}
             tickFormatter={(v: number) => `${v}`}
             stroke={s2.line}
             axisLine={{ stroke: s2.line }}
@@ -146,7 +146,7 @@ export function WeightProgressChart() {
             dataKey="actual"
             stroke={s2.accent}
             strokeWidth={2}
-            dot={{ r: 3, fill: s2.accent, stroke: s2.bg, strokeWidth: 2 }}
+            dot={{ r: 3, fill: s2.accent, stroke: s2.ink, strokeWidth: 2 }}
             connectNulls
           />
         </ComposedChart>
