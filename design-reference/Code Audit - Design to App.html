@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Code audit — Strain v2 → Fresh Light</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#F2F1EC;--card:#FFF;--ink:#0F140F;--dim:rgba(15,20,15,0.56);--dimmer:rgba(15,20,15,0.34);--line:rgba(15,20,15,0.08);--lineS:rgba(15,20,15,0.18);--lime:#C6F24E;--limeD:#9FD62B;--limeT:#5F8C12;--limeW:#E9FBB8;--warn:#E5484D;--peach:#FFC3A2;--butter:#FFDF8A;--mint:#A9E8BE;--sky:#A9D9F2;--disp:'Archivo',system-ui,sans-serif;--sans:'Plus Jakarta Sans',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.6}
+a{color:var(--limeT)}a:hover{color:var(--ink)}
+.wrap{max-width:880px;margin:0 auto;padding:0 32px}
+.kick{font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dimmer)}
+h1{font-family:var(--disp);font-size:clamp(34px,5vw,52px);font-weight:700;letter-spacing:-.042em;line-height:1.02;margin:14px 0 18px}
+h2{font-family:var(--disp);font-size:30px;font-weight:700;letter-spacing:-.038em;margin:0 0 8px}
+h3{font-family:var(--sans);font-size:16px;font-weight:800;letter-spacing:-.01em;margin:0 0 8px}
+p{font-size:15px;color:var(--dim);text-wrap:pretty}
+p strong,li strong{color:var(--ink);font-weight:700}
+header{padding:70px 0 44px;border-bottom:1px solid var(--line)}
+.lede{font-size:18px;line-height:1.6;max-width:620px}
+section{padding:52px 0;border-bottom:1px solid var(--line)}
+.snum{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:999px;background:var(--ink);color:var(--lime);font-family:var(--sans);font-size:11px;font-weight:800;margin-bottom:14px}
+.card{background:var(--card);border-radius:24px;padding:24px;margin-top:18px}
+.card.tint{background:var(--limeW)}
+.card.warn{background:#FDECEC}
+.card.ink{background:var(--ink);color:#F6F7F3}
+.card.ink p,.card.ink li{color:rgba(246,247,243,.62)}
+.card.ink h3{color:#F6F7F3}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:20px}
+.stat{background:var(--card);border-radius:20px;padding:18px}
+.stat.a{background:var(--peach)}.stat.b{background:var(--butter)}.stat.c{background:var(--mint)}
+.stat b{display:block;font-family:var(--disp);font-size:34px;font-weight:700;letter-spacing:-.045em;line-height:1;margin:8px 0 6px}
+.stat span{font-size:11px;font-weight:600;color:rgba(15,20,15,.55);line-height:1.4;display:block}
+table{width:100%;border-collapse:collapse;margin-top:18px;font-size:13.5px}
+th{text-align:left;font-family:var(--sans);font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dimmer);padding:0 12px 10px 0;border-bottom:1px solid var(--lineS)}
+td{padding:12px 12px 12px 0;border-bottom:1px solid var(--line);vertical-align:top;color:var(--dim)}
+td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+code{font-family:var(--mono);font-size:12.5px;background:rgba(15,20,15,.055);padding:2px 6px;border-radius:6px;color:var(--ink)}
+.card.ink code{background:rgba(246,247,243,.10);color:#F6F7F3}
+ul{margin:12px 0 0 0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+li{font-size:14.5px;color:var(--dim);padding-left:20px;position:relative}
+li::before{content:'';position:absolute;left:2px;top:9px;width:6px;height:6px;border-radius:2px;background:var(--limeD)}
+li.no::before{background:var(--warn)}
+.sw{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px}
+.dot{width:26px;height:26px;border-radius:8px;flex-shrink:0;border:1px solid var(--line)}
+.arrow{color:var(--dimmer);font-weight:700;padding:0 2px}
+pre{background:var(--ink);color:#F6F7F3;border-radius:20px;padding:20px 22px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.65;margin-top:16px;white-space:pre-wrap;word-break:break-word}
+.tag{display:inline-block;font-family:var(--sans);font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;padding:4px 9px;border-radius:999px;margin-left:8px;vertical-align:middle}
+.tag.t1{background:var(--lime);color:var(--ink)}
+.tag.t2{background:rgba(229,72,77,.14);color:#B3373B}
+.tag.t3{background:rgba(15,20,15,.07);color:var(--dim)}
+.cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
+.btn{display:inline-block;border-radius:999px;padding:15px 26px;font-family:var(--sans);font-size:14px;font-weight:700;text-decoration:none;cursor:pointer;border:none}
+.btn.p{background:var(--ink);color:#F6F7F3}
+.btn.s{background:var(--card);color:var(--ink);border:1px solid var(--lineS)}
+footer{padding:44px 0 70px}
+@media(max-width:720px){.grid3{grid-template-columns:1fr}.wrap{padding:0 22px}}
+</style>
+</head>
+<body>
+
+<header><div class="wrap">
+<div class="kick">Planyourplate · design → code</div>
+<h1>What has to change in the app</h1>
+<p class="lede">The approved design is a full inversion of the shipping theme: warm-dark to light, molten orange to lime, Space&nbsp;Grotesk and Plex&nbsp;Mono to Archivo and Plus&nbsp;Jakarta&nbsp;Sans. This is the audit of what that costs, and where the leverage is.</p>
+<div class="grid3">
+<div class="stat a"><span class="kick">Token references</span><b>836+</b><span>calls to <code>s2.*</code> in components — nearly all inline styles</span></div>
+<div class="stat b"><span class="kick">Screens restyled</span><b>50</b><span>across 12 component groups</span></div>
+<div class="stat c"><span class="kick">Need backend work</span><b>4</b><span>data shapes the app cannot produce today</span></div>
+</div>
+</div></header>
+
+<section><div class="wrap">
+<div class="snum">1</div>
+<h2>The good news</h2>
+<p>The app styles almost entirely through inline <code>style={{ }}</code> objects reading from a single exported token object, <code>s2</code>, in <code>client/src/theme/tokens.ts</code>. There is no scattered Tailwind colour usage to chase. Rewriting that one file — <strong>keeping every existing key name</strong> — flips the majority of the app in a single edit.</p>
+<p style="margin-top:12px">On top of that, three shared primitives in <code>client/src/components/ui/</code> — <code>Card.tsx</code>, <code>HairLabel.tsx</code> and <code>Pill.tsx</code> — are used throughout. Restyling those three propagates further than any other change you can make.</p>
+</div></section>
+
+<section><div class="wrap">
+<div class="snum">2</div>
+<h2>The bad news</h2>
+<p>A key-for-key swap will break things in ways that compile cleanly and look fine in a diff. Three traps, each needing a grep pass rather than a token edit.</p>
+
+<div class="card warn">
+<h3>Trap 1 — elevation inverts<span class="tag t2">Silent</span></h3>
+<p>In the dark theme <code>bg</code> is the darkest colour and <code>surface</code> sits above it. In the light theme the page is tinted (<code>#F2F1EC</code>) and cards are pure white — so the direction of "raised" flips. Any component that relied on <code>surface</code> being <em>lighter than</em> <code>bg</code> now reads backwards.</p>
+</div>
+
+<div class="card warn">
+<h3>Trap 2 — dark text on accent fills<span class="tag t2">Invisible text</span></h3>
+<p>The current code writes near-black text on orange as <code>background: s2.accent; color: s2.bg</code>, because <code>s2.bg</code> <em>was</em> near-black. After the swap that becomes lime on near-white — unreadable. Every such pair has to become <code>background: s2.accentFill; color: s2.ink</code>.</p>
+<pre>grep -rn "s2\.accent" client/src --include=*.tsx -A2 -B2 | grep "s2\.bg"</pre>
+</div>
+
+<div class="card warn">
+<h3>Trap 3 — hardcoded Strain hex<span class="tag t2">Bypasses tokens</span></h3>
+<p>Some components skip the token object. <code>BrowseRecipesTab.tsx:453</code> uses the literal <code>'#0C0907'</code> as text on an active pill. <code>AuthScreen.tsx:409</code> hardcodes password-strength colours. And <code>client/src/index.css</code> pins the dark theme globally in <code>@layer base</code> — body background, body text, and the <code>html</code> font family.</p>
+<pre>grep -rn "#0C0907\|#120D0A\|#17110C\|#F5EFE8\|#FF6A2A\|#FF3E3E" client/src</pre>
+</div>
+</div></section>
+
+<section><div class="wrap">
+<div class="snum">3</div>
+<h2>Palette mapping</h2>
+<p>Keep the key names so the 836 call sites keep compiling. Add new keys; rename nothing.</p>
+<table>
+<thead><tr><th>Key</th><th>Strain v2</th><th></th><th>Fresh Light</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td>bg</td><td><span class="sw"><span class="dot" style="background:#0C0907"></span>#0C0907</span></td><td class="arrow">→</td><td><span class="sw"><span class="dot" style="background:#F2F1EC"></span>#F2F1EC</span></td><td>Page. Now the tinted colour, not the darkest</td></tr>
+<tr><td>surface</td><td><span class="sw"><span class="dot" style="background:#17110C"></span>#17110C</span></td><td class="arrow">→</td><td><span class="sw"><span class="dot" style="background:#FFF"></span>#FFFFFF</span></td><td>Cards</td></tr>
+<tr><td>surface2</td><td><span class="sw"><span class="dot" style="background:#1F1812"></span>#1F1812</span></td><td class="arrow">→</td><td><span class="sw"><span class="dot" style="background:#F2F1EC"></span>#F2F1EC</span></td><td>Nested raise inside a white card</td></tr>
+<tr><td>text</td><td><span class="sw"><span class="dot" style="background:#F5EFE8"></span>#F5EFE8</span></td><td class="arrow">→</td><td><span class="sw"><span class="dot" style="background:#0F140F"></span>#0F140F</span></td><td></td></tr>
+<tr><td>accent</td><td><span class="sw"><span class="dot" style="background:#FF6A2A"></span>#FF6A2A</span></td><td class="arrow">→</td><td><span class="sw"><span class="dot" style="background:#5F8C12"></span>#5F8C12</span></td><td><strong>Splits in three.</strong> This one is accent <em>text</em></td></tr>
+<tr><td>accentSoft</td><td><span class="sw"><span class="dot" style="background:#FFB066"></span>#FFB066</span></td><td class="arrow">→</td><td><span class="sw"><span class="dot" style="background:#9FD62B"></span>#9FD62B</span></td><td>Chart strokes, secondary accent</td></tr>
+<tr><td>accentFill</td><td><span class="sw"><span class="dot" style="background:rgba(255,106,42,0.14)"></span>orange 14%</span></td><td class="arrow">→</td><td><span class="sw"><span class="dot" style="background:#C6F24E"></span>#C6F24E</span></td><td>Block fill. Always pair with <code>s2.ink</code></td></tr>
+<tr><td>ink <span class="tag t1">new</span></td><td>—</td><td class="arrow">→</td><td><span class="sw"><span class="dot" style="background:#0F140F"></span>#0F140F</span></td><td>Dark cards and dark buttons</td></tr>
+<tr><td>pastels <span class="tag t1">new</span></td><td>—</td><td class="arrow">→</td><td><span class="sw"><span class="dot" style="background:#FFC3A2"></span><span class="dot" style="background:#FFDF8A"></span><span class="dot" style="background:#A9E8BE"></span><span class="dot" style="background:#A9D9F2"></span><span class="dot" style="background:#CBB8F9"></span></span></td><td>Summary cards, category tints</td></tr>
+<tr><td>radius <span class="tag t1">new</span></td><td>square</td><td class="arrow">→</td><td>12 / 18 / 24 / 32 / pill</td><td>No radius token exists today</td></tr>
+<tr><td>sans</td><td>Space Grotesk</td><td class="arrow">→</td><td>Plus Jakarta Sans</td><td></td></tr>
+<tr><td>disp <span class="tag t1">new</span></td><td>—</td><td class="arrow">→</td><td>Archivo</td><td>Numerals and headlines</td></tr>
+<tr><td>mono</td><td>IBM Plex Mono</td><td class="arrow">→</td><td>Plus Jakarta Sans</td><td>No mono face in the new design — see below</td></tr>
+</tbody>
+</table>
+
+<div class="card tint">
+<h3>The macro colours need two variants</h3>
+<p>Retuned for light backgrounds, the macro fills (<code>#6FB93B</code>, <code>#F2B93B</code>, <code>#FF8A6B</code>, <code>#59C7B4</code>, <code>#63B8E8</code>) work as blocks and bars but are too light to read as text on white. Add a darker text variant for each — <code>proteinText</code>, <code>carbsText</code>, <code>fatText</code>, <code>fibreText</code>, <code>waterText</code> — and use those wherever the value is a number rather than a swatch.</p>
+</div>
+
+<div class="card">
+<h3>What to do about <code>mono</code></h3>
+<p>The old design used IBM Plex Mono for every number and kicker label — roughly 400 call sites. Fresh Light has no mono face. Repoint the key to Plus Jakarta Sans so nothing breaks, then add <code>font-variant-numeric: tabular-nums</code> wherever numbers sit in a column, so chart axes and macro tables still align. Two files hardcode the family and need editing by hand: <code>MonthlyCalorieChart.tsx</code> and <code>weight/WeightProgressChart.tsx</code>.</p>
+</div>
+</div></section>
+
+<section><div class="wrap">
+<div class="snum">4</div>
+<h2>What needs backend work</h2>
+<p>Four things the design shows that the current code cannot produce. Each needs a hook or endpoint change — no amount of restyling gets there.</p>
+
+<table>
+<thead><tr><th>#</th><th>Screen</th><th>What's needed</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Track</td><td>A per-day series for each macro — <code>{ date, consumed, target }[]</code> over a rolling window. <code>useTracker.ts</code> exposes only the monthly calorie aggregate. Water and adherence already have per-day data; the four macros do not.</td></tr>
+<tr><td>2</td><td>Track</td><td>Per-day meal counts addressable by date (eaten vs planned) for the day-detail card, plus a bulk <em>mark all eaten</em> mutation.</td></tr>
+<tr><td>3</td><td>Track</td><td>Per-day adherence % for the visible month, to tint the calendar. Derivable from existing meal logs but not aggregated or exposed.</td></tr>
+<tr><td>4</td><td>Monthly macros</td><td>Daily-average / days-under / days-over currently computed for calories only. The design recomputes all three per macro tab.</td></tr>
+</tbody>
+</table>
+<p style="margin-top:16px">Land these before the Tracker restyle, or stub them behind a flag and ship the UI dark.</p>
+</div></section>
+
+<section><div class="wrap">
+<div class="snum">5</div>
+<h2>Deliberate spec changes</h2>
+<p>Places where the design intentionally departs from what the code does today. These are decisions, not drift.</p>
+<ul>
+<li><strong>Onboarding condenses 7 steps into 5</strong> by grouping. No field was removed — every key in <code>OnboardingData</code> is still collected. Verify against <code>types/index.ts</code> before finishing; an earlier draft silently dropped fields.</li>
+<li><strong>Weekly budget stays out.</strong> It exists in the onboarding defaults but is never rendered as an input in the current code, so the design omits it.</li>
+<li><strong>Slide-to-continue only on the final onboarding step.</strong> Steps 1–4 use a plain tap button.</li>
+<li><strong>The medical disclaimer becomes a link</strong> on the auth screen, sitting beside Privacy Policy and Terms of Service rather than as a block of body text.</li>
+<li><strong>Long option lists are searchable</strong> — 56 countries, 57 cuisines, 14 allergens. Country and city become compact single-selects showing the chosen value, with results appearing only while typing.</li>
+<li><strong>Allergens and Foods-to-avoid get one search zone each</strong>, with the free-text "other" folded underneath as a <code>+ Not listed?</code> input — not a second field at the bottom.</li>
+<li><strong>The product is renamed</strong> from AI-DPT to Planyourplate. Tagline under the auth lockup: "Your nutrition companion".</li>
+<li class="no"><strong>1 glass stays 250 ml, goal stays 2.5 L.</strong> Older mocks in the design history show 300 ml / 3.0 L. The repo is right; do not follow the old mock.</li>
+</ul>
+</div></section>
+
+<section><div class="wrap">
+<div class="snum">6</div>
+<h2>Suggested order</h2>
+<table>
+<thead><tr><th>Phase</th><th>Work</th><th>Risk</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>Fonts in <code>index.html</code> and <code>tailwind.config.js</code>; drop the design reference files into the repo</td><td><span class="tag t3">Low</span></td></tr>
+<tr><td>1</td><td>Rewrite <code>tokens.ts</code>; fix the three traps; <code>index.css</code>; Capacitor status bar and PWA theme colour</td><td><span class="tag t2">High</span></td></tr>
+<tr><td>2</td><td>Restyle <code>Card</code>, <code>HairLabel</code>, <code>Pill</code>; port the seven missing primitives</td><td><span class="tag t3">Medium</span></td></tr>
+<tr><td>3</td><td>Screens, in order: nav → auth → meals → meal detail → tracker → monthly → water → profile → the rest</td><td><span class="tag t3">Medium</span></td></tr>
+<tr><td>4</td><td>The four data shapes above</td><td><span class="tag t2">High</span></td></tr>
+<tr><td>5</td><td>Onboarding regrouping</td><td><span class="tag t2">High</span></td></tr>
+<tr><td>6</td><td>Brand rename</td><td><span class="tag t3">Low</span></td></tr>
+<tr><td>7</td><td>Typecheck, tests, e2e, contrast pass, straggler grep</td><td><span class="tag t3">Low</span></td></tr>
+</tbody>
+</table>
+</div></section>
+
+<section><div class="wrap">
+<div class="snum">7</div>
+<h2>The prompt</h2>
+<p>Written for Claude Code operating on the repo. It carries the full token file, the grep commands for each trap, the screen-by-screen table, and the ground rules — it does not assume this page is in context.</p>
+<div class="card ink">
+<h3>Before you run it</h3>
+<p>The prompt expects the design reference in <code>design-reference/</code> at the repo root. Download this project, copy <code>v3-theme.jsx</code>, all <code>v3-screens-*.jsx</code>, <code>v3-chrome.jsx</code>, <code>v3-onboard-data.jsx</code> and <code>Planyourplate - Full App v4.html</code> into that folder, and commit them. Claude Code reads the design from there rather than from a screenshot.</p>
+</div>
+<div class="cta">
+<a class="btn p" href="claude-code-prompt.md" download>Download the prompt</a>
+<a class="btn s" href="claude-code-prompt.md" target="_blank">Open it in a tab</a>
+</div>
+</div></section>
+
+<footer><div class="wrap">
+<p class="kick">Planyourplate · audit against Dietsolutions/Diet-App @ main · 8 Aug 2026</p>
+</div></footer>
+
+</body>
+</html>
