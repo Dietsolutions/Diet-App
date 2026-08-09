@@ -7,8 +7,8 @@ test.describe('Auth', () => {
   });
 
   test('AuthScreen renders with logo and title', async ({ page }) => {
-    await expect(page.getByText('Diet Plan')).toBeVisible();
-    await expect(page.getByText('AI-powered nutrition companion')).toBeVisible();
+    await expect(page.getByText('Plan Your Plate')).toBeVisible();
+    await expect(page.getByText('YOUR NUTRITION COMPANION')).toBeVisible();
   });
 
   test('login form shows when LOGIN tab is clicked', async ({ page }) => {
