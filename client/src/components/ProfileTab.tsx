@@ -296,7 +296,7 @@ export function ProfileTab() {
       {/* ── Section header ────────────────────────────────────────────────── */}
       <div style={{ padding: '14px 20px 0' }}>
         <HairLabel>YOUR BODY</HairLabel>
-        <div style={{ fontFamily: s2.sans, fontSize: 30, fontWeight: 400, letterSpacing: '-0.025em', marginTop: 4, lineHeight: 1 }}>
+        <div style={{ fontFamily: s2.disp, fontSize: 32, fontWeight: 700, letterSpacing: '-0.042em', marginTop: 6, lineHeight: 1.02 }}>
           Profile
         </div>
       </div>
@@ -306,14 +306,14 @@ export function ProfileTab() {
         {/* Success banner */}
         {showBanner && (
           <div style={{
-            border: `1px solid ${s2.accent}`,
             background: s2.accentFill,
-            padding: '10px 14px',
+            borderRadius: s2.rMd,
+            padding: '12px 14px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}>
-            <HairLabel color={s2.accentSoft}>PLAN UPDATED WITH YOUR CHANGES</HairLabel>
+            <HairLabel color={s2.ink}>PLAN UPDATED WITH YOUR CHANGES</HairLabel>
             <button
               onClick={() => setShowBanner(false)}
               style={{ background: 'transparent', border: 'none', color: s2.textDim, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}
@@ -323,6 +323,7 @@ export function ProfileTab() {
           </div>
         )}
 
+        <HairLabel style={{ marginTop: 8 }}>YOU</HairLabel>
         {/* ── User card ──────────────────────────────────────────────────── */}
         <Card padding={16}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -420,6 +421,7 @@ export function ProfileTab() {
           </>
         )}
 
+        <HairLabel style={{ marginTop: 8 }}>YOUR PLAN</HairLabel>
         {/* ── Plan duration ──────────────────────────────────────────────── */}
         <div>
           <HairLabel style={{ marginBottom: 8 }}>PLAN DURATION</HairLabel>
@@ -619,6 +621,7 @@ export function ProfileTab() {
 
         <div style={{ height: 12 }} />
 
+        <HairLabel style={{ marginTop: 8 }}>APP</HairLabel>
         {/* ── Notifications ───────────────────────────────────────────────── */}
         <div>
           <HairLabel style={{ marginBottom: 8 }}>NOTIFICATIONS</HairLabel>
@@ -681,6 +684,7 @@ export function ProfileTab() {
           </button>
         </div>
 
+        <HairLabel style={{ marginTop: 8 }}>ABOUT & LEGAL</HairLabel>
         {/* ── AI & Medical Disclaimer ─────────────────────────────────────── */}
         <div style={{
           marginBottom: 12, padding: '10px 14px',
