@@ -1416,3 +1416,77 @@ Note: existing accounts (including Google/Apple and older username-only signups)
 are unaffected — username login still works; only new signups are required to
 add an email. The native app needs a `cap sync` + rebuild to pick up the new
 signup/login UI.
+
+## 28. Fresh Light migration + Planyourplate rebrand (2026-08-08)
+
+Migration of the client UI from the Strain v2 warm-dark theme to the approved
+**Fresh Light** design in `design-reference/`, plus the rebrand to
+**Planyourplate**. Work is on the `fresh-light-migration` branch (deliberately
+not `main`: the app is visually mid-migration between phases and `main`
+auto-deploys to production).
+
+Phases delivered:
+
+- **0-1 Foundation.** Fonts swapped to Archivo (display) + Plus Jakarta Sans
+  (sans); `theme/tokens.ts` rewritten to Fresh Light **keeping every existing
+  `s2.*` key name**, which flips ~800 inline style references in one edit. New
+  keys: `ink`/`ink2`, `onDark*`, pastels (peach/lilac/mint/butter/sky), the
+  accent split (`accent` #5F8C12 for text, `accentFill` #C6F24E for fills,
+  `accentWash`), per-macro `*Text` variants, `disp`, and the radius scale.
+  `mono` is repointed at Plus Jakarta Sans (Fresh Light has no mono face), so
+  the ~400 mono call sites keep compiling; numeric columns get
+  `fontVariantNumeric: 'tabular-nums'`.
+- **The three contrast traps.** Resolved by script with per-token role
+  resolution (nearest preceding CSS property), then diff-reviewed: `s2.accent`
+  used as a *fill* → `accentFill`; `s2.bg` used as a *foreground* → `ink`;
+  hardcoded Strain hexes → tokens. `index.css` body/html, `.shimmer` (→ lime)
+  and `.card-glow` (inner highlight → soft drop shadow) fixed. Native shell:
+  StatusBar `Dark`→`Light` + `#F2F1EC` (runtime and capacitor.config), plus
+  `theme-color` and the PWA manifest.
+- **2 Primitives.** Card/HairLabel/Pill/Btn/Bar/VBar/Check/DataRow restyled to
+  the reference with their prop APIs preserved (Btn gains six kinds, keeps the
+  legacy `primary` prop); new `H`, `Ring`, `IconBtn`, `Row` ported from
+  `v3-theme.jsx`.
+- **4 Tracker data.** Items 1 and 4 already existed — `/api/tracker/monthly-macros`
+  serves per-day per-macro `{consumed,target,delta}` and per-macro totals with
+  `dailyAvg`. Added the two real gaps: per-day `adherencePct`/`eaten`/`planned`
+  on that endpoint (**same definition as `/summary` and `/stats`** so the
+  calendar agrees with the week/month cards), and
+  `POST /api/tracker/:date/mark-all-eaten` + `useTracker().markAllEaten`.
+  A new `GET /api/water/range` feeds the water series.
+- **3 Screens.** BottomNav (floating dark pill, lime active), AuthScreen (pill
+  segmented toggle, wordmark lockup, disclaimer moved to a link beside
+  Privacy/Terms, rounded inputs and pill buttons), Meals (lime ring hero with
+  fibre tick, pastel food discs, macro chip rows, sky hydration card), Tracker
+  (pastel big-3, dark card with the 7-metric switcher, adherence month
+  calendar, day-detail card with Mark all eaten), Monthly macros (per-macro
+  Daily avg / Under target / Over target cells), Water detail (sky hero with
+  dashed-remainder ring, 5-column glass grid, quick-add, 7-day bars). A final
+  scripted sweep rounded 62 remaining card-like containers across the
+  restyle-only screens (dividers, bars and overlays excluded by rule).
+- **6 Rebrand.** "Diet Plan & Tracker"/AI-DPT → **Plan Your Plate** across the
+  app header, auth lockup, profile footer, share footer, page titles, OG/Twitter
+  meta, PWA manifest, Capacitor `appName` and Android `strings.xml`. Auth
+  tagline is "YOUR NUTRITION COMPANION". **`applicationId` stays
+  `com.dietplan.tracker`** — it is permanent once published, so changing it is
+  the user's call, not a side effect of a re-skin.
+
+Data rules held to the repo, per the brief: 1 glass = 250 ml and the water goal
+come from the profile; plan/goal figures are unchanged. The reference only wins
+on looks.
+
+Verification: `tsc` clean on client and server after every phase; the Phase 7
+straggler grep (`#0C0907`, `Space Grotesk`, `IBM Plex`, `AI-DPT`, and the other
+Strain hexes) returns nothing; the auth screen was driven in-browser at 375x812.
+`AuthScreen.test.tsx` asserted the pre-migration copy "Please enter your
+username and password" — the string became "...username or email and password"
+back in §27, so the test was already failing on `main`; updated, not deleted.
+The local vitest run and `vite build` do not complete on this machine (vitest
+produces no output, the build times out, and `tsx` dies with an esbuild
+"service was stopped" error) — an environment problem that predates this work;
+Vercel builds normally.
+
+Still open: Phase 5 (the onboarding 7→5 step regroup — a deliberate spec change
+that must retain every `OnboardingData` field), the MealDetailSheet photo hero /
+Ingredients-Steps tabs and the ProfileTab grouped-card restructure, and the e2e
+suite.
