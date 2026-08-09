@@ -48,7 +48,14 @@ export async function callLLM(
   const timeout = options.timeout ?? 30_000;
   const signal = AbortSignal.timeout(timeout);
 
-  const message = await llmClient().messages.create(
+  // Streamed, not messages.create(). The SDK refuses a non-streaming request
+  // whose max_tokens implies it could run past its 10-minute ceiling — the
+  // estimate is (60min * max_tokens) / 128000, so anything over ~21,300 tokens
+  // throws "Streaming is required for operations that may take longer than 10
+  // minutes" before a request is even sent. The 14-day plan asks for 32,000 and
+  // was failing there every time. We still only want the finished text, so the
+  // stream is collapsed with finalMessage(); AbortSignal keeps the real bound.
+  const stream = llmClient().messages.stream(
     {
       model,
       max_tokens: maxTokens,
@@ -57,6 +64,8 @@ export async function callLLM(
     },
     { signal },
   );
+
+  const message = await stream.finalMessage();
 
   const textContent = message.content.find(c => c.type === 'text');
   if (!textContent || textContent.type !== 'text') {

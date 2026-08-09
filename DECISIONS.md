@@ -1577,3 +1577,40 @@ the graceful-skip path could run. Tests updated, not deleted, per the brief.
 The six skips are intentional and pre-existing: the review-account navigation
 test and the offline-banner test both skip when their preconditions are not
 available locally.
+
+## 31. 14-day plans never generated — the SDK's non-streaming guard (2026-08-09)
+
+Two users signed up and neither could generate a meal plan; both got "Failed to
+generate meal plan. Please try again." The Claude balance was fine and nothing
+in the generation path had changed during the Fresh Light work.
+
+Both users had `planDuration: 14`. Every meal plan that had ever saved
+successfully was a 7-day plan. A 7-day reproduction succeeded; a 14-day one
+failed in three seconds — far too fast to be a timeout or a network problem,
+which meant the exception was being thrown before any HTTP request went out.
+
+It was thrown by the Anthropic SDK itself. For a non-streaming request with no
+client-level timeout, the SDK estimates how long the call could take as
+`(60min * max_tokens) / 128000` and refuses outright if that exceeds its
+10-minute ceiling, with "Streaming is required for operations that may take
+longer than 10 minutes." The threshold works out to about 21,300 tokens.
+`ai.ts` asks for 16,000 on a 7-day plan (fine) and 32,000 on a 14-day plan
+(always over). So 14-day generation could never have worked — it wasn't
+intermittent, and no amount of API credit would have changed it.
+
+`callLLM` now streams and collapses the stream with `finalMessage()`, which is
+what the SDK's error is asking for. Callers are unaffected: they still get a
+single string back, and the `AbortSignal.timeout()` each one passes is still
+the real bound (180s for a 14-day plan, under Vercel's 300s `maxDuration`).
+Setting a client-level `timeout` would also have silenced the guard, but that
+suppresses the check rather than satisfying it, and leaves a genuinely long
+request riding on one non-streaming HTTP connection.
+
+Verified against the production database: a 14-day generation now returns 14
+days and saves, taking about 90s and 55k tokens.
+
+Also found while debugging, and left alone for now: `tdee_calculation_logs`
+does not exist in the production database, so every TDEE log write throws. It
+is wrapped in `.catch()`, so it is silent and harmless to generation — but the
+logging has never actually worked in prod. Same prod-schema-drift class as
+§26; the pipeline still has no `prisma migrate deploy` step.
