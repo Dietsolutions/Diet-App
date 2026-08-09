@@ -1490,3 +1490,54 @@ Still open: Phase 5 (the onboarding 7→5 step regroup — a deliberate spec cha
 that must retain every `OnboardingData` field), the MealDetailSheet photo hero /
 Ingredients-Steps tabs and the ProfileTab grouped-card restructure, and the e2e
 suite.
+
+## 29. Fresh Light — final screens, onboarding regroup, contrast audit (2026-08-08)
+
+Completion of §28 on the `fresh-light-migration` branch.
+
+**Onboarding 8 → 5 (approved spec change).** Regrouped by composing the original
+step bodies rather than rewriting the field UI — the strongest guard against the
+silent field-drop the brief warned about. `activityLevel` moved out of Body into
+step 5; `StepGoals` gained an optional `section` prop (core / training /
+kitchen) so step 5 can render it into the three named collapsible groups while
+still rendering whole when the prop is omitted. Slide-to-continue on the final
+step only (with a transparent tap fallback for WebViews), estimated TDEE on step
+5, `canNext()` rules unioned so gating did not change.
+
+Verified twice: statically, all 47 `OnboardingData` fields checked against
+`types/index.ts` — 45 render, and the only two that do not are `weeklyBudget`
+and `budgetCurrency`, which the brief intentionally omits and which were already
+unrendered. At runtime in the browser: "Kitchen & rhythm" collapsed shows none of
+its six fields and expanded shows all six; "Body signals" shows all seven.
+
+**MealDetailSheet / ProfileTab.** Macro tiles (pastel grid, kcal full-width),
+Ingredients/Instructions segmented tabs, peach swap card; ProfileTab segmented
+into YOU / YOUR PLAN / APP / ABOUT & LEGAL with every control left in place.
+`isReplaced` remains a flag on one component — still no second layout.
+
+**Contrast audit (Phase 7), measured not eyeballed.** `accentSoft` scores
+1.73:1 on white and `accentFill` 1.30:1, so every lime-as-text call site on a
+light surface failed AA; MealDetailSheet had lime on lime at 1.30:1. Nine sites
+corrected to `s2.accent` (or `s2.ink` on a lime fill). Chart strokes on the dark
+card keep lime (14.38:1).
+
+Flagged, not silently changed: `s2.accent` (#5F8C12) is 4.00:1 on white — AA for
+large/bold text, short of the 4.5 needed for normal text. The design names it as
+*the* accent-text colour, and the reference wins on looks, so this is a
+designer decision.
+
+**Bug found while verifying (unrelated to the re-skin, now fixed).** The axios
+error interceptor rewrote any error lacking `err.response` into a generic
+"Network error" — including cancellations, destroying the marker
+`axios.isCancel()` checks. `useAuth`'s /auth/me effect aborts its first request
+under React StrictMode, so the catch ran `setUser(null)` and the app showed the
+login screen on a valid session; `MealDetailSheet`'s instructions fetch had the
+same latent issue. Cancellations now pass through untouched.
+
+Test note for whoever runs this next: `npm run test:client` swallows vitest's
+output on this machine (it appears to hang). `npx vitest run` from `client/`
+works and takes about 2s — 4 files, 49 tests. The server suite cannot run until
+`npm install --prefix server` is done: vitest is a devDependency there but is not
+installed. `tsx` is broken locally (esbuild "service was stopped"), so the local
+API server does not start; `vite build` also times out. None of that affects
+Vercel.
