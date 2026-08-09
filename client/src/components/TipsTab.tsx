@@ -226,9 +226,9 @@ export function TipsTab() {
               <div>
                 <div style={{ fontFamily: s2.mono, fontSize: 28, fontWeight: 400, color: s2.accent, letterSpacing: '-0.02em', lineHeight: 1 }}>
                   {targetWeight}
-                  <span style={{ fontSize: 12, color: s2.accentSoft }}>kg</span>
+                  <span style={{ fontSize: 12, color: s2.accent }}>kg</span>
                 </div>
-                <HairLabel color={s2.accentSoft} style={{ marginTop: 4 }}>TARGET</HairLabel>
+                <HairLabel color={s2.accent} style={{ marginTop: 4 }}>TARGET</HairLabel>
               </div>
             </div>
 

@@ -123,7 +123,7 @@ export function MealPrepGuide() {
                     fontFamily: s2.mono,
                     fontSize: 9,
                     letterSpacing: '0.12em',
-                    color: s2.accentSoft,
+                    color: s2.accent,
                   }}>
                     📅 {task.usedOn}
                   </div>

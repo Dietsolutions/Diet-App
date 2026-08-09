@@ -255,7 +255,7 @@ export function MealDetailSheet({
                 fontFamily:    s2.mono,
                 fontSize:      8,
                 letterSpacing: '0.12em',
-                color:         s2.accentSoft,
+                color: s2.accent,
                 textAlign:     'center',
                 lineHeight:    1.3,
               }}
@@ -825,7 +825,7 @@ export function MealDetailSheet({
                                 borderLeft: `2px solid ${s2.accent}`,
                                 background: s2.accentFill,
                                 fontFamily: s2.sans, fontSize: 11,
-                                color: s2.accentSoft, lineHeight: 1.5,
+                                color: s2.ink, lineHeight: 1.5,
                               }}>
                                 {step.tip}
                               </div>

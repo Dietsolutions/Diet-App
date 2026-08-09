@@ -116,7 +116,7 @@ export function ShoppingTab() {
                   fontFamily:    s2.mono,
                   fontSize:      8,
                   letterSpacing: '0.15em',
-                  color:         s2.accentSoft,
+                  color: s2.accent,
                   cursor:        'pointer',
                   textTransform: 'uppercase',
                   display:       'flex',
@@ -247,7 +247,7 @@ export function ShoppingTab() {
 
             {peopleCount > 1 && (
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${s2.line}` }}>
-                <HairLabel color={s2.accentSoft}>QUANTITIES SCALED FOR {peopleCount}×</HairLabel>
+                <HairLabel color={s2.accent}>QUANTITIES SCALED FOR {peopleCount}×</HairLabel>
               </div>
             )}
           </Card>
