@@ -1534,10 +1534,46 @@ under React StrictMode, so the catch ran `setUser(null)` and the app showed the
 login screen on a valid session; `MealDetailSheet`'s instructions fetch had the
 same latent issue. Cancellations now pass through untouched.
 
-Test note for whoever runs this next: `npm run test:client` swallows vitest's
-output on this machine (it appears to hang). `npx vitest run` from `client/`
-works and takes about 2s — 4 files, 49 tests. The server suite cannot run until
-`npm install --prefix server` is done: vitest is a devDependency there but is not
-installed. `tsx` is broken locally (esbuild "service was stopped"), so the local
-API server does not start; `vite build` also times out. None of that affects
-Vercel.
+Test note (superseded — see §30). An earlier draft of this section recorded the
+local test failures as unfixable environment quirks. They were not; §30 has the
+diagnosis and the fixes, and everything now runs.
+
+
+## 30. Local toolchain repaired; full test suite green (2026-08-08)
+
+§29 claimed `tsx`, `vite build` and the server test suite were broken "environment
+quirks" that could not be fixed. That was wrong, and the guidance is corrected
+here. Three separate causes, none of them in the source:
+
+1. **`server/node_modules` was incompletely installed** — `bcrypt` and `vitest`
+   were absent. This was the real reason the API server would not start (auth.ts
+   imports bcrypt), the reason the server suite could not run, and the reason a
+   "Cannot find module 'bcrypt'" typecheck error had been showing up all along.
+   It had been dismissed as noise for most of this work; it was a missing
+   dependency. Fixed with the repo's own
+   `npm install --prefix server --legacy-peer-deps`.
+2. **The esbuild binary hung on every invocation** — it returned nothing and
+   never exited, which is what broke `tsx` (reported as esbuild "service was
+   stopped") and timed out `vite build`. Not a quarantine flag: the copy under
+   the repo root was already unquarantined and hung just the same. Fixed with
+   `npm rebuild esbuild` in `server/`; the binary now answers `--version`
+   instantly. Vitest was never affected because vitest 4 transforms with
+   oxc/rolldown rather than esbuild — which is why `npx vitest run` worked all
+   along while `npm run test:client` appeared to hang.
+3. **Playwright's browsers had never been downloaded.** `npx playwright install
+   chromium`.
+
+With those three done: server typecheck 0 errors, server suite 4 files / 42
+tests, client suite 4 files / 49 tests, and the e2e suite 15 passed / 6 skipped
+/ 0 failed across phone, tablet-7inch and tablet-10inch.
+
+The e2e run needed two test updates, both committed: the auth and navigation
+specs asserted the pre-rebrand lockup ("Diet Plan", "& TRACKER", "AI-powered
+nutrition companion"), and the offline-banner test called `page.reload()` while
+offline outside its try block, so in dev — where Vite serves modules over the
+network and the service worker has precached nothing — the reload threw before
+the graceful-skip path could run. Tests updated, not deleted, per the brief.
+
+The six skips are intentional and pre-existing: the review-account navigation
+test and the offline-banner test both skip when their preconditions are not
+available locally.
