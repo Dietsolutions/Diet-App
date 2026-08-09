@@ -11,6 +11,14 @@ export interface CallLLMOptions {
   temperature?: number;
   system?: string;
   timeout?: number;
+  /**
+   * Fired once, the moment the provider accepts the request and starts billing
+   * — i.e. when the first stream event (`message_start`) arrives. Anything that
+   * throws before this point cost nothing: a bad key, a malformed request, the
+   * SDK's own client-side guards. Callers that meter usage use this to tell a
+   * genuinely-charged attempt from a free one.
+   */
+  onCostIncurred?: () => void;
 }
 
 let _client: Anthropic | null = null;
@@ -64,6 +72,16 @@ export async function callLLM(
     },
     { signal },
   );
+
+  if (options.onCostIncurred) {
+    const notify = options.onCostIncurred;
+    let fired = false;
+    stream.on('streamEvent', () => {
+      if (fired) return;   // first event only — message_start
+      fired = true;
+      notify();
+    });
+  }
 
   const message = await stream.finalMessage();
 

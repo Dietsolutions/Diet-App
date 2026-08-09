@@ -55,8 +55,42 @@ function checkRateLimit(userId: string): boolean {
   return true;
 }
 
-// Monthly regeneration limit: 2 per calendar month (existing users only)
+// Monthly regeneration limit: 2 per calendar month (existing users only).
+//
+// Metering is reserve-then-refund, deliberately — the quota is claimed up front
+// and given back if the attempt turns out to have cost nothing. The obvious
+// alternative (count only once generation succeeds) cannot hold the cap: the
+// in-flight guard above is in-memory, so on serverless two parallel
+// invocations on different instances would both read count=0, both pass, and
+// both generate. Claiming first keeps the ceiling honest under that race;
+// refunding keeps the user from paying for our failures.
+//
+// "Cost" means the provider accepted the request and began billing, which
+// callLLM reports via onCostIncurred. Everything that throws earlier — missing
+// config, no profile, a request the SDK rejects client-side — is free, and is
+// refunded. Anything from that point on is charged, whether or not the plan
+// ends up usable, because the tokens were spent either way.
 const MONTHLY_REGEN_LIMIT = 2;
+
+/**
+ * Hand back a reserved credit. Atomic and floored at zero via the `count > 0`
+ * predicate, so a double-refund or a racing reset can't drive the counter
+ * negative and silently hand out extra generations. Never throws: a failed
+ * refund must not replace the real error the caller is already handling.
+ */
+async function refundGenerationCredit(userId: string): Promise<void> {
+  const now   = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  try {
+    const { count } = await prisma.planGenerationUsage.updateMany({
+      where: { userId, month, count: { gt: 0 } },
+      data:  { count: { decrement: 1 } },
+    });
+    if (count > 0) console.log(`[Quota] refunded 1 generation to ${userId} (${month}) — no cost incurred`);
+  } catch (err) {
+    console.error('[Quota] refund failed:', err instanceof Error ? err.message : err);
+  }
+}
 
 async function checkAndIncrementGenerationLimit(userId: string): Promise<{
   allowed: boolean;
@@ -1380,10 +1414,19 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
   activeGenerations.add(userId);
   res.once('close', () => activeGenerations.delete(userId));
 
+  // Set once the quota is actually claimed, so only a real reservation is ever
+  // refunded — users still in onboarding never reserve, and must never be
+  // credited a generation they didn't hold.
+  let quotaReserved = false;
+  // Flipped by callLLM the moment the provider starts billing. Until then every
+  // exit path below is free and gives the credit back.
+  let costIncurred  = false;
+
   // Monthly limit: only applies to regeneration by users who have completed onboarding.
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { onboardingDone: true } });
   if (user?.onboardingDone) {
     const check = await checkAndIncrementGenerationLimit(userId);
+    if (check.allowed) quotaReserved = true;
     if (!check.allowed) {
       res.status(429).json({
         error:    'monthly_limit_reached',
@@ -1396,13 +1439,17 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     }
   }
 
+  // Both bailouts below are server-side/config problems that never reach the
+  // provider, so the reservation is handed straight back.
   if (!process.env.ANTHROPIC_API_KEY) {
+    if (quotaReserved) await refundGenerationCredit(userId);
     res.status(500).json({ error: 'No LLM provider configured. Set ANTHROPIC_API_KEY in server/.env' });
     return;
   }
 
   const profile = await prisma.userProfile.findUnique({ where: { userId } });
   if (!profile) {
+    if (quotaReserved) await refundGenerationCredit(userId);
     res.status(400).json({ error: 'User profile not found. Complete onboarding first.' });
     return;
   }
@@ -1496,6 +1543,9 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
       // which was aborting every generation. Generous ceiling, still well under
       // the 300s Vercel function limit so macro validation has room to run after.
       timeout: planDuration === 14 ? 180_000 : 120_000,
+      // Past this point the tokens are paid for, so the attempt counts even if
+      // the plan later fails to parse, validate or save.
+      onCostIncurred: () => { costIncurred = true; },
     });
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`AI response in ${elapsed}s (${aiText.length} chars)`);
@@ -1681,6 +1731,13 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
   } catch (err: any) {
     clearHeartbeat();
     console.error('AI generation error:', err?.message || err, err?.status, err?.error);
+
+    // Give the credit back if we never got as far as spending anything. This is
+    // the path that burned two generations each for the users hit by the
+    // 14-day streaming bug (§31): it threw client-side, before any request went
+    // out, and still cost them their quota.
+    if (quotaReserved && !costIncurred) await refundGenerationCredit(userId);
+
     let errorMsg = 'Failed to generate meal plan. Please try again.';
     if (err.message?.includes('timeout') || err.message?.includes('ETIMEDOUT')) {
       errorMsg = 'AI generation timed out. Please try again.';

@@ -1637,3 +1637,54 @@ IF NOT EXISTS are fine; any plain `ALTER TABLE ADD COLUMN` is not. Reconciling
 that means auditing all 11 against the live schema and marking the applied
 ones with `prisma migrate resolve --applied` — not done here, since a partial
 reconciliation is more misleading than none.
+
+## 32. Generation quota counted taps, not costs (2026-08-09)
+
+Reported after §31: pressing "generate" consumed a monthly generation whether
+or not anything was actually generated. Confirmed — `checkAndIncrementGeneration
+Limit` claimed the credit at the top of the route, before the API key check,
+before the profile lookup, and long before the LLM call. Every failure in
+between burned quota for zero spend. The §31 bug was the worst case: it threw
+client-side, before a single request was dispatched, and still cost both
+affected users their full allowance.
+
+The obvious fix — count only on success — is wrong here, and would have made
+things worse. The atomic check-and-increment is the only thing holding the cap:
+the in-flight guard beside it is an in-memory `Set`, so on serverless two
+parallel invocations landing on different instances both read `count = 0`, both
+pass, and both generate. Deferring the increment widens that race from a
+duplicate-plan annoyance into unbounded spend.
+
+So the credit is now reserved up front as before, and refunded when the attempt
+turns out to have cost nothing — a pre-auth and void, not a deferred charge.
+The cap holds under the race; the user stops paying for our failures.
+
+"Cost" needed a real boundary rather than a guess about which errors are
+free. `callLLM` takes an `onCostIncurred` callback and fires it on the first
+stream event — `message_start`, the point at which the provider has accepted
+the request and input tokens are billed. Anything throwing earlier (missing
+config, no profile, a request the SDK rejects client-side) is refunded;
+anything after is charged, even if the plan later fails to parse, validate or
+save, because those tokens were spent either way.
+
+Refunds are `updateMany` with a `count > 0` predicate — atomic, floored at
+zero, so a double refund or a racing reset cannot drive the counter negative
+and hand out free generations. They never throw: a failed refund must not
+replace the real error being handled.
+
+Verified at both levels, in both directions. The signal itself: fires on a real
+call, stays silent when the provider rejects with a 404 (nothing billed). The
+route: a generation failed against a bogus model left the counter at 0 with a
+refund logged, and a real generation took it 0 → 1 with no refund. The second
+half matters as much as the first — a callback that never fired would have
+made every attempt look free.
+
+Two related things left alone, both flagged rather than changed:
+
+- `services/mealPlanGenerator.ts` is not imported anywhere and carries its own
+  copy of the old count-on-tap limiter. Dead today, a trap for whoever wires it
+  up next.
+- The daily limiter (`checkRateLimit`, 3/day) has the same shape — it counts
+  the attempt, not the cost. It is in-memory and resets on cold start, so on
+  serverless it rarely bites, but three failed taps on one warm instance can
+  still lock a user out for the day.
