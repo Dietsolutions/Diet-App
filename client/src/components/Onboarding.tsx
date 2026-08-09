@@ -150,7 +150,7 @@ export function Onboarding({ onComplete, userName }: Props) {
   const [reviewMealPlanId, setReviewMealPlanId] = useState<string>('active');
   const [onboardingCustomInstructions, setOnboardingCustomInstructions] = useState('');
 
-  const totalSteps = 8;
+  const totalSteps = 5;
   const genStartRef = useRef<number>(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -172,19 +172,24 @@ export function Onboarding({ onComplete, userName }: Props) {
     else if (arr.length < max) update({ [field]: [...arr, val] } as any);
   };
 
+  // Gating for the 5 grouped steps. Each rule is the union of the rules for the
+  // original steps it absorbed, so nothing became easier or harder to pass.
   const canNext = () => {
     switch (step) {
-      case 1: return data.name.trim() && data.age >= 10 && data.age <= 100 && data.country && data.city.trim();
-      case 2: return data.weightKg > 0 && data.heightCm > 0; // targetWeightKg is optional
-      case 3: return data.mealPreference && data.cuisinePreferences.length > 0;
-      case 4: return true;
-      case 5: return data.preferredIngredients.length >= 5;
-      case 6: return data.avoidIngredients.length > 0 || data.avoidNone === true;
-      case 7: {
+      // 1 About you = Personal + Body (targetWeightKg stays optional)
+      case 1: return !!(data.name.trim() && data.age >= 10 && data.age <= 100 && data.country && data.city.trim()
+                        && data.weightKg > 0 && data.heightCm > 0);
+      // 2 How you eat = Diet + Allergies (allergies optional, as before)
+      case 2: return !!(data.mealPreference && data.cuisinePreferences.length > 0);
+      // 3 Foods you love
+      case 3: return data.preferredIngredients.length >= 5;
+      // 4 Foods to avoid
+      case 4: return data.avoidIngredients.length > 0 || data.avoidNone === true;
+      // 5 Goals & routine = Goals + Activity + Lifestyle (lifestyle was always optional)
+      case 5: {
         const needsIntensity = ['lose_weight', 'gain_muscle'].includes(data.primaryGoal);
         return !!(data.primaryGoal && data.activityLevel && (!needsIntensity || data.dietIntensity));
       }
-      case 8: return true;
       default: return true;
     }
   };
@@ -412,21 +417,21 @@ export function Onboarding({ onComplete, userName }: Props) {
             <SummaryCard label="BODY" items={[
               data.targetWeightKg > 0 ? `${data.weightKg}kg → ${data.targetWeightKg}kg` : `${data.weightKg}kg`,
               `Height: ${data.heightCm}cm`,
-            ]} onEdit={() => { setShowSummary(false); setStep(2); }} />
-            <SummaryCard label="DIET" items={[data.mealPreference, `${data.mealsPerDay} meals/day`, data.cuisinePreferences.join(', ')]} onEdit={() => { setShowSummary(false); setStep(3); }} />
-            <SummaryCard label="ALLERGIES" items={[data.allergies.length > 0 ? data.allergies.join(', ') : 'None']} onEdit={() => { setShowSummary(false); setStep(4); }} />
+            ]} onEdit={() => { setShowSummary(false); setStep(1); }} />
+            <SummaryCard label="DIET" items={[data.mealPreference, `${data.mealsPerDay} meals/day`, data.cuisinePreferences.join(', ')]} onEdit={() => { setShowSummary(false); setStep(2); }} />
+            <SummaryCard label="ALLERGIES" items={[data.allergies.length > 0 ? data.allergies.join(', ') : 'None']} onEdit={() => { setShowSummary(false); setStep(2); }} />
             <SummaryCard label="GOAL" items={[
               data.primaryGoal,
               ...(data.dietIntensity ? [`Intensity: ${data.dietIntensity}`] : []),
               data.activityLevel,
-            ]} onEdit={() => { setShowSummary(false); setStep(7); }} />
+            ]} onEdit={() => { setShowSummary(false); setStep(5); }} />
             <SummaryCard label="LIFESTYLE" items={[
               (data.trainingType && data.trainingType !== 'none')
                 ? `Training: ${data.trainingType}${data.trainingDaysPerWeek ? `, ${data.trainingDaysPerWeek}×/wk` : ''}`
                 : 'No structured training',
               `${((data.dailySteps ?? 5000) / 1000).toFixed(1).replace('.0', '')}k steps/day · ${data.occupationType?.replace('_', ' ') ?? 'desk job'}`,
               `Sleep: ${data.sleepQuality ?? 'average'} · Stress: ${data.stressLevel ?? 'medium'} · Energy: ${data.energyLevel ?? 'moderate'}`,
-            ]} onEdit={() => { setShowSummary(false); setStep(8); }} />
+            ]} onEdit={() => { setShowSummary(false); setStep(5); }} />
           </div>
 
           {/* ── Custom instructions ── */}
@@ -544,16 +549,65 @@ export function Onboarding({ onComplete, userName }: Props) {
           </div>
         </div>
 
-        {/* ── Step content ── */}
+        {/* ── Step content ──
+            Five groups, no field removed. Each group composes the original step
+            bodies so every OnboardingData field keeps its existing control:
+              1 About you      = Personal + Body (activity moved to 5)
+              2 How you eat    = Diet + Allergies
+              3 Foods you love = Preferred
+              4 Foods to avoid = Avoid
+              5 Goals & routine= Goals + Activity + Lifestyle (collapsible)      */}
         <div ref={scrollRef} style={{ flex: 1, padding: '0 20px 100px', overflowY: 'auto' }}>
-          {step === 1 && <StepPersonal data={data} update={update} />}
-          {step === 2 && <StepBody data={data} update={update} />}
-          {step === 3 && <StepDiet data={data} update={update} toggleArr={toggleArrMax} />}
-          {step === 4 && <StepAllergies data={data} toggleArr={toggleArr} update={update} />}
-          {step === 5 && <StepPreferred data={data} toggleArr={toggleArr} />}
-          {step === 6 && <StepAvoid data={data} toggleArr={toggleArr} update={update} />}
-          {step === 7 && <StepGoals data={data} update={update} toggleArr={toggleArr} />}
-          {step === 8 && <StepLifestyle data={data} update={update} />}
+          {step === 1 && (
+            <>
+              <StepPersonal data={data} update={update} />
+              <StepBody data={data} update={update} />
+            </>
+          )}
+          {step === 2 && (
+            <>
+              <StepDiet data={data} update={update} toggleArr={toggleArrMax} />
+              <StepAllergies data={data} toggleArr={toggleArr} update={update} />
+            </>
+          )}
+          {step === 3 && <StepPreferred data={data} toggleArr={toggleArr} />}
+          {step === 4 && <StepAvoid data={data} toggleArr={toggleArr} update={update} />}
+          {step === 5 && (
+            <>
+              <StepGoals data={data} update={update} toggleArr={toggleArr} section="core" />
+
+              {/* Estimated TDEE — shown here, where activity and training make it derivable */}
+              {(() => {
+                const est = estimateTdee(data);
+                if (!est) return null;
+                return (
+                  <div style={{ background: s2.accentFill, borderRadius: s2.rLg, padding: 18, margin: '18px 0 22px' }}>
+                    <HairLabel color="rgba(15,20,15,0.5)">ESTIMATED DAILY ENERGY</HairLabel>
+                    <div style={{ fontFamily: s2.disp, fontSize: 32, fontWeight: 700, letterSpacing: '-0.04em', lineHeight: 1, marginTop: 8, color: s2.ink, fontVariantNumeric: 'tabular-nums' }}>
+                      {est.toLocaleString()}
+                      <span style={{ fontFamily: s2.sans, fontSize: 13, fontWeight: 600, color: 'rgba(15,20,15,0.55)', marginLeft: 6 }}>kcal / day</span>
+                    </div>
+                    <div style={{ fontFamily: s2.sans, fontSize: 11.5, fontWeight: 500, color: 'rgba(15,20,15,0.5)', marginTop: 8, lineHeight: 1.5 }}>
+                      A rough maintenance estimate. Your exact targets are calculated when your plan is generated.
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <Collapsible title="Activity & training" subtitle="Sets your calorie target" defaultOpen>
+                <ActivityLevelBlock data={data} update={update} />
+                <StepGoals data={data} update={update} toggleArr={toggleArr} section="training" />
+              </Collapsible>
+
+              <Collapsible title="Body signals" subtitle="Guides meal composition">
+                <StepLifestyle data={data} update={update} />
+              </Collapsible>
+
+              <Collapsible title="Kitchen & rhythm" subtitle="Conditions, equipment, water and daily rhythm">
+                <StepGoals data={data} update={update} toggleArr={toggleArr} section="kitchen" />
+              </Collapsible>
+            </>
+          )}
         </div>
 
         {/* ── Fixed bottom CTA ── */}
@@ -564,29 +618,40 @@ export function Onboarding({ onComplete, userName }: Props) {
           padding: '12px 20px max(env(safe-area-inset-bottom, 0px), 16px)',
           zIndex: 20,
         }}>
-          <button
-            onClick={() => {
-              const STEP_NAMES: Record<number, string> = {
-                1: 'personal', 2: 'body', 3: 'diet', 4: 'allergies',
-                5: 'preferred_ingredients', 6: 'avoid_ingredients', 7: 'goals', 8: 'lifestyle',
-              };
+          {(() => {
+            const STEP_NAMES: Record<number, string> = {
+              1: 'about_you', 2: 'how_you_eat', 3: 'foods_you_love',
+              4: 'foods_to_avoid', 5: 'goals_and_routine',
+            };
+            const advance = () => {
               track('onboarding_step_completed', { step, step_name: STEP_NAMES[step] ?? String(step) });
               if (step === totalSteps) setShowSummary(true); else setStep(s => s + 1);
-            }}
-            disabled={!canNext()}
-            style={{
-              width: '100%', padding: '15px 0',
-              background: canNext() ? s2.accentFill : s2.surface,
-              border: canNext() ? 'none' : `1px solid ${s2.line}`,
-              fontFamily: s2.mono, fontSize: 11, letterSpacing: '0.2em', fontWeight: 600,
-              color: canNext() ? s2.ink : s2.textDimmer,
-              cursor: canNext() ? 'pointer' : 'default',
-              textTransform: 'uppercase',
-              transition: 'background 150ms, color 150ms',
-            }}
-          >
-            {step === totalSteps ? 'REVIEW & GENERATE' : 'CONTINUE →'}
-          </button>
+            };
+
+            // Slide-to-continue is the signature CTA — final step only.
+            if (step === totalSteps) {
+              return <SlideToContinue label="Review & generate" disabled={!canNext()} onComplete={advance} />;
+            }
+
+            return (
+              <button
+                onClick={advance}
+                disabled={!canNext()}
+                style={{
+                  width: '100%', padding: '17px 0',
+                  background: canNext() ? s2.accentFill : s2.surface,
+                  border: canNext() ? 'none' : `1px solid ${s2.line}`,
+                  borderRadius: s2.rPill,
+                  fontFamily: s2.sans, fontSize: 15, letterSpacing: '-0.01em', fontWeight: 700,
+                  color: canNext() ? s2.ink : s2.textDimmer,
+                  cursor: canNext() ? 'pointer' : 'default',
+                  transition: 'background 150ms, color 150ms',
+                }}
+              >
+                Continue →
+              </button>
+            );
+          })()}
         </div>
       </div>
     </div>
@@ -913,13 +978,6 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
     );
   }
 
-  const ACTIVITY_OPTIONS = [
-    { val: 'sedentary',         label: 'SEDENTARY',  desc: 'Desk job, little exercise' },
-    { val: 'lightly_active',    label: 'LIGHT',       desc: 'Light exercise 1–3 days/week' },
-    { val: 'moderately_active', label: 'MODERATE',    desc: 'Exercise 3–5 days/week' },
-    { val: 'very_active',       label: 'ACTIVE',      desc: 'Hard exercise 6–7 days/week' },
-  ];
-
   return (
     <div style={{ paddingTop: 30 }}>
       <HairLabel>STATS</HairLabel>
@@ -1018,7 +1076,24 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
         </div>
       )}
 
-      {/* Activity radio list */}
+    </div>
+  );
+}
+
+// Shared by ActivityLevelBlock (step 5). Hoisted out of StepBody when activity
+// level moved into the "Goals & routine" group.
+const ACTIVITY_OPTIONS = [
+  { val: 'sedentary',         label: 'SEDENTARY',  desc: 'Desk job, little exercise' },
+  { val: 'lightly_active',    label: 'LIGHT',       desc: 'Light exercise 1–3 days/week' },
+  { val: 'moderately_active', label: 'MODERATE',    desc: 'Exercise 3–5 days/week' },
+  { val: 'very_active',       label: 'ACTIVE',      desc: 'Hard exercise 6–7 days/week' },
+];
+
+// ── Activity level (moved out of Body: the Fresh Light grouping puts it in
+//    step 5 "Goals & routine" alongside training) ──────────────────────────────
+function ActivityLevelBlock({ data, update }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void }) {
+  return (
+    <div>
       <HairLabel style={{ marginBottom: 10 }}>ACTIVITY LEVEL</HairLabel>
       {ACTIVITY_OPTIONS.map((o, i) => (
         <div
@@ -1032,7 +1107,7 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
           }}
         >
           <div>
-            <div style={{ fontFamily: s2.mono, fontSize: 11, fontWeight: 600, letterSpacing: '0.18em', color: data.activityLevel === o.val ? s2.accent : s2.text }}>{o.label}</div>
+            <div style={{ fontFamily: s2.sans, fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', color: data.activityLevel === o.val ? s2.accent : s2.text }}>{o.label}</div>
             <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.textDim, marginTop: 4 }}>{o.desc}</div>
           </div>
           <div style={{
@@ -1044,6 +1119,115 @@ function StepBody({ data, update }: { data: OnboardingData; update: (p: Partial<
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Collapsible group (step 5 keeps the screen short without hiding fields) ────
+function Collapsible({ title, subtitle, defaultOpen, children }: {
+  title: string; subtitle?: string; defaultOpen?: boolean; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  return (
+    <div style={{ background: s2.surface, borderRadius: s2.rLg, padding: '4px 16px', marginBottom: 10 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', background: 'transparent', border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 0', textAlign: 'left',
+        }}
+      >
+        <div>
+          <div style={{ fontFamily: s2.sans, fontSize: 13.5, fontWeight: 700, color: s2.text }}>{title}</div>
+          {subtitle && <div style={{ fontFamily: s2.sans, fontSize: 11.5, fontWeight: 500, color: s2.textDimmer, marginTop: 3 }}>{subtitle}</div>}
+        </div>
+        <span style={{ fontFamily: s2.sans, fontSize: 15, fontWeight: 700, color: s2.textDimmer, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 180ms' }}>⌄</span>
+      </button>
+      {open && <div style={{ paddingBottom: 16 }}>{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * Rough TDEE preview for step 5 — Mifflin-St Jeor × activity multiplier, mirroring
+ * `server/src/utils/tdee.ts`. Deliberately labelled an estimate: the server does the
+ * real calculation (age slowdown, health conditions, goal delta, safety floors) and
+ * remains the source of truth for the saved targets.
+ */
+function estimateTdee(data: OnboardingData): number | null {
+  const { weightKg, heightCm, age, gender, activityLevel } = data;
+  if (!weightKg || !heightCm || !age) return null;
+  const base = 10 * weightKg + 6.25 * heightCm - 5 * age;
+  const g = (gender || '').toLowerCase();
+  const bmr = g === 'male' ? base + 5 : g === 'female' ? base - 161 : base - 78;
+  const mult: Record<string, number> = {
+    sedentary: 1.2, lightly_active: 1.375, moderately_active: 1.55,
+    very_active: 1.725, extra_active: 1.9,
+  };
+  return Math.round(bmr * (mult[activityLevel] ?? 1.375));
+}
+
+// ── Slide-to-continue (final step only, per the Fresh Light spec) ─────────────
+function SlideToContinue({ label, disabled, onComplete }: {
+  label: string; disabled?: boolean; onComplete: () => void;
+}) {
+  const [dragPct, setDragPct] = useState(0);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const KNOB = 52;
+
+  const move = (clientX: number) => {
+    const el = trackRef.current;
+    if (!el || disabled) return;
+    const r = el.getBoundingClientRect();
+    const usable = Math.max(r.width - KNOB - 12, 1);
+    setDragPct(Math.min(1, Math.max(0, (clientX - r.left - KNOB / 2) / usable)));
+  };
+  const release = () => {
+    if (dragPct >= 0.9) { setDragPct(1); onComplete(); }
+    else setDragPct(0);
+  };
+
+  return (
+    <div
+      ref={trackRef}
+      onPointerMove={(e) => { if (e.buttons === 1) move(e.clientX); }}
+      onPointerUp={release}
+      onPointerLeave={() => { if (dragPct > 0 && dragPct < 0.9) setDragPct(0); }}
+      onTouchMove={(e) => move(e.touches[0].clientX)}
+      onTouchEnd={release}
+      style={{
+        position: 'relative', height: 64, borderRadius: s2.rPill,
+        background: disabled ? s2.surface : s2.ink,
+        display: 'flex', alignItems: 'center', padding: 6,
+        opacity: disabled ? 0.5 : 1, userSelect: 'none', touchAction: 'none',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        onPointerDown={(e) => (e.target as HTMLElement).setPointerCapture?.(e.pointerId)}
+        style={{
+          position: 'absolute', left: 6 + dragPct * 4, transform: `translateX(${dragPct * 100}%)`,
+          width: KNOB, height: KNOB, borderRadius: s2.rPill, background: s2.accentFill,
+          display: 'grid', placeItems: 'center', cursor: disabled ? 'default' : 'grab',
+          transition: dragPct === 0 || dragPct === 1 ? 'transform 220ms ease-out' : 'none',
+          fontFamily: s2.sans, fontSize: 16, fontWeight: 800, color: s2.ink, zIndex: 2,
+        }}
+      >»</div>
+      <div style={{
+        flex: 1, textAlign: 'center', fontFamily: s2.sans, fontSize: 14, fontWeight: 700,
+        color: disabled ? s2.textDimmer : s2.onDark, opacity: 1 - dragPct * 0.8,
+      }}>
+        {label}
+      </div>
+      {/* tap fallback — pointer drags are unreliable in some WebViews */}
+      <button
+        type="button"
+        onClick={() => { if (!disabled) onComplete(); }}
+        aria-label={label}
+        style={{ position: 'absolute', inset: 0, opacity: 0, border: 'none', background: 'transparent', cursor: disabled ? 'default' : 'pointer' }}
+      />
     </div>
   );
 }
@@ -1425,7 +1609,12 @@ function StepAvoid({ data, toggleArr, update }: { data: OnboardingData; toggleAr
 }
 
 // ── Step 7 · Goals ────────────────────────────────────────────────────────────
-function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void; toggleArr: (f: keyof OnboardingData, v: string) => void }) {
+type GoalsSection = 'core' | 'training' | 'kitchen';
+function StepGoals({ data, update, toggleArr, section }: { data: OnboardingData; update: (p: Partial<OnboardingData>) => void; toggleArr: (f: keyof OnboardingData, v: string) => void; section?: GoalsSection }) {
+  // Rendered whole when `section` is omitted; step 5 renders the slices into
+  // separate collapsible groups. No field is gated out — every block belongs
+  // to exactly one slice.
+  const show = (s: GoalsSection) => !section || section === s;
   const GOALS = [
     { val: 'eat_healthy',    label: 'EAT HEALTHY',   desc: 'Balanced daily nutrition from WHO/RDA — no weight target', generic: true },
     { val: 'lose_weight',    label: 'LOSE FAT',       desc: 'Calorie deficit, protein priority, weekly pace', generic: false },
@@ -1454,6 +1643,7 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
 
   return (
     <div style={{ paddingTop: 30 }}>
+      {show('core') && (<>
       <HairLabel>GOAL</HairLabel>
       <div style={{ fontFamily: s2.sans, fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em', marginTop: 10, lineHeight: 1.1, marginBottom: 28 }}>
         What are you<br />building toward?
@@ -1525,6 +1715,9 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
         </div>
       )}
 
+      </>)}
+
+      {show('training') && (<>
       {/* ── Training type ── */}
       <div style={{ marginBottom: 24 }}>
         <HairLabel style={{ marginBottom: 10 }}>TRAINING TYPE</HairLabel>
@@ -1633,6 +1826,9 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
         </div>
       </div>
 
+      </>)}
+
+      {show('kitchen') && (<>
       {/* Health conditions */}
       <div style={{ marginBottom: 24 }}>
         <HairLabel style={{ marginBottom: 10 }}>HEALTH CONDITIONS</HairLabel>
@@ -1755,6 +1951,7 @@ function StepGoals({ data, update, toggleArr }: { data: OnboardingData; update: 
           </>
         )}
       </div>
+      </>)}
     </div>
   );
 }
