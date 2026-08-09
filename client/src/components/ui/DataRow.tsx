@@ -8,7 +8,7 @@ interface Props {
   last?: boolean;
 }
 
-/** Flex row with mono label on the left and value on the right, separated by a hairline border. */
+/** Flex row: label left, value right, hairline divider. (Fresh Light — sans, tabular value) */
 export function DataRow({ label, value, accent, unit, last }: Props) {
   return (
     <div style={{
@@ -19,25 +19,26 @@ export function DataRow({ label, value, accent, unit, last }: Props) {
       borderBottom: last ? 'none' : `1px solid ${s2.line}`,
     }}>
       <div style={{
-        fontFamily: s2.mono,
-        fontSize: 9,
-        letterSpacing: '0.22em',
+        fontFamily: s2.sans,
+        fontSize: 10,
+        letterSpacing: '0.14em',
         color: s2.textDimmer,
-        fontWeight: 500,
+        fontWeight: 700,
         textTransform: 'uppercase',
       }}>
         {label}
       </div>
       <div style={{
-        fontFamily: s2.mono,
+        fontFamily: s2.sans,
         fontSize: 13,
-        fontWeight: 500,
+        fontWeight: 700,
         color: accent ?? s2.text,
         letterSpacing: '-0.01em',
+        fontVariantNumeric: 'tabular-nums',
       }}>
         {value}
         {unit && (
-          <span style={{ color: s2.textDim, marginLeft: 3, fontSize: 10 }}>{unit}</span>
+          <span style={{ color: s2.textDim, marginLeft: 3, fontSize: 10, fontWeight: 600 }}>{unit}</span>
         )}
       </div>
     </div>

@@ -28,6 +28,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return this.props.fallback || (
         <div style={{
+          borderRadius: s2.rMd,
           border: `1px solid ${s2.line}`,
           background: s2.surface,
           padding: 14,

@@ -438,6 +438,7 @@ export function BrowseRecipesTab() {
           onChange={e => set({ q: e.target.value })}
           placeholder="Search recipes or ingredients…"
           style={{
+            borderRadius: s2.rMd,
             width: '100%', boxSizing: 'border-box',
             background: s2.surface, border: `1px solid ${s2.line}`,
             color: s2.text, padding: '12px 14px',
@@ -449,8 +450,8 @@ export function BrowseRecipesTab() {
       <div style={{ padding: '12px 20px 0', display: 'flex', gap: 6, overflowX: 'auto' }}>
         {MEAL_TYPES.map(t => (
           <button key={t.id} onClick={() => set({ mealType: t.id })} style={{
-            background: filters.mealType === t.id ? s2.accent : 'transparent',
-            color: filters.mealType === t.id ? '#0C0907' : s2.textDim,
+            background: filters.mealType === t.id ? s2.accentFill : 'transparent',
+            color: filters.mealType === t.id ? s2.ink : s2.textDim,
             border: filters.mealType === t.id ? 'none' : `1px solid ${s2.line}`,
             fontFamily: s2.mono, fontSize: 9, fontWeight: 600, letterSpacing: '0.15em',
             padding: '7px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
@@ -516,6 +517,7 @@ export function BrowseRecipesTab() {
             set({ sortBy: s.id, sortDir: s.dir });
           }}
           style={{
+            borderRadius: s2.rMd,
             background: s2.surface, color: s2.textDim, border: `1px solid ${s2.line}`,
             fontFamily: s2.mono, fontSize: 9, fontWeight: 600, letterSpacing: '0.15em',
             padding: '7px 10px', cursor: 'pointer', outline: 'none',

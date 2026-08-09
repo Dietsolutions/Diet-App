@@ -215,7 +215,7 @@ export function ProfileTab() {
   // ── Share & rate helpers ───────────────────────────────────────────────
   const handleShare = async () => {
     const shareData = {
-      title: 'Diet Plan & Tracker',
+      title: 'Plan Your Plate',
       text: 'AI-powered meal planning that actually works 🥗 Check it out!',
       url: APP_STORE_URL,
     };
@@ -267,7 +267,7 @@ export function ProfileTab() {
           <div style={{ height: 2, background: s2.line, position: 'relative', overflow: 'hidden' }}>
             <div style={{
               position: 'absolute', top: 0, left: '-60%', height: '100%', width: '60%',
-              background: `linear-gradient(90deg, transparent, ${s2.accent}, transparent)`,
+              background: `linear-gradient(90deg, transparent, ${s2.accentFill}, transparent)`,
               animation: 'shimmer 1.4s infinite',
             }} />
           </div>
@@ -296,7 +296,7 @@ export function ProfileTab() {
       {/* ── Section header ────────────────────────────────────────────────── */}
       <div style={{ padding: '14px 20px 0' }}>
         <HairLabel>YOUR BODY</HairLabel>
-        <div style={{ fontFamily: s2.sans, fontSize: 30, fontWeight: 400, letterSpacing: '-0.025em', marginTop: 4, lineHeight: 1 }}>
+        <div style={{ fontFamily: s2.disp, fontSize: 32, fontWeight: 700, letterSpacing: '-0.042em', marginTop: 6, lineHeight: 1.02 }}>
           Profile
         </div>
       </div>
@@ -306,14 +306,14 @@ export function ProfileTab() {
         {/* Success banner */}
         {showBanner && (
           <div style={{
-            border: `1px solid ${s2.accent}`,
             background: s2.accentFill,
-            padding: '10px 14px',
+            borderRadius: s2.rMd,
+            padding: '12px 14px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}>
-            <HairLabel color={s2.accentSoft}>PLAN UPDATED WITH YOUR CHANGES</HairLabel>
+            <HairLabel color={s2.ink}>PLAN UPDATED WITH YOUR CHANGES</HairLabel>
             <button
               onClick={() => setShowBanner(false)}
               style={{ background: 'transparent', border: 'none', color: s2.textDim, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}
@@ -323,6 +323,7 @@ export function ProfileTab() {
           </div>
         )}
 
+        <HairLabel style={{ marginTop: 8 }}>YOU</HairLabel>
         {/* ── User card ──────────────────────────────────────────────────── */}
         <Card padding={16}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -420,6 +421,7 @@ export function ProfileTab() {
           </>
         )}
 
+        <HairLabel style={{ marginTop: 8 }}>YOUR PLAN</HairLabel>
         {/* ── Plan duration ──────────────────────────────────────────────── */}
         <div>
           <HairLabel style={{ marginBottom: 8 }}>PLAN DURATION</HairLabel>
@@ -447,11 +449,11 @@ export function ProfileTab() {
                       position: 'absolute',
                       top: -1,
                       right: 8,
-                      background: s2.accent,
+                      background: s2.accentFill,
                       fontFamily: s2.mono,
                       fontSize: 7,
                       letterSpacing: '0.12em',
-                      color: s2.bg,
+                      color: s2.ink,
                       padding: '2px 6px',
                       textTransform: 'uppercase',
                     }}>
@@ -490,6 +492,7 @@ export function ProfileTab() {
         {genUsage && (
           <div>
             <div style={{
+              borderRadius: s2.rMd,
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               padding: '10px 14px',
               background: s2.surface, border: `1px solid ${s2.line}`,
@@ -540,7 +543,7 @@ export function ProfileTab() {
             fontFamily: s2.mono,
             fontSize: 10,
             letterSpacing: '0.2em',
-            color: '#FF3E3E',
+            color: s2.warn,
             cursor: 'pointer',
             textTransform: 'uppercase',
           }}
@@ -567,6 +570,7 @@ export function ProfileTab() {
               value={deletePassword}
               onChange={e => setDeletePassword(e.target.value)}
               style={{
+                borderRadius: s2.rMd,
                 width: '100%', padding: '10px 12px', marginBottom: 10,
                 background: s2.bg, border: `1px solid ${s2.line}`,
                 fontFamily: s2.sans, fontSize: 13, color: s2.text,
@@ -574,17 +578,18 @@ export function ProfileTab() {
               }}
             />
             {deleteError && (
-              <div style={{ color: '#FF3E3E', fontSize: 12, marginBottom: 8 }}>{deleteError}</div>
+              <div style={{ color: s2.warn, fontSize: 12, marginBottom: 8 }}>{deleteError}</div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={handleDeleteAccount} disabled={deleteDeleting} style={{
-                flex: 1, padding: '10px 0', background: '#FF3E3E', border: 'none',
+                flex: 1, padding: '10px 0', background: s2.warn, border: 'none',
                 fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.2em', color: '#fff',
                 cursor: 'pointer', opacity: deleteDeleting ? 0.6 : 1,
               }}>
                 {deleteDeleting ? 'DELETING...' : 'DELETE MY ACCOUNT'}
               </button>
               <button onClick={() => { setDeleteConfirm(false); setDeletePassword(''); setDeleteError(''); }} style={{
+                borderRadius: s2.rMd,
                 flex: 1, padding: '10px 0', background: 'transparent', border: `1px solid ${s2.line}`,
                 fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.2em', color: s2.textDim,
                 cursor: 'pointer',
@@ -597,6 +602,7 @@ export function ProfileTab() {
           <button
             onClick={() => setDeleteConfirm(true)}
             style={{
+              borderRadius: s2.rMd,
               width: '100%',
               background: 'transparent',
               border: `1px solid ${s2.line}`,
@@ -615,6 +621,7 @@ export function ProfileTab() {
 
         <div style={{ height: 12 }} />
 
+        <HairLabel style={{ marginTop: 8 }}>APP</HairLabel>
         {/* ── Notifications ───────────────────────────────────────────────── */}
         <div>
           <HairLabel style={{ marginBottom: 8 }}>NOTIFICATIONS</HairLabel>
@@ -626,6 +633,7 @@ export function ProfileTab() {
         {/* ── Rate & Share ─────────────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <button onClick={handleRate} style={{
+            borderRadius: s2.rMd,
             padding: '13px 0', border: `1px solid ${s2.lineStrong}`,
             background: s2.surface, cursor: 'pointer', fontFamily: s2.mono,
             fontSize: 9, letterSpacing: '0.15em', color: s2.text,
@@ -635,6 +643,7 @@ export function ProfileTab() {
             RATE THE APP
           </button>
           <button onClick={handleShare} style={{
+            borderRadius: s2.rMd,
             padding: '13px 0', border: `1px solid ${s2.lineStrong}`,
             background: s2.surface, cursor: 'pointer', fontFamily: s2.mono,
             fontSize: 9, letterSpacing: '0.15em', color: s2.text,
@@ -649,6 +658,7 @@ export function ProfileTab() {
 
         {/* ── Analytics toggle ────────────────────────────────────────────── */}
         <div style={{
+          borderRadius: s2.rMd,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '10px 14px', border: `1px solid ${s2.line}`,
         }}>
@@ -662,7 +672,7 @@ export function ProfileTab() {
             onClick={() => setAnalyticsOptedIn(!analyticsOptedIn)}
             style={{
               width: 44, height: 24, borderRadius: 12, border: 'none',
-              background: analyticsOptedIn ? '#4CAF82' : s2.line,
+              background: analyticsOptedIn ? s2.accentFill : s2.line,
               cursor: 'pointer', position: 'relative', transition: 'background 200ms',
             }}
           >
@@ -674,6 +684,7 @@ export function ProfileTab() {
           </button>
         </div>
 
+        <HairLabel style={{ marginTop: 8 }}>ABOUT & LEGAL</HairLabel>
         {/* ── AI & Medical Disclaimer ─────────────────────────────────────── */}
         <div style={{
           marginBottom: 12, padding: '10px 14px',
@@ -711,7 +722,7 @@ export function ProfileTab() {
         {/* ── App version ─────────────────────────────────────────────────── */}
         <div style={{ textAlign: 'center', paddingBottom: 4 }}>
           <div style={{ fontFamily: s2.mono, fontSize: 10, color: s2.textDimmer, letterSpacing: '0.1em' }}>
-            DIET PLAN & TRACKER v{APP_VERSION}
+            PLANYOURPLATE v{APP_VERSION}
           </div>
         </div>
 
@@ -731,6 +742,7 @@ export function ProfileTab() {
           padding: 20,
         }}>
           <div style={{
+            borderRadius: s2.rMd,
             background: s2.surface,
             border: `1px solid ${s2.lineStrong}`,
             padding: 24,
@@ -743,7 +755,8 @@ export function ProfileTab() {
                 <div style={{ fontFamily: s2.sans, fontSize: 15, color: s2.text, marginBottom: 10 }}>
                   Apply your custom instructions?
                 </div>
-                <div style={{ border: `1px solid ${s2.line}`, background: s2.surface2, padding: '10px 12px', marginBottom: 10 }}>
+                <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface2, padding: '10px 12px', marginBottom: 10 }}>
                   <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, fontStyle: 'italic', lineHeight: 1.5 }}>
                     "{mealInstructions.trim()}"
                   </div>
@@ -782,7 +795,8 @@ export function ProfileTab() {
 // ── Local sub-components ────────────────────────────────────────────────────
 function StatCard({ label, value, unit, accent }: { label: string; value: string; unit: string; accent?: boolean }) {
   return (
-    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: '12px 10px' }}>
+    <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: '12px 10px' }}>
       <HairLabel>{label}</HairLabel>
       <div style={{
         fontFamily: s2.mono,
@@ -801,7 +815,8 @@ function StatCard({ label, value, unit, accent }: { label: string; value: string
 
 function DataPair({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+    <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
       <HairLabel>{label}</HairLabel>
       <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.text, textTransform: 'capitalize' }}>{value}</div>
     </div>
@@ -853,13 +868,14 @@ function PlanHistoryRow({ plan, index }: { plan: PlanHistoryItem; index: number 
               fontFamily: s2.mono,
               fontSize: 7,
               letterSpacing: '0.12em',
-              background: s2.accent,
-              color: s2.bg,
+              background: s2.accentFill,
+              color: s2.ink,
               padding: '1px 5px',
             }}>ACTIVE</span>
           )}
           {index === 0 && !isActive && (
             <span style={{
+              borderRadius: s2.rMd,
               fontFamily: s2.mono,
               fontSize: 7,
               letterSpacing: '0.12em',

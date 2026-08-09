@@ -101,6 +101,15 @@ axios.interceptors.response.use(
     return res;
   },
   (err) => {
+    // Pass cancellations through untouched. A cancelled request has no
+    // `err.response`, so the generic branch below used to rewrite it into a plain
+    // Error — destroying the marker `axios.isCancel()` looks for. Callers that
+    // abort on unmount (useAuth's /auth/me, MealDetailSheet's instructions fetch)
+    // then treated a deliberate abort as a real failure: useAuth called
+    // setUser(null), showing the login screen despite a valid session.
+    if (axios.isCancel(err) || err.code === 'ERR_CANCELED') {
+      return Promise.reject(err);
+    }
     if (err.code === 'ECONNABORTED') {
       return Promise.reject(new Error('Request timed out. Please check your connection.'));
     }

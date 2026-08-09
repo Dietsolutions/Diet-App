@@ -35,11 +35,13 @@ module.exports = {
         'fibre-fill':   'rgba(124,224,196,0.15)',
       },
       fontFamily: {
-        // Strain v2 primaries
-        sans:    ["'Space Grotesk'", 'system-ui', 'sans-serif'],
-        mono:    ["'IBM Plex Mono'", 'ui-monospace', 'monospace'],
-        // Legacy display font (still used by auth / onboarding)
-        display: ['"Fraunces"', '"Playfair Display"', 'serif'],
+        // Fresh Light primaries
+        sans:    ["'Plus Jakarta Sans'", 'system-ui', 'sans-serif'],
+        disp:    ["'Archivo'", 'system-ui', 'sans-serif'],
+        // No mono face in Fresh Light — repointed so existing font-mono call sites compile
+        mono:    ["'Plus Jakarta Sans'", 'system-ui', 'sans-serif'],
+        // Legacy `display` alias repointed to Archivo (any font-display usage stays on-brand)
+        display: ["'Archivo'", 'system-ui', 'sans-serif'],
       },
       maxWidth: {
         app: '480px',

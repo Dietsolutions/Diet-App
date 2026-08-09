@@ -171,7 +171,7 @@ export function IOSInstallBanner() {
         </div>
 
         {/* Down arrow */}
-        <div style={{ textAlign: 'center', marginTop: 10, color: s2.accentSoft, opacity: 0.5 }}>
+        <div style={{ textAlign: 'center', marginTop: 10, color: s2.accent, opacity: 0.5 }}>
           <div style={{ width: 1, height: 12, background: 'currentColor', margin: '0 auto' }} />
           <svg width="10" height="7" viewBox="0 0 10 7" fill="currentColor">
             <path d="M5 7L0 0h10L5 7z" />

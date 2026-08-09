@@ -20,7 +20,7 @@ export function GoalProjectionCard() {
       background: s2.accentFill,
       padding: '12px 14px',
     }}>
-      <HairLabel color={s2.accentSoft} style={{ marginBottom: 10 }}>GOAL PROJECTION</HairLabel>
+      <HairLabel color={s2.accent} style={{ marginBottom: 10 }}>GOAL PROJECTION</HairLabel>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontFamily: s2.mono, fontSize: 14, color: s2.accent }}>{targetWeight} kg</div>

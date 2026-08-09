@@ -50,9 +50,10 @@ function NavArrow({
       disabled={disabled}
       style={{
         background: 'transparent',
-        border: `1px solid ${s2.lineStrong}`,
-        width: 28,
-        height: 28,
+        border: `1.5px solid ${disabled ? s2.line : s2.lineStrong}`,
+        borderRadius: s2.rPill,
+        width: 30,
+        height: 30,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -71,6 +72,45 @@ function NavArrow({
         </svg>
       )}
     </button>
+  );
+}
+
+// ── Pastel food disc (ref: V3Food) ────────────────────────────────────────
+const FOOD_TINTS = [s2.butter, s2.peach, s2.lilac, s2.mint, s2.sky];
+
+function FoodDisc({ size = 50, tint, glyph }: { size?: number; tint: string; glyph?: 'leaf' | 'bowl' }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: s2.rPill, flexShrink: 0,
+      display: 'grid', placeItems: 'center',
+      background: `radial-gradient(circle at 35% 30%, #fff 0%, ${tint} 55%, ${tint} 100%)`,
+      boxShadow: 'inset 0 -4px 10px rgba(15,20,15,0.08)',
+    }}>
+      <svg width={size * 0.46} height={size * 0.46} viewBox="0 0 24 24" fill="none" stroke="rgba(15,20,15,0.55)" strokeWidth="1.7" strokeLinecap="round">
+        {glyph === 'leaf'
+          ? <path d="M20 4C10 4 4 10 4 20c10 0 16-6 16-16zM4 20L14 10" />
+          : <><path d="M3 11h18a9 9 0 01-18 0z" /><path d="M8 7c0-2 1-3 2-3M13 7c0-3 2-4 3-4" /></>}
+      </svg>
+    </div>
+  );
+}
+
+// ── Macro chips row (ref: meal-card chips) ────────────────────────────────
+function MacroChips({ kcal, p, c, f }: { kcal: number; p: number; c: number; f: number }) {
+  const chip = (bg: string, color: string, label: string) => (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', background: bg, color,
+      borderRadius: s2.rPill, padding: '4px 9px', fontFamily: s2.sans,
+      fontSize: 10, fontWeight: 600, letterSpacing: '-0.01em', whiteSpace: 'nowrap',
+    }}>{label}</span>
+  );
+  return (
+    <div style={{ display: 'flex', gap: 6, marginTop: 9, flexWrap: 'wrap' }}>
+      {chip(s2.bg, s2.text, `${Math.round(kcal)} kcal`)}
+      {chip('rgba(111,185,59,0.14)', '#4C8526', `P ${Math.round(p)}`)}
+      {chip('rgba(242,185,59,0.16)', '#8A6410', `C ${Math.round(c)}`)}
+      {chip('rgba(255,138,107,0.16)', '#B3492C', `F ${Math.round(f)}`)}
+    </div>
   );
 }
 
@@ -200,18 +240,18 @@ export function MealsTab() {
         <div>
           <HairLabel>{monthLabel}</HairLabel>
           <div style={{
-            fontFamily: s2.sans,
-            fontSize: 30,
-            fontWeight: 400,
-            letterSpacing: '-0.025em',
-            marginTop: 4,
-            lineHeight: 1,
+            fontFamily: s2.disp,
+            fontSize: 32,
+            fontWeight: 700,
+            letterSpacing: '-0.042em',
+            marginTop: 6,
+            lineHeight: 1.02,
           }}>
             Meals
           </div>
         </div>
         {isPlanDate && (
-          <Pill color={s2.accent}>{eatenCount}/{mealsPerDay} EATEN</Pill>
+          <Pill filled>DAY {planDayIdx + 1} OF {planDuration}</Pill>
         )}
       </div>
 
@@ -266,43 +306,48 @@ export function MealsTab() {
                 onClick={() => { if (clickable) setSelectedDate(date); }}
                 style={{
                   cursor: clickable ? 'pointer' : 'default',
-                  background: isSelected ? s2.accentFill : 'transparent',
-                  border: `1px solid ${isSelected ? s2.accent : s2.line}`,
-                  padding: '8px 4px',
+                  background: isSelected ? s2.accentFill : s2.surface,
+                  border: 'none',
+                  borderRadius: 18,
+                  padding: '10px 2px',
                   opacity: !clickable ? 0.35 : isFuture ? 0.65 : 1,
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
-                  gap: 4,
+                  gap: 5,
                 }}
               >
                 <div style={{
-                  fontFamily: s2.mono,
-                  fontSize: 9,
-                  color: s2.textDim,
-                  letterSpacing: '0.1em',
+                  fontFamily: s2.sans,
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  color: isSelected ? 'rgba(15,20,15,0.6)' : s2.textDimmer,
+                  letterSpacing: '0.08em',
                 }}>
                   {dayLetter}
                 </div>
                 <div style={{
-                  fontFamily: s2.sans,
-                  fontSize: 18,
-                  fontWeight: 400,
-                  color: isSelected ? s2.accent : s2.text,
-                  letterSpacing: '-0.02em',
+                  fontFamily: s2.disp,
+                  fontSize: 17,
+                  fontWeight: 700,
+                  color: s2.ink,
+                  letterSpacing: '-0.03em',
                   lineHeight: 1,
                 }}>
                   {dayNum}
                 </div>
-                {/* 3 px square meal-progress dots (max 4) */}
-                <div style={{ display: 'flex', gap: 2 }}>
+                {/* round meal-progress dots (max 4) */}
+                <div style={{ display: 'flex', gap: 2.5 }}>
                   {Array.from({ length: Math.min(mealsPerDay, 4) }, (_, k) => (
                     <div
                       key={k}
                       style={{
-                        width: 3,
-                        height: 3,
-                        background: k < eaten ? s2.accent : s2.line,
+                        width: 4,
+                        height: 4,
+                        borderRadius: s2.rPill,
+                        background: k < eaten
+                          ? (isSelected ? s2.ink : s2.accent)
+                          : (isSelected ? 'rgba(15,20,15,0.2)' : 'rgba(15,20,15,0.13)'),
                       }}
                     />
                   ))}
@@ -330,11 +375,11 @@ export function MealsTab() {
             <HairLabel>{selectedIsFuture ? 'FUTURE DATE' : 'BEFORE PLAN START'}</HairLabel>
           )}
           <div style={{
-            fontFamily: s2.sans,
+            fontFamily: s2.disp,
             fontSize: 22,
-            fontWeight: 400,
-            marginTop: 4,
-            letterSpacing: '-0.02em',
+            fontWeight: 700,
+            marginTop: 5,
+            letterSpacing: '-0.035em',
           }}>
             {format(parseISO(selectedDate), 'd MMMM')}
           </div>
@@ -342,17 +387,17 @@ export function MealsTab() {
         {isPlanDate && (
           <div style={{ textAlign: 'right' }}>
             <div style={{
-              fontFamily: s2.sans,
+              fontFamily: s2.disp,
               fontSize: 28,
-              fontWeight: 300,
+              fontWeight: 700,
               color: s2.accent,
-              letterSpacing: '-0.03em',
+              letterSpacing: '-0.035em',
               lineHeight: 1,
             }}>
               {eatenCount}
               <span style={{ color: s2.textDim, fontSize: 16 }}>/{mealsPerDay}</span>
             </div>
-            <HairLabel style={{ marginTop: 2 }}>EATEN</HairLabel>
+            <HairLabel style={{ marginTop: 3 }}>EATEN</HairLabel>
           </div>
         )}
       </div>
@@ -433,14 +478,8 @@ export function MealsTab() {
               return (
                 <div key={mealIdx} style={{ marginBottom: 10 }}>
                   <Card
-                    padding={14}
-                    style={
-                      isReplaced
-                        ? { borderColor: s2.accentSoft, background: 'rgba(255,176,102,0.04)' }
-                        : eaten
-                          ? { background: s2.accentFill }
-                          : {}
-                    }
+                    padding={15}
+                    radius={24}
                     onClick={() => {
                       setDetailMealIdx(mealIdx);
                       track('meal_detail_opened', {
@@ -449,33 +488,33 @@ export function MealsTab() {
                       });
                     }}
                   >
-                    <div style={{ display: 'flex', gap: 12 }}>
-                      {/* ── Index number ────────────────────────────────── */}
-                      <div style={{
-                        fontFamily: s2.mono,
-                        fontSize: 11,
-                        color: eaten ? s2.accent : s2.textDim,
-                        width: 24,
-                        paddingTop: 2,
-                        flexShrink: 0,
-                      }}>
-                        {indexLabel}
-                      </div>
+                    <div style={{ display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+                      {/* ── Pastel food disc ────────────────────────────── */}
+                      <FoodDisc
+                        size={50}
+                        tint={FOOD_TINTS[mealIdx % FOOD_TINTS.length]}
+                        glyph={mealIdx === meals.length - 1 ? 'leaf' : 'bowl'}
+                      />
 
                       {/* ── Body ────────────────────────────────────────── */}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         {/* Type + time header */}
                         <div style={{
                           display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'baseline',
-                          marginBottom: 4,
+                          alignItems: 'center',
+                          gap: 7,
+                          flexWrap: 'wrap',
                         }}>
-                          <HairLabel color={eaten ? s2.accent : s2.textDim}>
+                          <HairLabel>
                             {mealType.toUpperCase()} · {meal.time}
                           </HairLabel>
                           {isReplaced && (
-                            <HairLabel color={s2.accentSoft}>↻ SWAPPED</HairLabel>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center',
+                              background: s2.accentWash, color: '#4C7010',
+                              borderRadius: s2.rPill, padding: '3px 7px',
+                              fontFamily: s2.sans, fontSize: 9, fontWeight: 700,
+                            }}>↻ SWAPPED</span>
                           )}
                         </div>
 
@@ -483,31 +522,17 @@ export function MealsTab() {
                         <div style={{
                           fontFamily: s2.sans,
                           fontSize: 14,
-                          fontWeight: 500,
+                          fontWeight: 700,
+                          letterSpacing: '-0.015em',
                           lineHeight: 1.3,
+                          marginTop: 5,
                           color: eaten ? s2.textDim : s2.text,
-                          textDecoration: eaten ? 'line-through' : 'none',
                         }}>
                           {name}
                         </div>
 
-                        {/* Macro row */}
-                        <div style={{
-                          marginTop: 8,
-                          display: 'flex',
-                          gap: 12,
-                          fontFamily: s2.mono,
-                          fontSize: 10,
-                        }}>
-                          <span style={{ color: s2.textDim }}>
-                            {kcal}
-                            <span style={{ color: s2.textDimmer }}> kcal</span>
-                          </span>
-                          <span style={{ color: s2.protein }}>P{prot}</span>
-                          <span style={{ color: s2.carbs   }}>C{carb}</span>
-                          <span style={{ color: s2.fat     }}>F{fat_}</span>
-                          <span style={{ color: s2.fibre   }}>Fi{fibr}</span>
-                        </div>
+                        {/* Macro chips */}
+                        <MacroChips kcal={kcal} p={prot} c={carb} f={fat_} />
 
                         {/* Action links row */}
                         <div style={{ marginTop: 8, display: 'flex', gap: 14, alignItems: 'center' }}>
@@ -518,9 +543,10 @@ export function MealsTab() {
                                 background: 'transparent',
                                 border: 'none',
                                 padding: 0,
-                                fontFamily: s2.mono,
-                                fontSize: 9,
-                                letterSpacing: '0.15em',
+                                fontFamily: s2.sans,
+                                fontSize: 10,
+                                fontWeight: 800,
+                                letterSpacing: '0.08em',
                                 color: s2.textDimmer,
                                 cursor: 'pointer',
                                 textTransform: 'uppercase',
@@ -539,9 +565,10 @@ export function MealsTab() {
                                 background: 'transparent',
                                 border: 'none',
                                 padding: 0,
-                                fontFamily: s2.mono,
-                                fontSize: 9,
-                                letterSpacing: '0.15em',
+                                fontFamily: s2.sans,
+                                fontSize: 10,
+                                fontWeight: 800,
+                                letterSpacing: '0.08em',
                                 color: s2.textDimmer,
                                 cursor: 'pointer',
                                 textTransform: 'uppercase',
@@ -561,9 +588,10 @@ export function MealsTab() {
                               background: 'transparent',
                               border: 'none',
                               padding: 0,
-                              fontFamily: s2.mono,
-                              fontSize: 9,
-                              letterSpacing: '0.15em',
+                              fontFamily: s2.sans,
+                              fontSize: 10,
+                              fontWeight: 800,
+                              letterSpacing: '0.08em',
                               color: s2.textDimmer,
                               cursor: 'pointer',
                               textTransform: 'uppercase',
@@ -586,7 +614,7 @@ export function MealsTab() {
                               cursor: 'pointer',
                             }}
                           >
-                            <Check on={eaten} size={18} />
+                            <Check on={eaten} size={26} />
                           </button>
                         </div>
                       )}
@@ -602,34 +630,19 @@ export function MealsTab() {
                 <HairLabel style={{ marginBottom: 10 }}>EXTRA MEALS LOGGED</HairLabel>
                 {additionalMeals.map((extra) => (
                   <div key={extra.id} style={{ marginBottom: 8 }}>
-                    <Card padding={12} style={{ borderColor: s2.lineStrong }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <Card padding={14} radius={22} border={s2.lineStrong}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{
                             fontFamily: s2.sans,
                             fontSize: 13,
-                            fontWeight: 500,
+                            fontWeight: 600,
                             color: s2.text,
                             lineHeight: 1.3,
                           }}>
                             {extra.foodName || 'Extra meal'}
                           </div>
-                          <div style={{
-                            marginTop: 6,
-                            display: 'flex',
-                            gap: 10,
-                            fontFamily: s2.mono,
-                            fontSize: 10,
-                          }}>
-                            <span style={{ color: s2.textDim }}>
-                              {extra.calories}
-                              <span style={{ color: s2.textDimmer }}> kcal</span>
-                            </span>
-                            <span style={{ color: s2.protein }}>P{extra.proteinG}</span>
-                            <span style={{ color: s2.carbs   }}>C{extra.carbsG}</span>
-                            <span style={{ color: s2.fat     }}>F{extra.fatG}</span>
-                            <span style={{ color: s2.fibre   }}>Fi{extra.fibreG}</span>
-                          </div>
+                          <MacroChips kcal={extra.calories} p={extra.proteinG} c={extra.carbsG} f={extra.fatG} />
                         </div>
                         <HairLabel style={{ marginLeft: 8, flexShrink: 0 }}>OFF-PLAN</HairLabel>
                       </div>

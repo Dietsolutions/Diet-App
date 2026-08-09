@@ -55,7 +55,7 @@ describe('AuthScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: /^login$/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Log In' }));
     await waitFor(() => {
-      expect(screen.getByText('Please enter your username and password')).toBeInTheDocument();
+      expect(screen.getByText('Please enter your username or email and password')).toBeInTheDocument();
     });
   });
 });

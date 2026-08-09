@@ -230,6 +230,7 @@ export function ShoppingShareSheet({
 
         {/* Preview */}
         <div style={{
+          borderRadius: s2.rMd,
           background:     s2.surface2,
           border:         `1px solid ${s2.line}`,
           padding:        '12px 14px',
@@ -257,7 +258,7 @@ export function ShoppingShareSheet({
                 alignItems:     'center',
                 gap:            12,
                 padding:        '14px 16px',
-                background:     s2.accent,
+                background:     s2.accentFill,
                 border:         `1px solid ${s2.accent}`,
                 cursor:         'pointer',
                 width:          '100%',
@@ -270,13 +271,13 @@ export function ShoppingShareSheet({
                   fontFamily:    s2.mono,
                   fontSize:      10,
                   letterSpacing: '0.15em',
-                  color:         s2.bg,
+                  color:         s2.ink,
                   textTransform: 'uppercase',
                 }}>SHARE VIA…</div>
                 <div style={{
                   fontFamily:    s2.sans,
                   fontSize:      11,
-                  color:         s2.bg,
+                  color:         s2.ink,
                   opacity:       0.7,
                   marginTop:     2,
                 }}>Messages, Notes, Mail, and more</div>
@@ -288,6 +289,7 @@ export function ShoppingShareSheet({
           <button
             onClick={handleWhatsApp}
             style={{
+              borderRadius: s2.rMd,
               display:        'flex',
               alignItems:     'center',
               gap:            12,

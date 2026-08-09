@@ -120,7 +120,7 @@ export function ResetPasswordScreen() {
               onClick={() => { window.location.href = '/'; }}
               style={{
                 width: '100%', padding: '12px 0',
-                background: s2.text, color: s2.bg,
+                background: s2.text, color: s2.ink,
                 border: 'none', borderRadius: 8,
                 cursor: 'pointer', fontFamily: s2.sans, fontSize: 14, fontWeight: 600,
               }}
@@ -143,7 +143,7 @@ export function ResetPasswordScreen() {
               onClick={() => { window.location.href = '/'; }}
               style={{
                 width: '100%', padding: '12px 0',
-                background: s2.text, color: s2.bg,
+                background: s2.text, color: s2.ink,
                 border: 'none', borderRadius: 8,
                 cursor: 'pointer', fontFamily: s2.sans, fontSize: 14, fontWeight: 600,
               }}
@@ -203,7 +203,7 @@ export function ResetPasswordScreen() {
               style={{
                 width: '100%', padding: '12px 0',
                 background: submitting ? s2.line : s2.text,
-                color: s2.bg,
+                color: s2.ink,
                 border: 'none', borderRadius: 8,
                 cursor: submitting ? 'wait' : 'pointer',
                 fontFamily: s2.sans, fontSize: 14, fontWeight: 600,

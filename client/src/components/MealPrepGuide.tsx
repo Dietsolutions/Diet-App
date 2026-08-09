@@ -103,6 +103,7 @@ export function MealPrepGuide() {
               <div
                 key={i}
                 style={{
+                  borderRadius: s2.rMd,
                   border: `1px solid ${s2.line}`,
                   background: s2.surface,
                   padding: '10px 12px',
@@ -122,7 +123,7 @@ export function MealPrepGuide() {
                     fontFamily: s2.mono,
                     fontSize: 9,
                     letterSpacing: '0.12em',
-                    color: s2.accentSoft,
+                    color: s2.accent,
                   }}>
                     📅 {task.usedOn}
                   </div>

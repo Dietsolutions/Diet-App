@@ -111,6 +111,7 @@ export function MealPlanCustomiser({
 
   return (
     <div style={{
+      borderRadius: s2.rMd,
       border: `1px solid ${s2.line}`,
       background: s2.surface,
       padding: '16px',
@@ -140,6 +141,7 @@ export function MealPlanCustomiser({
         placeholder="e.g. Add more eggs to breakfast, avoid rajma this week, make dinners lighter, include a soup every day…"
         maxLength={MAX_CHARS}
         style={{
+          borderRadius: s2.rMd,
           width: '100%',
           background: s2.surface2,
           border: `1px solid ${s2.lineStrong}`,
@@ -219,6 +221,7 @@ export function MealPlanCustomiser({
               onClick={() => handleChipClick(chip.text)}
               disabled={isRegenerating || charCount >= MAX_CHARS}
               style={{
+                borderRadius: s2.rMd,
                 flexShrink: 0,
                 padding: '6px 10px',
                 background: 'transparent',
@@ -246,12 +249,12 @@ export function MealPlanCustomiser({
         style={{
           width: '100%',
           padding: '14px 0',
-          background: (isRegenerating || disabled) ? s2.surface2 : s2.accent,
+          background: (isRegenerating || disabled) ? s2.surface2 : s2.accentFill,
           border: `1px solid ${(isRegenerating || disabled) ? s2.lineStrong : s2.accent}`,
           fontFamily: s2.mono,
           fontSize: 10,
           letterSpacing: '0.18em',
-          color: (isRegenerating || disabled) ? s2.textDimmer : s2.bg,
+          color: (isRegenerating || disabled) ? s2.textDimmer : s2.ink,
           cursor: (isRegenerating || disabled) ? 'not-allowed' : 'pointer',
           textTransform: 'uppercase',
           position: 'relative',

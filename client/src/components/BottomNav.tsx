@@ -15,25 +15,24 @@ interface BottomNavProps {
   onTabChange: (tab: TabId) => void;
 }
 
+/** Fresh Light floating pill nav — dark bar, lime active pill. (ref: V3Nav) */
 export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
   return (
     <nav
       style={{
         position: 'fixed',
-        bottom: 0,
         left: '50%',
         transform: 'translateX(-50%)',
-        width: '100%',
-        maxWidth: 480,
-        // 28 px base + safe-area on iPhone X+ (home indicator ~34 px)
-        paddingBottom: 'max(28px, env(safe-area-inset-bottom, 0px))',
-        paddingTop: 10,
-        background: 'rgba(12,9,7,0.94)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderTop: `1px solid ${s2.line}`,
+        bottom: 'max(14px, env(safe-area-inset-bottom, 0px))',
+        width: 'calc(100% - 20px)',
+        maxWidth: 460,
+        background: s2.ink,
+        borderRadius: s2.rPill,
+        padding: 6,
         display: 'flex',
-        justifyContent: 'space-around',
+        alignItems: 'center',
+        gap: 2,
+        boxShadow: '0 18px 40px rgba(15,20,15,0.28)',
         zIndex: 30,
       }}
     >
@@ -44,31 +43,25 @@ export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
             style={{
-              background: 'transparent',
+              flex: 1,
+              minWidth: 0,
               border: 'none',
-              padding: '6px 8px',
-              fontFamily: s2.mono,
-              fontSize: 10,
-              fontWeight: 600,
-              letterSpacing: '0.2em',
-              color: isActive ? s2.accent : s2.textDimmer,
               cursor: 'pointer',
-              position: 'relative',
+              borderRadius: s2.rPill,
+              padding: '11px 2px',
+              background: isActive ? s2.accentFill : 'transparent',
+              color: isActive ? s2.ink : s2.onDarkDim,
+              fontFamily: s2.sans,
+              fontSize: 8.5,
+              fontWeight: 700,
+              letterSpacing: '0.02em',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              transition: 'background 200ms ease-out, color 200ms ease-out',
             }}
           >
             {tab.label}
-            {/* Active indicator — 16 px wide 2 px accent line at the very top */}
-            {isActive && (
-              <div style={{
-                position: 'absolute',
-                top: -10,
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: 16,
-                height: 2,
-                background: s2.accent,
-              }} />
-            )}
           </button>
         );
       })}

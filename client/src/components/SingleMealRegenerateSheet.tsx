@@ -172,6 +172,7 @@ export function SingleMealRegenerateSheet({
                 placeholder={`e.g. "Something lighter", "no eggs", "quick to make"…`}
                 rows={4}
                 style={{
+                  borderRadius: s2.rMd,
                   width: '100%', boxSizing: 'border-box',
                   background: s2.surface,
                   border: `1px solid ${s2.line}`,
@@ -217,6 +218,7 @@ export function SingleMealRegenerateSheet({
           <div style={{ padding: '20px 20px 0' }}>
             {options.map((option, i) => (
               <div key={option.id || i} style={{
+                borderRadius: s2.rMd,
                 border: `1px solid ${s2.line}`,
                 background: s2.surface,
                 padding: 14, marginBottom: 10,
@@ -294,10 +296,10 @@ export function SingleMealRegenerateSheet({
             disabled={isGenerating}
             style={{
               width: '100%', padding: '15px 0',
-              background: isGenerating ? s2.surface : s2.accent,
+              background: isGenerating ? s2.surface : s2.accentFill,
               border: 'none',
               fontFamily: s2.mono, fontSize: 11, fontWeight: 600, letterSpacing: '0.2em',
-              color: isGenerating ? s2.textDimmer : s2.bg,
+              color: isGenerating ? s2.textDimmer : s2.ink,
               cursor: isGenerating ? 'default' : 'pointer', textTransform: 'uppercase',
             }}
           >

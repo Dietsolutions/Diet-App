@@ -1416,3 +1416,164 @@ Note: existing accounts (including Google/Apple and older username-only signups)
 are unaffected — username login still works; only new signups are required to
 add an email. The native app needs a `cap sync` + rebuild to pick up the new
 signup/login UI.
+
+## 28. Fresh Light migration + Planyourplate rebrand (2026-08-08)
+
+Migration of the client UI from the Strain v2 warm-dark theme to the approved
+**Fresh Light** design in `design-reference/`, plus the rebrand to
+**Planyourplate**. Work is on the `fresh-light-migration` branch (deliberately
+not `main`: the app is visually mid-migration between phases and `main`
+auto-deploys to production).
+
+Phases delivered:
+
+- **0-1 Foundation.** Fonts swapped to Archivo (display) + Plus Jakarta Sans
+  (sans); `theme/tokens.ts` rewritten to Fresh Light **keeping every existing
+  `s2.*` key name**, which flips ~800 inline style references in one edit. New
+  keys: `ink`/`ink2`, `onDark*`, pastels (peach/lilac/mint/butter/sky), the
+  accent split (`accent` #5F8C12 for text, `accentFill` #C6F24E for fills,
+  `accentWash`), per-macro `*Text` variants, `disp`, and the radius scale.
+  `mono` is repointed at Plus Jakarta Sans (Fresh Light has no mono face), so
+  the ~400 mono call sites keep compiling; numeric columns get
+  `fontVariantNumeric: 'tabular-nums'`.
+- **The three contrast traps.** Resolved by script with per-token role
+  resolution (nearest preceding CSS property), then diff-reviewed: `s2.accent`
+  used as a *fill* → `accentFill`; `s2.bg` used as a *foreground* → `ink`;
+  hardcoded Strain hexes → tokens. `index.css` body/html, `.shimmer` (→ lime)
+  and `.card-glow` (inner highlight → soft drop shadow) fixed. Native shell:
+  StatusBar `Dark`→`Light` + `#F2F1EC` (runtime and capacitor.config), plus
+  `theme-color` and the PWA manifest.
+- **2 Primitives.** Card/HairLabel/Pill/Btn/Bar/VBar/Check/DataRow restyled to
+  the reference with their prop APIs preserved (Btn gains six kinds, keeps the
+  legacy `primary` prop); new `H`, `Ring`, `IconBtn`, `Row` ported from
+  `v3-theme.jsx`.
+- **4 Tracker data.** Items 1 and 4 already existed — `/api/tracker/monthly-macros`
+  serves per-day per-macro `{consumed,target,delta}` and per-macro totals with
+  `dailyAvg`. Added the two real gaps: per-day `adherencePct`/`eaten`/`planned`
+  on that endpoint (**same definition as `/summary` and `/stats`** so the
+  calendar agrees with the week/month cards), and
+  `POST /api/tracker/:date/mark-all-eaten` + `useTracker().markAllEaten`.
+  A new `GET /api/water/range` feeds the water series.
+- **3 Screens.** BottomNav (floating dark pill, lime active), AuthScreen (pill
+  segmented toggle, wordmark lockup, disclaimer moved to a link beside
+  Privacy/Terms, rounded inputs and pill buttons), Meals (lime ring hero with
+  fibre tick, pastel food discs, macro chip rows, sky hydration card), Tracker
+  (pastel big-3, dark card with the 7-metric switcher, adherence month
+  calendar, day-detail card with Mark all eaten), Monthly macros (per-macro
+  Daily avg / Under target / Over target cells), Water detail (sky hero with
+  dashed-remainder ring, 5-column glass grid, quick-add, 7-day bars). A final
+  scripted sweep rounded 62 remaining card-like containers across the
+  restyle-only screens (dividers, bars and overlays excluded by rule).
+- **6 Rebrand.** "Diet Plan & Tracker"/AI-DPT → **Plan Your Plate** across the
+  app header, auth lockup, profile footer, share footer, page titles, OG/Twitter
+  meta, PWA manifest, Capacitor `appName` and Android `strings.xml`. Auth
+  tagline is "YOUR NUTRITION COMPANION". **`applicationId` stays
+  `com.dietplan.tracker`** — it is permanent once published, so changing it is
+  the user's call, not a side effect of a re-skin.
+
+Data rules held to the repo, per the brief: 1 glass = 250 ml and the water goal
+come from the profile; plan/goal figures are unchanged. The reference only wins
+on looks.
+
+Verification: `tsc` clean on client and server after every phase; the Phase 7
+straggler grep (`#0C0907`, `Space Grotesk`, `IBM Plex`, `AI-DPT`, and the other
+Strain hexes) returns nothing; the auth screen was driven in-browser at 375x812.
+`AuthScreen.test.tsx` asserted the pre-migration copy "Please enter your
+username and password" — the string became "...username or email and password"
+back in §27, so the test was already failing on `main`; updated, not deleted.
+The local vitest run and `vite build` do not complete on this machine (vitest
+produces no output, the build times out, and `tsx` dies with an esbuild
+"service was stopped" error) — an environment problem that predates this work;
+Vercel builds normally.
+
+Still open: Phase 5 (the onboarding 7→5 step regroup — a deliberate spec change
+that must retain every `OnboardingData` field), the MealDetailSheet photo hero /
+Ingredients-Steps tabs and the ProfileTab grouped-card restructure, and the e2e
+suite.
+
+## 29. Fresh Light — final screens, onboarding regroup, contrast audit (2026-08-08)
+
+Completion of §28 on the `fresh-light-migration` branch.
+
+**Onboarding 8 → 5 (approved spec change).** Regrouped by composing the original
+step bodies rather than rewriting the field UI — the strongest guard against the
+silent field-drop the brief warned about. `activityLevel` moved out of Body into
+step 5; `StepGoals` gained an optional `section` prop (core / training /
+kitchen) so step 5 can render it into the three named collapsible groups while
+still rendering whole when the prop is omitted. Slide-to-continue on the final
+step only (with a transparent tap fallback for WebViews), estimated TDEE on step
+5, `canNext()` rules unioned so gating did not change.
+
+Verified twice: statically, all 47 `OnboardingData` fields checked against
+`types/index.ts` — 45 render, and the only two that do not are `weeklyBudget`
+and `budgetCurrency`, which the brief intentionally omits and which were already
+unrendered. At runtime in the browser: "Kitchen & rhythm" collapsed shows none of
+its six fields and expanded shows all six; "Body signals" shows all seven.
+
+**MealDetailSheet / ProfileTab.** Macro tiles (pastel grid, kcal full-width),
+Ingredients/Instructions segmented tabs, peach swap card; ProfileTab segmented
+into YOU / YOUR PLAN / APP / ABOUT & LEGAL with every control left in place.
+`isReplaced` remains a flag on one component — still no second layout.
+
+**Contrast audit (Phase 7), measured not eyeballed.** `accentSoft` scores
+1.73:1 on white and `accentFill` 1.30:1, so every lime-as-text call site on a
+light surface failed AA; MealDetailSheet had lime on lime at 1.30:1. Nine sites
+corrected to `s2.accent` (or `s2.ink` on a lime fill). Chart strokes on the dark
+card keep lime (14.38:1).
+
+Flagged, not silently changed: `s2.accent` (#5F8C12) is 4.00:1 on white — AA for
+large/bold text, short of the 4.5 needed for normal text. The design names it as
+*the* accent-text colour, and the reference wins on looks, so this is a
+designer decision.
+
+**Bug found while verifying (unrelated to the re-skin, now fixed).** The axios
+error interceptor rewrote any error lacking `err.response` into a generic
+"Network error" — including cancellations, destroying the marker
+`axios.isCancel()` checks. `useAuth`'s /auth/me effect aborts its first request
+under React StrictMode, so the catch ran `setUser(null)` and the app showed the
+login screen on a valid session; `MealDetailSheet`'s instructions fetch had the
+same latent issue. Cancellations now pass through untouched.
+
+Test note (superseded — see §30). An earlier draft of this section recorded the
+local test failures as unfixable environment quirks. They were not; §30 has the
+diagnosis and the fixes, and everything now runs.
+
+
+## 30. Local toolchain repaired; full test suite green (2026-08-08)
+
+§29 claimed `tsx`, `vite build` and the server test suite were broken "environment
+quirks" that could not be fixed. That was wrong, and the guidance is corrected
+here. Three separate causes, none of them in the source:
+
+1. **`server/node_modules` was incompletely installed** — `bcrypt` and `vitest`
+   were absent. This was the real reason the API server would not start (auth.ts
+   imports bcrypt), the reason the server suite could not run, and the reason a
+   "Cannot find module 'bcrypt'" typecheck error had been showing up all along.
+   It had been dismissed as noise for most of this work; it was a missing
+   dependency. Fixed with the repo's own
+   `npm install --prefix server --legacy-peer-deps`.
+2. **The esbuild binary hung on every invocation** — it returned nothing and
+   never exited, which is what broke `tsx` (reported as esbuild "service was
+   stopped") and timed out `vite build`. Not a quarantine flag: the copy under
+   the repo root was already unquarantined and hung just the same. Fixed with
+   `npm rebuild esbuild` in `server/`; the binary now answers `--version`
+   instantly. Vitest was never affected because vitest 4 transforms with
+   oxc/rolldown rather than esbuild — which is why `npx vitest run` worked all
+   along while `npm run test:client` appeared to hang.
+3. **Playwright's browsers had never been downloaded.** `npx playwright install
+   chromium`.
+
+With those three done: server typecheck 0 errors, server suite 4 files / 42
+tests, client suite 4 files / 49 tests, and the e2e suite 15 passed / 6 skipped
+/ 0 failed across phone, tablet-7inch and tablet-10inch.
+
+The e2e run needed two test updates, both committed: the auth and navigation
+specs asserted the pre-rebrand lockup ("Diet Plan", "& TRACKER", "AI-powered
+nutrition companion"), and the offline-banner test called `page.reload()` while
+offline outside its try block, so in dev — where Vite serves modules over the
+network and the service worker has precached nothing — the reload threw before
+the graceful-skip path could run. Tests updated, not deleted, per the brief.
+
+The six skips are intentional and pre-existing: the review-account navigation
+test and the offline-banner test both skip when their preconditions are not
+available locally.

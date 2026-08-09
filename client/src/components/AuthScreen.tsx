@@ -88,13 +88,14 @@ function Field({
           style={{
             width: '100%',
             background: s2.surface,
-            border: `1px solid ${error ? '#FF3E3E' : focused ? s2.accent : s2.lineStrong}`,
+            border: `1px solid ${error ? s2.warn : focused ? s2.accent : s2.lineStrong}`,
             padding: rightSlot ? '13px 44px 13px 14px' : '13px 14px',
             fontFamily: s2.sans,
             fontSize: 15,
             color: s2.text,
             outline: 'none',
             boxSizing: 'border-box',
+            borderRadius: 16,
             transition: 'border-color 150ms',
             WebkitAppearance: 'none',
           }}
@@ -106,7 +107,7 @@ function Field({
         )}
       </div>
       {error && (
-        <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: '#FF3E3E', marginTop: 6 }}>
+        <div style={{ fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.15em', color: s2.warn, marginTop: 6 }}>
           ⚠ {error.toUpperCase()}
         </div>
       )}
@@ -157,6 +158,7 @@ export function AuthScreen() {
   const [errors, setErrors] = useState<Errors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successBurst, setSuccessBurst] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
 
   // ── Forgot-password modal state ─────────────────────────────────────────
   const [showForgot, setShowForgot] = useState(false);
@@ -406,16 +408,16 @@ export function AuthScreen() {
   const isSignup = mode === 'signup';
 
   // Strength colours
-  const strengthColor = passwordStrength === 'strong' ? '#4CAF82' : passwordStrength === 'good' ? s2.accentSoft : '#FF3E3E';
+  const strengthColor = passwordStrength === 'strong' ? s2.accent : passwordStrength === 'good' ? s2.accentSoft : s2.warn;
 
   // Username availability indicator
   const UsernameIndicator = isSignup && username.length >= 3 && !errors.username ? (
     usernameChecking ? (
       <div style={{ width: 14, height: 14, border: `2px solid ${s2.textDimmer}`, borderTopColor: s2.accent, borderRadius: '50%' }} />
     ) : usernameAvailable === true ? (
-      <span style={{ fontFamily: s2.mono, fontSize: 11, color: '#4CAF82' }}>✓</span>
+      <span style={{ fontFamily: s2.mono, fontSize: 11, color: s2.accent }}>✓</span>
     ) : usernameAvailable === false ? (
-      <span style={{ fontFamily: s2.mono, fontSize: 11, color: '#FF3E3E' }}>✗</span>
+      <span style={{ fontFamily: s2.mono, fontSize: 11, color: s2.warn }}>✗</span>
     ) : null
   ) : null;
 
@@ -446,30 +448,27 @@ export function AuthScreen() {
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           {/* Square logo mark */}
           <div style={{
-            width: 52,
-            height: 52,
+            width: 56,
+            height: 56,
             background: s2.accentFill,
-            border: `1px solid ${s2.accent}`,
+            borderRadius: s2.rLg,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             margin: '0 auto 16px',
           }}>
-            <span style={{ fontSize: 26 }}>🍽️</span>
+            <span style={{ fontSize: 28 }}>🍽️</span>
           </div>
-          <div style={{ fontFamily: s2.sans, fontSize: 22, fontWeight: 400, letterSpacing: '-0.02em', color: s2.text }}>
-            Diet Plan
+          <div style={{ fontFamily: s2.disp, fontSize: 30, fontWeight: 700, letterSpacing: '-0.042em', lineHeight: 1.02, color: s2.text }}>
+            Plan Your Plate
           </div>
-          <div style={{ fontFamily: s2.mono, fontSize: 10, letterSpacing: '0.2em', color: s2.accent, marginTop: 3 }}>
-            & TRACKER
-          </div>
-          <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, marginTop: 8 }}>
-            AI-powered nutrition companion
+          <div style={{ fontFamily: s2.sans, fontSize: 12, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: s2.textDim, marginTop: 8 }}>
+            YOUR NUTRITION COMPANION
           </div>
         </div>
 
-        {/* ── Mode toggle ────────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', marginBottom: 24, border: `1px solid ${s2.lineStrong}`, position: 'relative' }}>
+        {/* ── Mode toggle (pill segmented control) ─────────────────────────── */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: s2.surface2, borderRadius: s2.rPill, padding: 4 }}>
           {(['login', 'signup'] as const).map(m => (
             <button
               key={m}
@@ -478,15 +477,15 @@ export function AuthScreen() {
               style={{
                 flex: 1,
                 padding: '11px 0',
-                background: mode === m ? s2.surface : 'transparent',
+                background: mode === m ? s2.accentFill : 'transparent',
                 border: 'none',
-                borderBottom: `2px solid ${mode === m ? s2.accent : 'transparent'}`,
-                fontFamily: s2.mono,
-                fontSize: 10,
-                letterSpacing: '0.18em',
-                color: mode === m ? s2.accent : s2.textDimmer,
+                borderRadius: s2.rPill,
+                fontFamily: s2.sans,
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.04em',
+                color: mode === m ? s2.ink : s2.textDim,
                 cursor: 'pointer',
-                textTransform: 'uppercase',
                 transition: 'all 150ms',
               }}
             >
@@ -572,7 +571,7 @@ export function AuthScreen() {
               rightSlot={
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {confirmPassword.length > 0 && password === confirmPassword && !errors.confirmPassword && (
-                    <span style={{ fontFamily: s2.mono, fontSize: 11, color: '#4CAF82' }}>✓</span>
+                    <span style={{ fontFamily: s2.mono, fontSize: 11, color: s2.accent }}>✓</span>
                   )}
                   <EyeBtn show={showConfirmPassword} onToggle={() => setShowConfirmPassword(s => !s)} />
                 </div>
@@ -587,7 +586,7 @@ export function AuthScreen() {
               background: 'rgba(255,62,62,0.08)',
               padding: '10px 12px',
             }}>
-              <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{errors.general}</div>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{errors.general}</div>
             </div>
           )}
 
@@ -599,13 +598,14 @@ export function AuthScreen() {
             style={{
               width: '100%',
               padding: '14px 0',
-              background: successBurst ? '#4CAF82' : s2.accent,
+              background: successBurst ? s2.accentFill : s2.accentFill,
               border: 'none',
-              fontFamily: s2.mono,
-              fontSize: 10,
-              letterSpacing: '0.2em',
-              color: s2.bg,
-              fontWeight: 600,
+              borderRadius: 999,
+              fontFamily: s2.sans,
+              fontSize: 13,
+              letterSpacing: '0.06em',
+              color: s2.ink,
+              fontWeight: 800,
               cursor: isSubmitting || successBurst ? 'default' : 'pointer',
               opacity: isSubmitting ? 0.75 : 1,
               transition: 'background 200ms',
@@ -620,7 +620,7 @@ export function AuthScreen() {
               '✓ ACCOUNT CREATED'
             ) : isSubmitting ? (
               <>
-                <div style={{ width: 12, height: 12, border: `1.5px solid ${s2.bg}`, borderTopColor: 'transparent', borderRadius: '50%' }} />
+                <div style={{ width: 12, height: 12, border: `1.5px solid ${s2.ink}`, borderTopColor: 'transparent', borderRadius: '50%' }} />
                 {isSignup ? 'CREATING...' : 'SIGNING IN...'}
               </>
             ) : isSignup ? 'CREATE ACCOUNT →' : 'LOGIN →'}
@@ -667,8 +667,10 @@ export function AuthScreen() {
               padding: '12px 0',
               background: s2.surface,
               border: `1px solid ${s2.lineStrong}`,
+              borderRadius: 999,
               fontFamily: s2.sans,
               fontSize: 13,
+              fontWeight: 600,
               color: s2.text,
               cursor: 'pointer',
             }}
@@ -694,8 +696,10 @@ export function AuthScreen() {
               padding: '12px 0',
               background: '#000',
               border: '1px solid #333',
+              borderRadius: 999,
               fontFamily: s2.sans,
               fontSize: 13,
+              fontWeight: 600,
               color: '#fff',
               cursor: 'pointer',
             }}
@@ -711,37 +715,51 @@ export function AuthScreen() {
           <HairLabel>AI-POWERED NUTRITION PLANNING</HairLabel>
         </div>
 
-        <div style={{
-          marginTop: 20, padding: '12px 14px',
-          border: `1px solid ${s2.line}`,
-          fontSize: 11, lineHeight: 1.5, color: s2.textDimmer,
-          fontFamily: s2.sans, textAlign: 'center',
-        }}>
-          <strong style={{ color: s2.textDim }}>Medical Disclaimer:</strong>{' '}
-          This app provides AI-generated meal plans for informational purposes only.
-          It is not a substitute for professional medical advice, diagnosis, or treatment.
-          Always consult a qualified healthcare provider before starting any diet or nutrition program.
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 14, paddingBottom: 8 }}>
+        {/* Legal row — disclaimer is a link (expands inline), per the Fresh Light spec */}
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 20, paddingBottom: 8, flexWrap: 'wrap' }}>
           <a
             href={apiUrl('/privacy')}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer }}
+            style={{ fontFamily: s2.sans, fontSize: 11, fontWeight: 600, color: s2.textDimmer }}
           >
             Privacy Policy
           </a>
-          <span style={{ color: s2.line }}>|</span>
+          <span style={{ color: s2.lineStrong }}>·</span>
           <a
             href={apiUrl('/terms')}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer }}
+            style={{ fontFamily: s2.sans, fontSize: 11, fontWeight: 600, color: s2.textDimmer }}
           >
             Terms of Service
           </a>
+          <span style={{ color: s2.lineStrong }}>·</span>
+          <button
+            type="button"
+            onClick={() => setShowDisclaimer(s => !s)}
+            style={{
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              fontFamily: s2.sans, fontSize: 11, fontWeight: 600, color: s2.textDimmer,
+              textDecoration: 'underline',
+            }}
+          >
+            Medical Disclaimer
+          </button>
         </div>
+        {showDisclaimer && (
+          <div style={{
+            marginTop: 8, padding: '12px 14px',
+            background: s2.surface, borderRadius: s2.rMd,
+            fontSize: 11, lineHeight: 1.5, color: s2.textDimmer,
+            fontFamily: s2.sans, textAlign: 'center',
+          }}>
+            <strong style={{ color: s2.textDim }}>Medical Disclaimer:</strong>{' '}
+            This app provides AI-generated meal plans for informational purposes only.
+            It is not a substitute for professional medical advice, diagnosis, or treatment.
+            Always consult a qualified healthcare provider before starting any diet or nutrition program.
+          </div>
+        )}
       </div>
 
       {/* ── Forgot-password modal ────────────────────────────────────────── */}
@@ -838,7 +856,7 @@ export function AuthScreen() {
                     style={{
                       flex: 2, padding: '12px 0',
                       background: forgotSubmitting ? s2.line : s2.text,
-                      color: s2.bg,
+                      color: s2.ink,
                       border: 'none',
                       borderRadius: 8, cursor: forgotSubmitting ? 'wait' : 'pointer',
                       fontFamily: s2.sans, fontSize: 14, fontWeight: 600,

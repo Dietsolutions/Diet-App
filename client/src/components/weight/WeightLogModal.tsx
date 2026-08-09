@@ -100,6 +100,7 @@ export function WeightLogModal() {
               placeholder="e.g. 75.5"
               autoFocus
               style={{
+                borderRadius: s2.rMd,
                 width: '100%',
                 background: s2.surface2,
                 border: `1px solid ${s2.lineStrong}`,
@@ -123,6 +124,7 @@ export function WeightLogModal() {
                 onChange={(e) => setDate(e.target.value)}
                 max={new Date().toISOString().substring(0, 10)}
                 style={{
+                  borderRadius: s2.rMd,
                   width: '100%',
                   background: s2.surface2,
                   border: `1px solid ${s2.lineStrong}`,
@@ -148,6 +150,7 @@ export function WeightLogModal() {
               placeholder="e.g. After morning walk"
               maxLength={100}
               style={{
+                borderRadius: s2.rMd,
                 width: '100%',
                 background: s2.surface2,
                 border: `1px solid ${s2.lineStrong}`,
@@ -163,7 +166,7 @@ export function WeightLogModal() {
 
           {error && (
             <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '8px 12px' }}>
-              <div style={{ fontFamily: s2.sans, fontSize: 12, color: '#FF3E3E' }}>{error}</div>
+              <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.warn }}>{error}</div>
             </div>
           )}
         </div>
@@ -172,6 +175,7 @@ export function WeightLogModal() {
           <button
             onClick={closeLogModal}
             style={{
+              borderRadius: s2.rMd,
               flex: 1,
               padding: '13px 0',
               background: 'transparent',
@@ -192,12 +196,12 @@ export function WeightLogModal() {
             style={{
               flex: 1,
               padding: '13px 0',
-              background: saving ? s2.surface : s2.accent,
+              background: saving ? s2.surface : s2.accentFill,
               border: `1px solid ${s2.accent}`,
               fontFamily: s2.mono,
               fontSize: 10,
               letterSpacing: '0.15em',
-              color: saving ? s2.textDimmer : s2.bg,
+              color: saving ? s2.textDimmer : s2.ink,
               cursor: saving ? 'default' : 'pointer',
               textTransform: 'uppercase',
             }}

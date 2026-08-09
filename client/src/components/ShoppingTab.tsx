@@ -65,7 +65,7 @@ export function ShoppingTab() {
           <div style={{
             width: 6, height: 6,
             borderRadius: '50%',
-            background: s2.accent,
+            background: s2.accentFill,
             flexShrink: 0,
           }} />
           <div style={{
@@ -109,13 +109,14 @@ export function ShoppingTab() {
                   track('shopping_share_opened', { items_total: totalItems, items_bought: boughtItems });
                 }}
                 style={{
+                  borderRadius: s2.rMd,
                   background:    'transparent',
                   border:        `1px solid ${s2.lineStrong}`,
                   padding:       '3px 8px',
                   fontFamily:    s2.mono,
                   fontSize:      8,
                   letterSpacing: '0.15em',
-                  color:         s2.accentSoft,
+                  color: s2.accent,
                   cursor:        'pointer',
                   textTransform: 'uppercase',
                   display:       'flex',
@@ -246,7 +247,7 @@ export function ShoppingTab() {
 
             {peopleCount > 1 && (
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${s2.line}` }}>
-                <HairLabel color={s2.accentSoft}>QUANTITIES SCALED FOR {peopleCount}×</HairLabel>
+                <HairLabel color={s2.accent}>QUANTITIES SCALED FOR {peopleCount}×</HairLabel>
               </div>
             )}
           </Card>
@@ -255,6 +256,7 @@ export function ShoppingTab() {
         {/* ── Category groups ──────────────────────────────────────────────── */}
         {shoppingCategories.length === 0 ? (
           <div style={{
+            borderRadius: s2.rMd,
             border: `1px solid ${s2.line}`,
             padding: 24,
             textAlign: 'center',

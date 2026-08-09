@@ -593,8 +593,14 @@ router.get('/monthly-macros', requireAuth, async (req: AuthRequest, res: Respons
       const hasData = dateLogs.some(l => l.eaten) || dateReps.length > 0 || dateAdditional.length > 0;
       const dayNum  = parseInt(date.slice(8), 10);
 
+      // Per-day adherence — same definition as /summary and /stats (eaten plan-meal
+      // logs / meals-per-day) so the month calendar agrees with the week/month cards.
+      const eatenCount = dateLogs.filter(l => l.eaten && l.mealIndex < mealsPerDay).length;
+      const adherencePct = mealsPerDay > 0 ? Math.round((eatenCount / mealsPerDay) * 100) : 0;
+
       dailyData.push({
         day: dayNum, date, hasData,
+        eaten: eatenCount, planned: mealsPerDay, adherencePct,
         calories: { consumed: dayConsumed.calories, target: targets.calories, delta: dayConsumed.calories - targets.calories },
         protein:  { consumed: dayConsumed.protein,  target: targets.protein,  delta: dayConsumed.protein  - targets.protein  },
         carbs:    { consumed: dayConsumed.carbs,    target: targets.carbs,    delta: dayConsumed.carbs    - targets.carbs    },
@@ -711,6 +717,40 @@ router.post('/:date/:mealIndex/toggle', requireAuth, async (req: AuthRequest, re
   } catch (err) {
     console.error('Tracker toggle error:', err instanceof Error ? err.message : 'unknown');
     res.status(500).json({ error: 'server_error', message: 'Failed to toggle meal.' });
+  }
+});
+
+// POST /api/tracker/:date/mark-all-eaten
+// Marks every meal slot of a day as eaten (day-detail "Mark all eaten" action).
+router.post('/:date/mark-all-eaten', requireAuth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const { date } = req.params;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+      return;
+    }
+
+    const mealsPerDay = await getMealsPerDay(userId);
+    const planDates = getPlanDates();
+    const dayIndex = planDates.indexOf(date);
+
+    // Upsert an eaten log for every meal slot of the day.
+    await Promise.all(
+      Array.from({ length: mealsPerDay }, (_, mealIndex) =>
+        prisma.mealLog.upsert({
+          where: { userId_date_mealIndex: { userId, date, mealIndex } },
+          update: { eaten: true, loggedAt: new Date() },
+          create: { userId, date, dayIndex, mealIndex, eaten: true },
+        })
+      )
+    );
+
+    const meals = Array.from({ length: mealsPerDay }, (_, mealIndex) => ({ mealIndex, eaten: true }));
+    res.json({ date, meals, eaten: mealsPerDay, planned: mealsPerDay });
+  } catch (err) {
+    console.error('Tracker mark-all-eaten error:', err instanceof Error ? err.message : 'unknown');
+    res.status(500).json({ error: 'server_error', message: 'Failed to mark all meals eaten.' });
   }
 });
 

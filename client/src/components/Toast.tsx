@@ -38,6 +38,7 @@ export const Toast = forwardRef<ToastHandle>((_, ref) => {
       maxWidth: 320,
     }}>
       <div style={{
+        borderRadius: s2.rMd,
         background: s2.surface2,
         border: `1px solid ${s2.lineStrong}`,
         padding: '12px 16px',

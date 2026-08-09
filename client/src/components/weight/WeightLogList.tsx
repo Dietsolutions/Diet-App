@@ -48,7 +48,7 @@ export function WeightLogList() {
             day: 'numeric', month: 'short',
           });
 
-          const deltaColor = delta === null ? s2.textDimmer : delta < 0 ? '#4CAF82' : delta > 0 ? s2.warn : s2.textDimmer;
+          const deltaColor = delta === null ? s2.textDimmer : delta < 0 ? s2.accent : delta > 0 ? s2.warn : s2.textDimmer;
 
           return (
             <div

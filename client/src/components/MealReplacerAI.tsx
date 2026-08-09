@@ -108,6 +108,7 @@ export function MealReplacerAI({ onBack }: Props) {
         placeholder='e.g. "2 rotis with butter chicken and a small bowl of raita"'
         rows={3}
         style={{
+          borderRadius: s2.rMd,
           width: '100%',
           background: s2.surface,
           border: `1px solid ${s2.lineStrong}`,
@@ -129,12 +130,12 @@ export function MealReplacerAI({ onBack }: Props) {
           style={{
             width: '100%',
             padding: '14px 0',
-            background: isEstimating || description.trim().length < 3 ? s2.surface : s2.accent,
+            background: isEstimating || description.trim().length < 3 ? s2.surface : s2.accentFill,
             border: `1px solid ${s2.accent}`,
             fontFamily: s2.mono,
             fontSize: 10,
             letterSpacing: '0.2em',
-            color: isEstimating || description.trim().length < 3 ? s2.textDimmer : s2.bg,
+            color: isEstimating || description.trim().length < 3 ? s2.textDimmer : s2.ink,
             cursor: isEstimating || description.trim().length < 3 ? 'default' : 'pointer',
             textTransform: 'uppercase',
             display: 'flex',
@@ -154,7 +155,7 @@ export function MealReplacerAI({ onBack }: Props) {
 
       {error && (
         <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
-          <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{error}</div>
+          <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{error}</div>
         </div>
       )}
 
@@ -203,7 +204,7 @@ export function MealReplacerAI({ onBack }: Props) {
 
           {error && (
             <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
-              <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{error}</div>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{error}</div>
             </div>
           )}
 
@@ -214,12 +215,12 @@ export function MealReplacerAI({ onBack }: Props) {
               style={{
                 flex: 1,
                 padding: '13px 0',
-                background: isLogging ? s2.surface : s2.accent,
+                background: isLogging ? s2.surface : s2.accentFill,
                 border: `1px solid ${s2.accent}`,
                 fontFamily: s2.mono,
                 fontSize: 10,
                 letterSpacing: '0.15em',
-                color: isLogging ? s2.textDimmer : s2.bg,
+                color: isLogging ? s2.textDimmer : s2.ink,
                 cursor: isLogging ? 'default' : 'pointer',
                 textTransform: 'uppercase',
                 display: 'flex',
@@ -238,6 +239,7 @@ export function MealReplacerAI({ onBack }: Props) {
             <button
               onClick={() => { setResult(null); setScreen('results'); }}
               style={{
+                borderRadius: s2.rMd,
                 flex: 1,
                 padding: '13px 0',
                 background: 'transparent',

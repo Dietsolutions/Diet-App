@@ -252,7 +252,8 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
 
         {/* ── Week average strip ── */}
         {weekAvg && (
-          <div style={{ margin: '20px 20px 0', border: `1px solid ${s2.line}`, background: s2.surface, padding: '12px 14px' }}>
+          <div style={{
+ borderRadius: s2.rMd, margin: '20px 20px 0', border: `1px solid ${s2.line}`, background: s2.surface, padding: '12px 14px' }}>
             <HairLabel style={{ marginBottom: 8 }}>WEEK AVERAGE</HairLabel>
             <MacroRow cal={weekAvg.cal} p={weekAvg.p} c={weekAvg.c} f={weekAvg.f} fi={weekAvg.fi} />
           </div>
@@ -375,7 +376,8 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
           })}
 
           {!plan && !error && (
-            <div style={{ border: `1px solid ${s2.line}`, padding: '18px 14px', fontFamily: s2.sans, fontSize: 13, color: s2.textDim }}>
+            <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, padding: '18px 14px', fontFamily: s2.sans, fontSize: 13, color: s2.textDim }}>
               No plan days found. Tap CONFIRM PLAN to continue.
             </div>
           )}
@@ -409,10 +411,10 @@ export function PlanReviewScreen({ mealPlanId, onComplete }: Props) {
           disabled={confirming}
           style={{
             width: '100%', padding: '15px 0',
-            background: confirming ? s2.surface : s2.accent,
+            background: confirming ? s2.surface : s2.accentFill,
             border: 'none',
             fontFamily: s2.mono, fontSize: 11, fontWeight: 600, letterSpacing: '0.2em',
-            color: confirming ? s2.textDimmer : s2.bg,
+            color: confirming ? s2.textDimmer : s2.ink,
             cursor: confirming ? 'default' : 'pointer', textTransform: 'uppercase',
           }}
         >

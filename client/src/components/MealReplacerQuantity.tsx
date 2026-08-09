@@ -74,6 +74,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
             if (s) setServing(s);
           }}
           style={{
+            borderRadius: s2.rMd,
             width: '100%',
             background: s2.surface,
             border: `1px solid ${s2.lineStrong}`,
@@ -140,6 +141,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
             min="0.5"
             step="0.5"
             style={{
+              borderRadius: s2.rMd,
               flex: 1,
               textAlign: 'center',
               background: s2.surface,
@@ -201,6 +203,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
           onChange={(e) => setNote(e.target.value)}
           placeholder='e.g. "Office lunch"'
           style={{
+            borderRadius: s2.rMd,
             width: '100%',
             background: s2.surface,
             border: `1px solid ${s2.lineStrong}`,
@@ -220,7 +223,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
 
       {error && (
         <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
-          <div style={{ fontFamily: s2.sans, fontSize: 13, color: '#FF3E3E' }}>{error}</div>
+          <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{error}</div>
         </div>
       )}
 
@@ -230,12 +233,12 @@ export function MealReplacerQuantity({ onBack }: Props) {
         style={{
           width: '100%',
           padding: '14px 0',
-          background: isSubmitting ? s2.surface : s2.accent,
+          background: isSubmitting ? s2.surface : s2.accentFill,
           border: `1px solid ${s2.accent}`,
           fontFamily: s2.mono,
           fontSize: 10,
           letterSpacing: '0.2em',
-          color: isSubmitting ? s2.textDimmer : s2.bg,
+          color: isSubmitting ? s2.textDimmer : s2.ink,
           cursor: isSubmitting ? 'default' : 'pointer',
           textTransform: 'uppercase',
           display: 'flex',

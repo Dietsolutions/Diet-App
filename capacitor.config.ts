@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.dietplan.tracker',
-  appName: 'Diet Plan & Tracker',
+  appName: 'Plan Your Plate',
   webDir: 'client/dist',
 
   // Live API URL — change this to your production backend.
@@ -31,8 +31,8 @@ const config: CapacitorConfig = {
       splashImmersive: true,
     },
     StatusBar: {
-      style: 'DARK',
-      backgroundColor: '#0F1117',
+      style: 'LIGHT',
+      backgroundColor: '#F2F1EC',
     },
   },
 

@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { s2 } from '../theme/tokens';
-import { HairLabel, VBar, DataRow, TopBar, Bar } from './ui';
+import { HairLabel, DataRow, TopBar, Bar } from './ui';
 import { Meal, MealReplacement, UserProfile, MealCookingInstructions } from '../types';
 import { AudioGuidePlayer } from './AudioGuidePlayer';
 import { MealShareSheet } from './MealShareSheet';
@@ -29,23 +29,25 @@ function clamp01(v: number) {
 
 // ── sub-components ─────────────────────────────────────────────────────────
 
-interface MacroColProps {
-  label: string;
-  value: number;
-  pct: number;
-  color: string;
-  unit?: string;
-}
-
-function MacroCol({ label, value, pct, color, unit = 'g' }: MacroColProps) {
+/** Pastel macro tile — Archivo figure over a lowercase label. (ref: V3MacroTile) */
+function MacroTile({ v, l, bg, wide }: { v: string; l: string; bg: string; wide?: boolean }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-      <VBar pct={clamp01(pct)} color={color} h={64} />
-      <div style={{ fontFamily: s2.mono, fontSize: 12, color, fontWeight: 500 }}>
-        {value}
-        <span style={{ fontSize: 9, color: s2.textDimmer, marginLeft: 1 }}>{unit}</span>
+    <div style={{
+      background: bg,
+      borderRadius: 20,
+      padding: 15,
+      gridColumn: wide ? '1 / -1' : undefined,
+    }}>
+      <div style={{
+        fontFamily: s2.disp, fontSize: 26, fontWeight: 700,
+        letterSpacing: '-0.04em', lineHeight: 1, color: s2.ink,
+        fontVariantNumeric: 'tabular-nums',
+      }}>
+        {v}
       </div>
-      <HairLabel style={{ fontSize: 7 }}>{label}</HairLabel>
+      <div style={{ fontFamily: s2.sans, fontSize: 11, fontWeight: 700, color: 'rgba(15,20,15,0.55)', marginTop: 6 }}>
+        {l}
+      </div>
     </div>
   );
 }
@@ -108,7 +110,10 @@ export function MealDetailSheet({
   const [audioGenerating, setAudioGenerating] = useState(false);
   const [cookError,       setCookError]       = useState('');
   const [audioError,      setAudioError]      = useState('');
-  const [cookExpanded,    setCookExpanded]    = useState(false);
+  // The Ingredients/Instructions tab now governs visibility, so the instructions
+  // panel starts open — the accordion toggle inside it stays for long recipes.
+  const [cookExpanded,    setCookExpanded]    = useState(true);
+  const [detailTab,       setDetailTab]       = useState<'ing' | 'steps'>('ing');
   const [shareOpen,       setShareOpen]       = useState(false);
   const [servings,             setServings]             = useState(1);
   const [instructionLanguage,  setInstructionLanguage]  = useState<InstructionLanguageCode>('en');
@@ -250,7 +255,7 @@ export function MealDetailSheet({
                 fontFamily:    s2.mono,
                 fontSize:      8,
                 letterSpacing: '0.12em',
-                color:         s2.accentSoft,
+                color: s2.accent,
                 textAlign:     'center',
                 lineHeight:    1.3,
               }}
@@ -267,12 +272,11 @@ export function MealDetailSheet({
         {/* ── Hero name + description ───────────────────────────────────── */}
         <div style={{ padding: '20px 20px 0' }}>
           <div style={{
-            fontFamily: s2.sans,
+            fontFamily: s2.disp,
             fontSize: 28,
-            fontWeight: 400,
-            letterSpacing: '-0.025em',
+            fontWeight: 700,
+            letterSpacing: '-0.042em',
             color: eaten ? s2.textDim : s2.text,
-            textDecoration: eaten ? 'line-through' : 'none',
             lineHeight: 1.15,
           }}>
             {name}
@@ -290,45 +294,24 @@ export function MealDetailSheet({
           )}
         </div>
 
-        {/* ── Macro hero card ───────────────────────────────────────────── */}
+        {/* ── Macro tiles (ref: V3MacroTile grid) ───────────────────────── */}
         <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4,1fr)',
+          gap: 8,
           margin: '20px 20px 0',
-          border: `1px solid ${s2.lineStrong}`,
-          background: s2.surface,
-          padding: '16px 14px',
         }}>
-          {/* Big kcal */}
-          <div style={{ textAlign: 'center', marginBottom: 16 }}>
-            <div style={{
-              fontFamily: s2.mono,
-              fontSize: 52,
-              fontWeight: 400,
-              color: s2.accent,
-              letterSpacing: '-0.03em',
-              lineHeight: 1,
-            }}>
-              {kcal}
-            </div>
-            <HairLabel style={{ marginTop: 6 }}>KCAL THIS MEAL</HairLabel>
-          </div>
-
-          {/* 4 VBar columns */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4,1fr)',
-            gap: 6,
-            justifyItems: 'center',
-          }}>
-            <MacroCol label="PROTEIN"  value={prot} pct={prot / protTarget}   color={s2.protein} />
-            <MacroCol label="CARBS"    value={carb} pct={carb / carbTarget}   color={s2.carbs}   />
-            <MacroCol label="FAT"      value={fat_} pct={fat_ / fatTarget}    color={s2.fat}     />
-            <MacroCol label="FIBRE"    value={fibr} pct={fibr / fibreTarget}  color={s2.fibre}   />
-          </div>
+          <MacroTile v={String(kcal)} l="kcal this meal" bg={s2.accentFill} wide />
+          <MacroTile v={String(prot)} l="protein" bg={s2.mint} />
+          <MacroTile v={String(carb)} l="carbs"   bg={s2.butter} />
+          <MacroTile v={String(fat_)} l="fat"     bg={s2.peach} />
+          <MacroTile v={String(fibr)} l="fibre"   bg={s2.sky} />
         </div>
 
         {/* ── Day impact ────────────────────────────────────────────────── */}
         {kcalTarget > 0 && (
           <div style={{
+            borderRadius: s2.rMd,
             margin: '12px 20px 0',
             border: `1px solid ${s2.line}`,
             background: s2.surface,
@@ -355,7 +338,7 @@ export function MealDetailSheet({
                   left: `${soFarPct * 100}%`,
                   width: `${(withMealPct - soFarPct) * 100}%`,
                   height: '100%',
-                  background: overTarget ? s2.warn : s2.accent,
+                  background: overTarget ? s2.warn : s2.accentFill,
                   transition: 'width 0.3s',
                 }} />
               </div>
@@ -390,11 +373,32 @@ export function MealDetailSheet({
           </div>
         )}
 
+        {/* ── Ingredients / Instructions tabs (ref: V3MealDetail) ───────── */}
+        <div style={{ display: 'flex', gap: 6, margin: '18px 20px 0' }}>
+          {([['ing', 'Ingredients'], ['steps', 'Instructions']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setDetailTab(id)}
+              style={{
+                flex: 1, border: 'none', cursor: 'pointer', borderRadius: s2.rPill,
+                padding: '10px 0',
+                background: detailTab === id ? s2.ink : 'transparent',
+                color: detailTab === id ? s2.onDark : s2.textDim,
+                fontFamily: s2.sans, fontSize: 12.5, fontWeight: 700,
+                transition: 'background 180ms, color 180ms',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* ── Ingredients ──────────────────────────────────────────────── */}
-        {ingredients.length > 0 && (
+        {detailTab === 'ing' && ingredients.length > 0 && (
           <div style={{ margin: '12px 20px 0' }}>
             <HairLabel style={{ marginBottom: 4 }}>INGREDIENTS</HairLabel>
-            <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: '0 14px' }}>
+            <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: '0 14px' }}>
               {ingredients.map((ing, i) => (
                 <DataRow
                   key={i}
@@ -408,8 +412,9 @@ export function MealDetailSheet({
         )}
 
         {/* ── Cooking tip ───────────────────────────────────────────────── */}
-        {meal.cookingTip && (
+        {detailTab === 'ing' && meal.cookingTip && (
           <div style={{
+            borderRadius: s2.rMd,
             margin: '12px 20px 0',
             border: `1px solid ${s2.line}`,
             background: s2.surface,
@@ -431,11 +436,12 @@ export function MealDetailSheet({
         {isReplaced && (
           <div style={{
             margin: '12px 20px 0',
-            border: `1px solid ${s2.accentSoft}`,
-            background: 'rgba(255,176,102,0.05)',
-            padding: '12px 14px',
+            border: `1px solid ${s2.peach}`,
+            background: 'rgba(255,195,162,0.20)',
+            borderRadius: 22,
+            padding: 14,
           }}>
-            <HairLabel color={s2.accentSoft} style={{ marginBottom: 8 }}>ORIGINAL PLAN MEAL</HairLabel>
+            <HairLabel color="#B3492C" style={{ marginBottom: 9 }}>ORIGINAL PLAN MEAL</HairLabel>
             <div style={{
               fontFamily: s2.sans,
               fontSize: 13,
@@ -473,13 +479,14 @@ export function MealDetailSheet({
         )}
 
         {/* ── Cooking Instructions ─────────────────────────────────────── */}
-        {mealPlanId && (
+        {detailTab === 'steps' && mealPlanId && (
           <div style={{ margin: '12px 20px 0' }}>
 
             {/* Accordion header */}
             <button
               onClick={() => setCookExpanded(p => !p)}
               style={{
+                borderRadius: s2.rMd,
                 width: '100%', display: 'flex', alignItems: 'center',
                 justifyContent: 'space-between',
                 background: 'transparent', border: `1px solid ${s2.line}`,
@@ -510,6 +517,7 @@ export function MealDetailSheet({
 
                     {/* Servings selector */}
                     <div style={{
+                      borderRadius: s2.rMd,
                       marginBottom: 14,
                       padding: '12px 14px',
                       background: s2.surface2,
@@ -691,6 +699,7 @@ export function MealDetailSheet({
                             setShareOpen(true);
                           }}
                           style={{
+                            borderRadius: s2.rMd,
                             background:    'transparent',
                             border:        `1px solid ${s2.lineStrong}`,
                             padding:       '5px 9px',
@@ -816,7 +825,7 @@ export function MealDetailSheet({
                                 borderLeft: `2px solid ${s2.accent}`,
                                 background: s2.accentFill,
                                 fontFamily: s2.sans, fontSize: 11,
-                                color: s2.accentSoft, lineHeight: 1.5,
+                                color: s2.ink, lineHeight: 1.5,
                               }}>
                                 {step.tip}
                               </div>
@@ -832,6 +841,7 @@ export function MealDetailSheet({
                         <HairLabel style={{ marginBottom: 10 }}>CHEF'S TIPS</HairLabel>
                         {cookInstr.tips.map((tip, i) => (
                           <div key={i} style={{
+                            borderRadius: s2.rMd,
                             display: 'flex', gap: 10, marginBottom: 8,
                             padding: '9px 12px',
                             border: `1px solid ${s2.line}`,
@@ -897,12 +907,12 @@ export function MealDetailSheet({
           style={{
             flex: 2,
             padding: '14px 0',
-            background: eaten ? s2.surface2 : s2.accent,
+            background: eaten ? s2.surface2 : s2.accentFill,
             border: `1px solid ${eaten ? s2.lineStrong : s2.accent}`,
             fontFamily: s2.mono,
             fontSize: 10,
             letterSpacing: '0.15em',
-            color: eaten ? s2.textDim : s2.bg,
+            color: eaten ? s2.textDim : s2.ink,
             cursor: 'pointer',
             textTransform: 'uppercase',
           }}
@@ -915,6 +925,7 @@ export function MealDetailSheet({
           <button
             onClick={onOpenReplacer}
             style={{
+              borderRadius: s2.rMd,
               flex: 1,
               padding: '14px 0',
               background: 'transparent',
@@ -933,6 +944,7 @@ export function MealDetailSheet({
           <button
             onClick={onUndoReplacement}
             style={{
+              borderRadius: s2.rMd,
               flex: 1,
               padding: '14px 0',
               background: 'transparent',

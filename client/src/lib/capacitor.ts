@@ -25,10 +25,10 @@ export async function initCapacitor(): Promise<void> {
 
   if (!Capacitor.isNativePlatform()) return;
 
-  // StatusBar
+  // StatusBar — Fresh Light theme: light bar background, dark content
   try {
-    await StatusBar.setStyle({ style: Style.Dark });
-    await StatusBar.setBackgroundColor({ color: '#0F1117' });
+    await StatusBar.setStyle({ style: Style.Light });
+    await StatusBar.setBackgroundColor({ color: '#F2F1EC' });
     await StatusBar.setOverlaysWebView({ overlay: false });
   } catch (e) {
     console.warn('[Capacitor] StatusBar setup failed:', e);

@@ -4,7 +4,6 @@ import { useAppStore } from '../store/appStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel } from './ui/HairLabel';
 import { Card } from './ui/Card';
-import { Bar } from './ui/Bar';
 
 interface Props {
   date: string;
@@ -12,6 +11,7 @@ interface Props {
   onExpand?: () => void;
 }
 
+/** Sky pastel hydration card. (ref: V3Meals hydration) */
 export function WaterIntakeCard({ date, onExpand }: Props) {
   const { waterByDate, setWater, profile } = useAppStore();
   const goal = profile?.waterIntakeGoal ?? 8;
@@ -49,27 +49,28 @@ export function WaterIntakeCard({ date, onExpand }: Props) {
   const pctDisplay = Math.round(pct * 100);
 
   return (
-    <Card padding={14} onClick={onExpand}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        {/* Left: label + percentage */}
+    <Card bg={s2.sky} radius={24} padding={16} onClick={onExpand}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        {/* Left: kicker + litres headline */}
         <div>
-          <HairLabel>
-            HYDRATION · {litres} / {goalLitres} L
-          </HairLabel>
+          <HairLabel color="rgba(15,20,15,0.5)">HYDRATION</HairLabel>
           <div style={{
-            fontFamily: s2.sans,
-            fontSize: 20,
-            fontWeight: 400,
-            marginTop: 4,
-            letterSpacing: '-0.01em',
-            color: s2.text,
+            fontFamily: s2.disp,
+            fontSize: 24,
+            fontWeight: 700,
+            letterSpacing: '-0.035em',
+            marginTop: 5,
+            color: s2.ink,
           }}>
-            {pctDisplay}%
+            {litres}
+            <span style={{ fontFamily: s2.sans, fontSize: 12, fontWeight: 600, color: 'rgba(15,20,15,0.55)' }}>
+              {' '}/ {goalLitres}L · {pctDisplay}%
+            </span>
           </div>
         </div>
 
-        {/* Right: mini rectangle grid */}
-        <div style={{ display: 'flex', gap: 3 }}>
+        {/* Right: tappable vertical bars */}
+        <div style={{ display: 'flex', gap: 4 }}>
           {Array.from({ length: goal }, (_, i) => {
             const filled = i < displayGlasses;
             return (
@@ -80,24 +81,21 @@ export function WaterIntakeCard({ date, onExpand }: Props) {
                   handleTap(i + 1);
                 }}
                 style={{
-                  width: 12,
-                  height: 26,
-                  background: filled ? s2.accent : 'transparent',
-                  border: `1px solid ${filled ? s2.accent : s2.lineStrong}`,
+                  width: 9,
+                  height: 30,
+                  borderRadius: 3,
+                  background: filled ? s2.ink : 'rgba(15,20,15,0.18)',
+                  border: 'none',
                   padding: 0,
                   cursor: 'pointer',
                   flexShrink: 0,
-                  transition: 'background 150ms, border-color 150ms',
+                  transition: 'background 150ms',
                 }}
               />
             );
           })}
         </div>
       </div>
-
-      {/* 2 px progress bar */}
-      <div style={{ height: 10 }} />
-      <Bar pct={pct} color={s2.accent} h={2} />
     </Card>
   );
 }

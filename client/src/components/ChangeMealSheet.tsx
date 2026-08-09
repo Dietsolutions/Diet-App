@@ -80,7 +80,7 @@ function Toggle({ on }: { on: boolean }) {
   return (
     <div style={{
       width: 44, height: 24, borderRadius: 12,
-      background: on ? s2.accent : s2.lineStrong,
+      background: on ? s2.accentFill : s2.lineStrong,
       position: 'relative',
       transition: 'background 0.2s',
       flexShrink: 0,
@@ -255,6 +255,7 @@ export function ChangeMealSheet({
                 placeholder={`e.g. "Make it eggs-heavy", "avoid rice", "keep it under 15 min"…`}
                 rows={4}
                 style={{
+                  borderRadius: s2.rMd,
                   width: '100%',
                   background: s2.surface,
                   border: `1px solid ${s2.lineStrong}`,
@@ -399,6 +400,7 @@ export function ChangeMealSheet({
               <div
                 key={i}
                 style={{
+                  borderRadius: s2.rMd,
                   background: s2.surface,
                   border: `1px solid ${s2.line}`,
                   padding: '14px 16px',
