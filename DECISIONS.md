@@ -1688,3 +1688,40 @@ Two related things left alone, both flagged rather than changed:
   the attempt, not the cost. It is in-memory and resets on cold start, so on
   serverless it rarely bites, but three failed taps on one warm instance can
   still lock a user out for the day.
+
+## 33. Removed dead `mealPlanGenerator.ts` (2026-08-09)
+
+Follow-up to §32. `services/mealPlanGenerator.ts` held a second copy of the
+generation flow, including its own `MONTHLY_REGEN_LIMIT` and
+`checkAndIncrementGenerationLimit` still doing count-on-tap. Harmless while
+nothing called it, and a quiet way to reintroduce the §32 bug the moment
+somebody wired it up.
+
+Confirmed unused before deleting, not just by a grep of the working tree:
+
+- No static import, and no dynamic `import()`/`require()` with a computed path
+  anywhere in `server/src`. No barrel file in `services/`.
+- Searched every commit in the repo — the file has never been imported by any
+  `.ts` file in any revision. It arrived in 8023e41 (2026-06-11) as part of the
+  v2 batch and was never wired up. Dead on arrival, not a refactor in flight.
+- Not reachable from the deployed bundle either. `vercel.json` declares one
+  function, `api/index.ts`, which imports `server/src/app`; ncc bundles by
+  following imports, and there is no `includeFiles`. So it was never shipped —
+  only typechecked, since `server/tsconfig.json` includes all of `src/**/*`.
+
+Everything it depended on (`macroValidation` helpers, `callLLM`, the CN
+service) is shared and still used by `routes/ai.ts`, so nothing unique was
+lost, and git history keeps it recoverable.
+
+`TECHNICAL_PRD.md` had documented this file as the component enforcing the
+monthly cap, which was wrong even before the deletion — the cap has always
+lived in `routes/ai.ts`. Corrected there, with a pointer to the reserve/refund
+behaviour from §32.
+
+Verified with `npm run typecheck` (clean). The unit suite could not be run:
+`vitest` hangs at startup on this machine — several minutes with no output on a
+single file, where the same suite ran in seconds earlier the same day — and
+`esbuild` responds normally, so it is not the §30 binary hang recurring. A
+local runner problem, unrelated to this change: none of the four test files
+reference the deleted module, and typecheck is the check that would catch a
+dangling import.
