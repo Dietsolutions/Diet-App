@@ -1718,10 +1718,15 @@ monthly cap, which was wrong even before the deletion — the cap has always
 lived in `routes/ai.ts`. Corrected there, with a pointer to the reserve/refund
 behaviour from §32.
 
-Verified with `npm run typecheck` (clean). The unit suite could not be run:
-`vitest` hangs at startup on this machine — several minutes with no output on a
-single file, where the same suite ran in seconds earlier the same day — and
-`esbuild` responds normally, so it is not the §30 binary hang recurring. A
-local runner problem, unrelated to this change: none of the four test files
-reference the deleted module, and typecheck is the check that would catch a
-dangling import.
+Verified with `npm run typecheck` (clean) and the unit suite: 4 files, 42
+tests, all passing in 241ms.
+
+Getting the suite to run took several attempts, and every failure was
+self-inflicted rather than a toolchain fault — worth recording, because the
+same two traps cost time in §30 as well. First, `--reporter=basic` was removed
+in Vitest 3; passing it makes Vitest try to load "basic" as a *custom reporter
+module*, which fails in `loadCustomReporterModule` rather than saying the flag
+is invalid. Second, each retry was killed by a `pkill -f "vitest run"` at the
+top of the *next* command, so runs that would have finished were terminated at
+a few seconds old (exit 144), which read as "still hanging". Left undisturbed
+with the default reporter, the suite finishes in well under a second.
