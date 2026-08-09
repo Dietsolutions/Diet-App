@@ -1609,8 +1609,31 @@ request riding on one non-streaming HTTP connection.
 Verified against the production database: a 14-day generation now returns 14
 days and saves, taking about 90s and 55k tokens.
 
-Also found while debugging, and left alone for now: `tdee_calculation_logs`
-does not exist in the production database, so every TDEE log write throws. It
-is wrapped in `.catch()`, so it is silent and harmless to generation — but the
-logging has never actually worked in prod. Same prod-schema-drift class as
-§26; the pipeline still has no `prisma migrate deploy` step.
+Also found while debugging: `tdee_calculation_logs` did not exist in the
+production database, so every TDEE log write threw. It is wrapped in
+`.catch()`, so it was silent and harmless to generation — but the logging had
+never actually worked in prod, which means there is no audit trail for how any
+existing user's calorie target was derived. Same prod-schema-drift class as
+§26.
+
+Fixed by applying the migration that already existed in the repo and had never
+reached prod — `20260613000000_add_tdee_calculation_log`, whose SQL is already
+idempotent. Verified after: 35 columns, both indexes plus the primary key, and
+a write/read round-trip through the app's own Prisma client (the part a raw
+CREATE TABLE can silently get wrong — a column-name or type mismatch would
+still leave the client throwing).
+
+While checking that, the wider picture: 11 of 20 migrations on disk are absent
+from prod's `_prisma_migrations` ledger. The **schema itself is complete** —
+`additional_meal_logs`, `macro_validation_logs`, `password_reset_tokens`,
+`recipes`, `User.appleId`, `User.isReview` and `macro_validation_logs.
+cnAttempted` all verified present — because each was applied by hand at the
+time. Only the ledger is behind.
+
+That leaves a landmine rather than a live bug: if `prisma migrate deploy` is
+ever added to the pipeline, it will attempt all 11 unrecorded migrations
+against a database that already has their objects. The ones written with
+IF NOT EXISTS are fine; any plain `ALTER TABLE ADD COLUMN` is not. Reconciling
+that means auditing all 11 against the live schema and marking the applied
+ones with `prisma migrate resolve --applied` — not done here, since a partial
+reconciliation is more misleading than none.
