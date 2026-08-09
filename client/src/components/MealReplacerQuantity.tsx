@@ -74,6 +74,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
             if (s) setServing(s);
           }}
           style={{
+            borderRadius: s2.rMd,
             width: '100%',
             background: s2.surface,
             border: `1px solid ${s2.lineStrong}`,
@@ -140,6 +141,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
             min="0.5"
             step="0.5"
             style={{
+              borderRadius: s2.rMd,
               flex: 1,
               textAlign: 'center',
               background: s2.surface,
@@ -201,6 +203,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
           onChange={(e) => setNote(e.target.value)}
           placeholder='e.g. "Office lunch"'
           style={{
+            borderRadius: s2.rMd,
             width: '100%',
             background: s2.surface,
             border: `1px solid ${s2.lineStrong}`,

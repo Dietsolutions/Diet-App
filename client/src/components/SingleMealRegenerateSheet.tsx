@@ -172,6 +172,7 @@ export function SingleMealRegenerateSheet({
                 placeholder={`e.g. "Something lighter", "no eggs", "quick to make"…`}
                 rows={4}
                 style={{
+                  borderRadius: s2.rMd,
                   width: '100%', boxSizing: 'border-box',
                   background: s2.surface,
                   border: `1px solid ${s2.line}`,
@@ -217,6 +218,7 @@ export function SingleMealRegenerateSheet({
           <div style={{ padding: '20px 20px 0' }}>
             {options.map((option, i) => (
               <div key={option.id || i} style={{
+                borderRadius: s2.rMd,
                 border: `1px solid ${s2.line}`,
                 background: s2.surface,
                 padding: 14, marginBottom: 10,

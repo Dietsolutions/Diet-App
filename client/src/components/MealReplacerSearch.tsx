@@ -86,6 +86,7 @@ export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Pro
       <button
         onClick={onSearchFocus}
         style={{
+          borderRadius: s2.rMd,
           display: 'flex',
           alignItems: 'center',
           gap: 10,
@@ -111,6 +112,7 @@ export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Pro
               key={p.query}
               onClick={() => handleQuickPick(p.query)}
               style={{
+                borderRadius: s2.rMd,
                 padding: '7px 12px',
                 border: `1px solid ${s2.lineStrong}`,
                 background: 'transparent',
@@ -138,6 +140,7 @@ export function MealReplacerSearch({ onSearchFocus, onQuickPick, onAIMode }: Pro
                 key={r.id}
                 onClick={() => handleRecentSelect(r)}
                 style={{
+                  borderRadius: s2.rMd,
                   display: 'flex',
                   alignItems: 'center',
                   gap: 12,

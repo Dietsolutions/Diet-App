@@ -292,6 +292,7 @@ export function MealDetailSheet({
 
         {/* ── Macro hero card ───────────────────────────────────────────── */}
         <div style={{
+          borderRadius: s2.rMd,
           margin: '20px 20px 0',
           border: `1px solid ${s2.lineStrong}`,
           background: s2.surface,
@@ -329,6 +330,7 @@ export function MealDetailSheet({
         {/* ── Day impact ────────────────────────────────────────────────── */}
         {kcalTarget > 0 && (
           <div style={{
+            borderRadius: s2.rMd,
             margin: '12px 20px 0',
             border: `1px solid ${s2.line}`,
             background: s2.surface,
@@ -394,7 +396,8 @@ export function MealDetailSheet({
         {ingredients.length > 0 && (
           <div style={{ margin: '12px 20px 0' }}>
             <HairLabel style={{ marginBottom: 4 }}>INGREDIENTS</HairLabel>
-            <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: '0 14px' }}>
+            <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: '0 14px' }}>
               {ingredients.map((ing, i) => (
                 <DataRow
                   key={i}
@@ -410,6 +413,7 @@ export function MealDetailSheet({
         {/* ── Cooking tip ───────────────────────────────────────────────── */}
         {meal.cookingTip && (
           <div style={{
+            borderRadius: s2.rMd,
             margin: '12px 20px 0',
             border: `1px solid ${s2.line}`,
             background: s2.surface,
@@ -480,6 +484,7 @@ export function MealDetailSheet({
             <button
               onClick={() => setCookExpanded(p => !p)}
               style={{
+                borderRadius: s2.rMd,
                 width: '100%', display: 'flex', alignItems: 'center',
                 justifyContent: 'space-between',
                 background: 'transparent', border: `1px solid ${s2.line}`,
@@ -510,6 +515,7 @@ export function MealDetailSheet({
 
                     {/* Servings selector */}
                     <div style={{
+                      borderRadius: s2.rMd,
                       marginBottom: 14,
                       padding: '12px 14px',
                       background: s2.surface2,
@@ -691,6 +697,7 @@ export function MealDetailSheet({
                             setShareOpen(true);
                           }}
                           style={{
+                            borderRadius: s2.rMd,
                             background:    'transparent',
                             border:        `1px solid ${s2.lineStrong}`,
                             padding:       '5px 9px',
@@ -832,6 +839,7 @@ export function MealDetailSheet({
                         <HairLabel style={{ marginBottom: 10 }}>CHEF'S TIPS</HairLabel>
                         {cookInstr.tips.map((tip, i) => (
                           <div key={i} style={{
+                            borderRadius: s2.rMd,
                             display: 'flex', gap: 10, marginBottom: 8,
                             padding: '9px 12px',
                             border: `1px solid ${s2.line}`,
@@ -915,6 +923,7 @@ export function MealDetailSheet({
           <button
             onClick={onOpenReplacer}
             style={{
+              borderRadius: s2.rMd,
               flex: 1,
               padding: '14px 0',
               background: 'transparent',
@@ -933,6 +942,7 @@ export function MealDetailSheet({
           <button
             onClick={onUndoReplacement}
             style={{
+              borderRadius: s2.rMd,
               flex: 1,
               padding: '14px 0',
               background: 'transparent',

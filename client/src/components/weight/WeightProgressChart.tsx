@@ -18,6 +18,7 @@ function CustomTooltip({ active, payload, label }: any) {
   const dateStr = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   return (
     <div style={{
+      borderRadius: s2.rMd,
       background: s2.surface2,
       border: `1px solid ${s2.lineStrong}`,
       padding: '8px 12px',
@@ -40,7 +41,8 @@ export function WeightProgressChart() {
 
   if (chartData.length === 0) {
     return (
-      <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
+      <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
         <HairLabel style={{ marginBottom: 10 }}>WEIGHT CHART</HairLabel>
         <div style={{
           height: 120,
@@ -68,7 +70,8 @@ export function WeightProgressChart() {
     .filter(point => typeof point.date === 'string' && point.date.length > 0);
 
   return (
-    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
+    <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <HairLabel>WEIGHT CHART</HairLabel>

@@ -259,6 +259,7 @@ export function TipsTab() {
                   <div
                     key={tip.title}
                     style={{
+                      borderRadius: s2.rMd,
                       padding: '12px 12px',
                       background: s2.surface2,
                       border: `1px solid ${s2.line}`,

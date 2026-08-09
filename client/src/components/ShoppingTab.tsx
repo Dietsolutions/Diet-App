@@ -109,6 +109,7 @@ export function ShoppingTab() {
                   track('shopping_share_opened', { items_total: totalItems, items_bought: boughtItems });
                 }}
                 style={{
+                  borderRadius: s2.rMd,
                   background:    'transparent',
                   border:        `1px solid ${s2.lineStrong}`,
                   padding:       '3px 8px',
@@ -255,6 +256,7 @@ export function ShoppingTab() {
         {/* ── Category groups ──────────────────────────────────────────────── */}
         {shoppingCategories.length === 0 ? (
           <div style={{
+            borderRadius: s2.rMd,
             border: `1px solid ${s2.line}`,
             padding: 24,
             textAlign: 'center',

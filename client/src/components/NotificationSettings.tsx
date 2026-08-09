@@ -32,6 +32,7 @@ function TimeInput({ value, onChange }: { value: string; onChange: (v: string) =
       value={value}
       onChange={(e) => onChange(e.target.value)}
       style={{
+        borderRadius: s2.rMd,
         background: s2.surface2, border: `1px solid ${s2.line}`,
         color: s2.text, fontFamily: s2.mono, fontSize: 12,
         padding: '4px 8px', outline: 'none',

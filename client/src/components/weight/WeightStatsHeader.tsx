@@ -9,7 +9,8 @@ export function WeightStatsHeader() {
 
   if (logs.length === 0) {
     return (
-      <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <HairLabel>WEIGHT PROGRESS</HairLabel>
         <button
           onClick={() => openLogModal()}
@@ -38,7 +39,8 @@ export function WeightStatsHeader() {
   const lostColor = totalLost > 0 ? s2.accent : totalLost < 0 ? s2.warn : s2.text;
 
   return (
-    <div style={{ border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
+    <div style={{
+ borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: 14 }}>
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <HairLabel>WEIGHT PROGRESS</HairLabel>

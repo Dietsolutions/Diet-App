@@ -151,6 +151,7 @@ export function PlanOverviewScreen({ onComplete }: PlanOverviewScreenProps) {
 
           {days.length === 0 && !error && (
             <div style={{
+              borderRadius: s2.rMd,
               border: `1px solid ${s2.line}`,
               background: s2.surface,
               padding: '18px 14px',

@@ -230,6 +230,7 @@ export function ShoppingShareSheet({
 
         {/* Preview */}
         <div style={{
+          borderRadius: s2.rMd,
           background:     s2.surface2,
           border:         `1px solid ${s2.line}`,
           padding:        '12px 14px',
@@ -288,6 +289,7 @@ export function ShoppingShareSheet({
           <button
             onClick={handleWhatsApp}
             style={{
+              borderRadius: s2.rMd,
               display:        'flex',
               alignItems:     'center',
               gap:            12,

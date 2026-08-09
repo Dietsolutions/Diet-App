@@ -100,6 +100,7 @@ export function WeightLogModal() {
               placeholder="e.g. 75.5"
               autoFocus
               style={{
+                borderRadius: s2.rMd,
                 width: '100%',
                 background: s2.surface2,
                 border: `1px solid ${s2.lineStrong}`,
@@ -123,6 +124,7 @@ export function WeightLogModal() {
                 onChange={(e) => setDate(e.target.value)}
                 max={new Date().toISOString().substring(0, 10)}
                 style={{
+                  borderRadius: s2.rMd,
                   width: '100%',
                   background: s2.surface2,
                   border: `1px solid ${s2.lineStrong}`,
@@ -148,6 +150,7 @@ export function WeightLogModal() {
               placeholder="e.g. After morning walk"
               maxLength={100}
               style={{
+                borderRadius: s2.rMd,
                 width: '100%',
                 background: s2.surface2,
                 border: `1px solid ${s2.lineStrong}`,
@@ -172,6 +175,7 @@ export function WeightLogModal() {
           <button
             onClick={closeLogModal}
             style={{
+              borderRadius: s2.rMd,
               flex: 1,
               padding: '13px 0',
               background: 'transparent',

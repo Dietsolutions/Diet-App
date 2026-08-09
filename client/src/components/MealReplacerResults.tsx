@@ -44,6 +44,7 @@ export function MealReplacerResults({ initialQuery, onBack }: Props) {
         </button>
 
         <div style={{
+          borderRadius: s2.rMd,
           flex: 1,
           display: 'flex',
           alignItems: 'center',

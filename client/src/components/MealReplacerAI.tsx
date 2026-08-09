@@ -108,6 +108,7 @@ export function MealReplacerAI({ onBack }: Props) {
         placeholder='e.g. "2 rotis with butter chicken and a small bowl of raita"'
         rows={3}
         style={{
+          borderRadius: s2.rMd,
           width: '100%',
           background: s2.surface,
           border: `1px solid ${s2.lineStrong}`,
@@ -238,6 +239,7 @@ export function MealReplacerAI({ onBack }: Props) {
             <button
               onClick={() => { setResult(null); setScreen('results'); }}
               style={{
+                borderRadius: s2.rMd,
                 flex: 1,
                 padding: '13px 0',
                 background: 'transparent',

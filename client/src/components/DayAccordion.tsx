@@ -143,6 +143,7 @@ export function DayAccordion({
                 <button
                   onClick={() => onChangeMeal(mi, meal)}
                   style={{
+                    borderRadius: s2.rMd,
                     background: 'transparent',
                     border: `1px solid ${s2.lineStrong}`,
                     padding: '6px 10px',
