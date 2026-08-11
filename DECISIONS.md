@@ -1730,3 +1730,65 @@ is invalid. Second, each retry was killed by a `pkill -f "vitest run"` at the
 top of the *next* command, so runs that would have finished were terminated at
 a few seconds old (exit 144), which read as "still hanging". Left undisturbed
 with the default reporter, the suite finishes in well under a second.
+
+## 34. Audio guide, portion sizes, editable extras, shopping reset (2026-08-09)
+
+Four reported issues, fixed together.
+
+**Audio guide crashed instead of playing.** The error screen said "The element
+has no supported sources", with no stack. Two separate faults stacked.
+
+The cause was the CSP in `vercel.json`. It has no `media-src` directive, so
+media falls back to `default-src 'self'` — and every audio file we serve is a
+cross-origin Vercel Blob URL. Confirmed on the live site rather than inferred:
+loading one produces `MEDIA_ELEMENT_ERROR: Media load rejected by URL safety
+check` (code 4, `MEDIA_ERR_SRC_NOT_SUPPORTED`), and a `securitypolicyviolation`
+listener reports `violatedDirective: "media-src"` against the blob URL. Note
+`img-src` and `font-src` both already allow `data:` — media was simply missed
+when the policy was written, so audio has never played on the deployed web app.
+Added `media-src 'self' data: https://*.public.blob.vercel-storage.com`.
+
+The second fault turned that into a crash. `AudioGuidePlayer.togglePlay` called
+`a.play()` and ignored the returned promise; when it rejected, the unhandled
+rejection took down the whole meal view. `play()` is now caught, load failures
+are caught via the element's `onError` (which fires during `preload`, before
+any tap), and both surface as an inline message. Autoplay-policy rejections say
+"tap play again"; everything else points at regenerating the guide. A blocked
+file is a broken guide, not a broken app.
+
+That component had also been missed by the Fresh Light migration — it still
+carried `rgba(255,255,255,…)` text and the Strain orange, i.e. white-on-white
+on the new light card. Retokenised while in there.
+
+**Portion sizes.** Serving options come from the food source, and sources vary:
+CalorieNinjas returns `100g` and nothing else, so small portions could only be
+reached by doing multiplier arithmetic. `MealReplacerQuantity` now appends
+100/50/25g to whatever the source supplies, deduped on grams so a source's own
+`100g` isn't listed twice. Done in the picker rather than in each of the five
+services, so every source and entry path benefits. The `onChange` lookup had to
+move to the augmented list — searching `selectedFood.servingSizes` would have
+silently ignored a 50g or 25g pick.
+
+**Editable extra meals.** A logged extra could only be deleted and re-logged.
+The server already had `PATCH /api/meals/additional/:id` accepting servingQty,
+note, mealCategory and mealTime — it was simply never called from the client.
+
+It also had a latent bug that would have gone live the moment it was wired up:
+macros are stored as absolute totals for the logged quantity, and the handler
+changed `servingQty` without touching them, so editing a quantity would have
+left the old calories behind and skewed the day's totals. Macros scale linearly
+with quantity, so the handler now rescales by the ratio, guarded against a
+non-positive stored quantity. The card gained an inline editor (quantity
+stepper, meal category, note) with a live calorie preview, and the store an
+optimistic `updateAdditionalMeal` that mirrors the server's scaling and reverts
+on failure.
+
+**Shopping reset.** Moved from the bottom of the list — below every category,
+a long scroll away — to the header's top right, under the bought/total counter,
+styled to match the existing SHARE pill.
+
+Verified: typecheck clean, 42 unit tests pass, production build clean, and the
+dev server boots the changed modules with no console errors. The three UI
+changes were not exercised against a live signed-in session — the only route to
+one was creating or altering an account in the production database, which is
+not worth doing for a screenshot.

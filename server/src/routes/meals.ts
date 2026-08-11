@@ -398,10 +398,29 @@ router.patch('/additional/:id', requireAuth, perUserLimiter({ windowMs: 60_000, 
     const cleanMealTime = mealTime !== undefined ? validateMealTime(mealTime) : undefined;
     const cleanNote     = note !== undefined ? validateMealNote(note) : undefined;
 
+    // Macros are stored as absolute totals for the logged quantity, not per
+    // serving — so changing servingQty alone would leave the old totals behind
+    // and quietly skew the day's numbers. They scale linearly with quantity,
+    // so rescale by the ratio. Guarded on the old quantity being usable;
+    // if it isn't, leave the macros alone rather than divide by zero.
+    const oldQty = existing.servingQty;
+    const rescale =
+      servingQty !== undefined && oldQty > 0 && isFinite(oldQty)
+        ? servingQty / oldQty
+        : null;
+    const scaled = (v: number) => Math.round(v * (rescale as number) * 10) / 10;
+
     const updated = await prisma.additionalMealLog.update({
       where: { id },
       data: {
         ...(servingQty !== undefined && { servingQty }),
+        ...(rescale !== null && {
+          calories: Math.round(existing.calories * rescale),
+          proteinG: scaled(existing.proteinG),
+          carbsG:   scaled(existing.carbsG),
+          fatG:     scaled(existing.fatG),
+          fibreG:   scaled(existing.fibreG),
+        }),
         ...(cleanNote !== undefined && { note: cleanNote }),
         ...(mealCategory !== undefined && { mealCategory }),
         ...(cleanMealTime !== undefined && { mealTime: cleanMealTime }),

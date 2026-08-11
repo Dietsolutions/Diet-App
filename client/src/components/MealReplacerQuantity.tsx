@@ -1,6 +1,6 @@
 // MealReplacerQuantity — Strain v2 visual. All logic preserved.
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Card } from './ui';
@@ -8,6 +8,12 @@ import { HairLabel, Card } from './ui';
 interface Props {
   onBack: () => void;
 }
+
+// Gram portions always offered, on top of whatever the food source supplies.
+// Sources vary a lot — CalorieNinjas returns 100g and nothing else — which left
+// small portions reachable only by doing multiplier arithmetic in your head.
+// Listed largest first so the common 100g stays the top entry.
+const STANDARD_GRAM_SERVINGS = [100, 50, 25];
 
 export function MealReplacerQuantity({ onBack }: Props) {
   const {
@@ -17,6 +23,22 @@ export function MealReplacerQuantity({ onBack }: Props) {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // Source servings first (they carry the food's natural portion — "1 roti",
+  // "1 cup"), then any standard gram size not already covered. Deduped on
+  // grams rather than label so "100g" from a source isn't listed twice.
+  const sourceServings = selectedFood?.servingSizes;
+  const servingOptions = useMemo(() => {
+    const out = [...(sourceServings ?? [])];
+    const seen = new Set(out.map(sv => sv.grams));
+    for (const grams of STANDARD_GRAM_SERVINGS) {
+      if (!seen.has(grams)) {
+        out.push({ label: `${grams}g`, grams });
+        seen.add(grams);
+      }
+    }
+    return out;
+  }, [sourceServings]);
 
   if (!selectedFood || !selectedServing || !computedMacros) return null;
 
@@ -70,7 +92,10 @@ export function MealReplacerQuantity({ onBack }: Props) {
         <select
           value={selectedServing.label}
           onChange={(e) => {
-            const s = selectedFood.servingSizes.find(sv => sv.label === e.target.value);
+            // Look up in the augmented list — the added gram sizes are not in
+            // selectedFood.servingSizes, so searching that would silently
+            // ignore a 50g/25g pick.
+            const s = servingOptions.find(sv => sv.label === e.target.value);
             if (s) setServing(s);
           }}
           style={{
@@ -88,8 +113,11 @@ export function MealReplacerQuantity({ onBack }: Props) {
             WebkitAppearance: 'none',
           }}
         >
-          {selectedFood.servingSizes.map((sv) => (
-            <option key={sv.label} value={sv.label}>{sv.label} ({sv.grams}g)</option>
+          {servingOptions.map((sv) => (
+            <option key={sv.label} value={sv.label}>
+              {/* A plain gram serving is already "50g" — don't render "50g (50g)". */}
+              {sv.label === `${sv.grams}g` ? sv.label : `${sv.label} (${sv.grams}g)`}
+            </option>
           ))}
         </select>
 

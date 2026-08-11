@@ -3,15 +3,15 @@
   "configurations": [
     {
       "name": "Backend (Express API)",
-      "runtimeExecutable": "/bin/sh",
-      "runtimeArgs": ["-c", "export PATH=/tmp/node-v20.11.1-darwin-arm64/bin:$PATH && cd '/Users/harshitvaddi/Documents/Claude code /Diet app/server' && npm run dev"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "server"],
       "port": 3001,
       "autoPort": false
     },
     {
       "name": "Frontend (Vite React)",
-      "runtimeExecutable": "/bin/sh",
-      "runtimeArgs": ["-c", "export PATH=/tmp/node-v20.11.1-darwin-arm64/bin:$PATH && cd '/Users/harshitvaddi/Documents/Claude code /Diet app/client' && npm run dev"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "client"],
       "port": 5173
     }
   ]

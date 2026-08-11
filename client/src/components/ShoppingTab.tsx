@@ -141,13 +141,37 @@ export function ShoppingTab() {
           </div>
         </div>
 
-        {/* Bought / total counter */}
+        {/* Bought / total counter, with reset tucked underneath */}
         <div style={{ textAlign: 'right', paddingBottom: 2 }}>
           <div style={{ fontFamily: s2.sans, fontSize: 30, fontWeight: 300, letterSpacing: '-0.03em', lineHeight: 1, color: s2.accent }}>
             {boughtItems}
             <span style={{ fontSize: 16, color: s2.textDim }}>/{totalItems}</span>
           </div>
           <HairLabel style={{ marginTop: 3 }}>BOUGHT</HairLabel>
+
+          {/* Reset — moved up here from the bottom of the list, where it sat
+              below every category and took a long scroll to reach. */}
+          {isShoppingGenerated && (
+            <button
+              onClick={reset}
+              style={{
+                marginTop:     8,
+                borderRadius:  s2.rMd,
+                background:    'transparent',
+                border:        `1px solid ${s2.lineStrong}`,
+                padding:       '3px 8px',
+                fontFamily:    s2.mono,
+                fontSize:      8,
+                letterSpacing: '0.15em',
+                color:         s2.textDim,
+                cursor:        'pointer',
+                textTransform: 'uppercase',
+                lineHeight:    1.4,
+              }}
+            >
+              ↺ RESET
+            </button>
+          )}
         </div>
       </div>
 
@@ -344,26 +368,7 @@ export function ShoppingTab() {
           </div>
         )}
 
-        {/* Reset link */}
-        {isShoppingGenerated && (
-          <div style={{ marginTop: 24, textAlign: 'center' }}>
-            <button
-              onClick={reset}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                fontFamily: s2.mono,
-                fontSize: 9,
-                letterSpacing: '0.2em',
-                color: s2.textDimmer,
-                cursor: 'pointer',
-                textTransform: 'uppercase',
-              }}
-            >
-              RESET LIST
-            </button>
-          </div>
-        )}
+        {/* Reset now lives in the header, top right. */}
 
         <div style={{ height: 16 }} />
       </div>

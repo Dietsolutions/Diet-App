@@ -1,6 +1,7 @@
 // AudioGuidePlayer — HTML5 <audio> player for cooking instruction audio files.
 // Replaces the broken Web Speech API approach.
-// Uses Strain v2 design tokens — no rounded corners, mono labels, orange accent.
+// Fresh Light tokens throughout: accent is a TEXT colour, accentFill is a block
+// fill. Never use s2.bg as a foreground — this card sits on a white surface.
 
 import { useState, useRef, useEffect } from 'react';
 import { s2 } from '../theme/tokens';
@@ -24,17 +25,33 @@ function formatTime(sec: number): string {
 
 const SPEEDS = [1, 1.5, 2, 3, 5] as const;
 
-// Speed button style — compact pill, orange accent when active
+/**
+ * Turn a playback failure into something a cook can act on.
+ *
+ * NotAllowedError is the browser's autoplay policy and resolves itself on the
+ * next tap. Everything else means the file itself would not load — a blocked,
+ * missing or undecodable source — which regenerating is the only real fix for.
+ */
+function describePlaybackError(err: unknown): string {
+  const name = (err as { name?: string } | null)?.name;
+  if (name === 'NotAllowedError') {
+    return 'Tap play once more to start audio.';
+  }
+  if (name === 'AbortError') return '';   // superseded by a newer load; not a failure
+  return 'This audio could not be played. Try generating the guide again.';
+}
+
+// Speed button style — compact pill, accent text + wash fill when active
 function speedBtnStyle(active: boolean): React.CSSProperties {
   return {
     padding:       '3px 7px',
-    borderRadius:  '4px',
-    border:        `0.5px solid ${active ? 'rgba(196,113,58,0.8)' : 'rgba(255,255,255,0.1)'}`,
-    background:    active ? 'rgba(196,113,58,0.15)' : 'transparent',
-    color:         active ? '#C4713A' : 'rgba(255,255,255,0.3)',
+    borderRadius:  s2.rSm,
+    border:        `1px solid ${active ? s2.accent : s2.line}`,
+    background:    active ? s2.accentWash : 'transparent',
+    color:         active ? s2.accent : s2.textDim,
     fontSize:      '10px',
     fontWeight:    active ? 700 : 400,
-    fontFamily:    'DM Mono, monospace',
+    fontFamily:    s2.mono,
     cursor:        'pointer',
     letterSpacing: '0.3px',
     lineHeight:    1,
@@ -48,6 +65,9 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
   const [currentTime,  setCurrentTime]    = useState(0);
   const [duration,     setDuration]       = useState(0);
   const [playbackRate, setPlaybackRate]   = useState(1);
+  // Playback problems are shown in place. They must never escape as an
+  // unhandled rejection — audio failing is a bad guide, not a broken app.
+  const [playError,    setPlayError]      = useState('');
 
   // Apply speed to the audio element whenever playbackRate changes
   useEffect(() => {
@@ -59,6 +79,7 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
   // Reset speed to 1x when a new audio URL loads
   useEffect(() => {
     setPlaybackRate(1);
+    setPlayError('');
     if (audioRef.current) {
       audioRef.current.playbackRate = 1;
     }
@@ -67,7 +88,19 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
   function togglePlay() {
     const a = audioRef.current;
     if (!a) return;
-    if (isPlaying) { a.pause(); } else { a.play(); }
+    if (isPlaying) { a.pause(); return; }
+
+    setPlayError('');
+    // play() rejects — blocked source, autoplay policy, decode failure. Left
+    // unhandled it surfaces as a full-screen "Unhandled Rejection" and takes
+    // the whole meal view down with it.
+    const started = a.play();
+    if (started && typeof started.catch === 'function') {
+      started.catch((err: unknown) => {
+        setIsPlaying(false);
+        setPlayError(describePlaybackError(err));
+      });
+    }
   }
 
   function handleStop() {
@@ -96,7 +129,7 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
         <div style={{ marginBottom: 10 }}>
           <div style={{
             fontFamily: s2.mono, fontSize: 7, letterSpacing: '0.16em',
-            color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', marginBottom: 5,
+            color: s2.textDimmer, textTransform: 'uppercase', marginBottom: 5,
           }}>
             AUDIO LANGUAGE
           </div>
@@ -104,17 +137,17 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
             {/* Static English pill — always selected */}
             <div style={{
               padding: '4px 10px',
-              border: `1px solid rgba(196,113,58,0.7)`,
-              background: 'rgba(196,113,58,0.12)',
+              border: `1px solid ${s2.accent}`,
+              background: s2.accentWash,
               fontFamily: s2.mono, fontSize: 9, fontWeight: 600,
-              letterSpacing: '0.12em', color: '#C4713A',
+              letterSpacing: '0.12em', color: s2.accent,
               cursor: 'default',
             }}>
               English
             </div>
             <div style={{
               fontFamily: s2.sans, fontSize: 10,
-              color: 'rgba(255,255,255,0.25)',
+              color: s2.textDimmer,
               fontStyle: 'italic',
             }}>
               More languages coming soon
@@ -125,8 +158,9 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
         {error && (
           <div style={{
             marginBottom: 8, padding: '7px 10px',
-            border: `1px solid rgba(255,62,62,0.35)`,
-            background: 'rgba(255,62,62,0.07)',
+            border: `1px solid rgba(229,72,77,0.35)`,
+            background: 'rgba(229,72,77,0.07)',
+            borderRadius: s2.rSm,
             fontFamily: s2.sans, fontSize: 11, color: s2.warn,
           }}>
             {error}
@@ -177,6 +211,12 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
           track('audio_guide_paused', { progress_pct: pct });
         }}
         onEnded={() => { setIsPlaying(false); setProgress(0); setCurrentTime(0); }}
+        // Fires during preload as well as playback, so a source the browser
+        // cannot fetch or decode is reported before the user ever taps play.
+        onError={() => {
+          setIsPlaying(false);
+          setPlayError('This audio could not be loaded. Try generating the guide again.');
+        }}
         onLoadedMetadata={e => {
           const audio = e.target as HTMLAudioElement;
           audio.playbackRate = playbackRate; // apply speed if set before load
@@ -188,6 +228,18 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
           setProgress(a.duration ? (a.currentTime / a.duration) * 100 : 0);
         }}
       />
+
+      {playError && (
+        <div style={{
+          marginBottom: 10, padding: '7px 10px',
+          border: `1px solid rgba(229,72,77,0.35)`,
+          background: 'rgba(229,72,77,0.07)',
+          borderRadius: s2.rSm,
+          fontFamily: s2.sans, fontSize: 11, color: s2.warn,
+        }}>
+          {playError}
+        </div>
+      )}
 
       {/* Controls + speed row */}
       <div style={{
@@ -230,7 +282,7 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
           <div>
             <div style={{
               fontSize: 9, letterSpacing: '0.18em', textTransform: 'uppercase',
-              color: 'rgba(255,255,255,0.3)', fontFamily: s2.mono, marginBottom: 1,
+              color: s2.textDimmer, fontFamily: s2.mono, marginBottom: 1,
             }}>
               AUDIO GUIDE
             </div>
