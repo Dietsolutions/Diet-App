@@ -16,6 +16,7 @@ import { WaterIntakeCard } from './WaterIntakeCard';
 import { WaterDetailSheet } from './WaterDetailSheet';
 import { MacroAchievementCard } from './MacroAchievementCard';
 import { AddMealButton } from './AddMealButton';
+import { ExtraMealCard } from './ExtraMealCard';
 import { ErrorBoundary } from './ErrorBoundary';
 import { s2 } from '../theme/tokens';
 import { HairLabel, Pill, Card, Check } from './ui';
@@ -629,25 +630,7 @@ export function MealsTab() {
               <div style={{ marginTop: 18 }}>
                 <HairLabel style={{ marginBottom: 10 }}>EXTRA MEALS LOGGED</HairLabel>
                 {additionalMeals.map((extra) => (
-                  <div key={extra.id} style={{ marginBottom: 8 }}>
-                    <Card padding={14} radius={22} border={s2.lineStrong}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{
-                            fontFamily: s2.sans,
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: s2.text,
-                            lineHeight: 1.3,
-                          }}>
-                            {extra.foodName || 'Extra meal'}
-                          </div>
-                          <MacroChips kcal={extra.calories} p={extra.proteinG} c={extra.carbsG} f={extra.fatG} />
-                        </div>
-                        <HairLabel style={{ marginLeft: 8, flexShrink: 0 }}>OFF-PLAN</HairLabel>
-                      </div>
-                    </Card>
-                  </div>
+                  <ExtraMealCard key={extra.id} meal={extra} />
                 ))}
               </div>
             )}

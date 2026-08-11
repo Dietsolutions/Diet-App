@@ -1778,10 +1778,17 @@ macros are stored as absolute totals for the logged quantity, and the handler
 changed `servingQty` without touching them, so editing a quantity would have
 left the old calories behind and skewed the day's totals. Macros scale linearly
 with quantity, so the handler now rescales by the ratio, guarded against a
-non-positive stored quantity. The card gained an inline editor (quantity
-stepper, meal category, note) with a live calorie preview, and the store an
-optimistic `updateAdditionalMeal` that mirrors the server's scaling and reverts
-on failure.
+non-positive stored quantity. The store gained an optimistic `updateAdditionalMeal` that
+mirrors the server's scaling and reverts on failure.
+
+The editor first went into `AdditionalMealCard.tsx` — which turned out to be
+dead code, the same trap as §33. Nothing imports it; the live UI renders extra
+meals inline in `MealsTab.tsx` as a read-only card with neither edit nor
+delete. Caught only because a post-build grep for the new aria-label came back
+empty in the bundle. The editor now lives in a new Fresh Light `ExtraMealCard`
+used by `MealsTab`, with edit *and* delete, and the dead component is deleted.
+Worth noting the failure mode: it typechecked, built and passed tests while
+being completely unreachable.
 
 **Shopping reset.** Moved from the bottom of the list — below every category,
 a long scroll away — to the header's top right, under the bought/total counter,
