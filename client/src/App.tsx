@@ -257,7 +257,11 @@ export default function App() {
         )}
 
         {/* Main content */}
-        <main style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', paddingBottom: 64 }}>
+        {/* paddingBottom clears the fixed BottomNav, which floats at
+            bottom: max(14px, safe-area) and is now 70px tall (was ~47), so 64
+            no longer cleared it and the last row of any tab without its own
+            generous bottom padding sat under the bar. */}
+        <main style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', paddingBottom: 88 }}>
           <ErrorBoundary>
             <Suspense fallback={<TabFallback />}>
               {activeTab === 'meals' && <MealsTab />}

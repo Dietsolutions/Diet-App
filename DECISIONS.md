@@ -1829,3 +1829,37 @@ production database, the two components were mounted in a throwaway Vite entry
 with mock props and a seeded store — enough to check the real layout at 468px
 and at 375px mobile, at 8 and 12 glasses. Harness deleted afterwards; note that
 leaving a second `.html` at the client root would have added a Vite entry.
+
+## 36. Bottom nav: 1.5× height, readable labels (2026-08-09)
+
+The bar was cramped and its labels were 8.5px. Measured rather than eyeballed,
+in a throwaway harness — `BottomNav` takes only props, so it renders without a
+session.
+
+**Height.** The old bar came out at 46.8px: 6px padding around a 34.8px button
+whose height merely fell out of `padding: 11px` plus the line box. The button
+now has an explicit `height: 58`, giving 58 + 6 + 6 = 70px — 1.496× — and the
+ratio no longer drifts when the font changes.
+
+**Labels.** The blocker was "DIET PLAN". Six tabs on a 375px screen leave ~52px
+of text width per button, and that label needs 51.5px at 9px type — so it alone
+capped the whole bar at a barely-legible size (10px already overflows). As the
+single word "PLAN" the widest label becomes RECIPES, which needs 47.8px at
+10.5px. So the label was shortened and the type went 8.5 → 10.5 (~24% larger).
+This is a copy change, and the only alternative that keeps "DIET PLAN" is
+leaving the type as it is.
+
+10.5 rather than 11: at 360px — a very common Android width — a button has 49px
+of text room, and at 11px RECIPES and PROFILE need 49.8 and 49.2, so both would
+have ellipsised. Checked at 360 and 375, with a long label active.
+
+**Two knock-ons that would have shipped otherwise:**
+
+- The active tab is now taller than it is wide, so `borderRadius: rPill` turned
+  it into a circle rather than the stadium pill the design intends. Changed to
+  `rLg`.
+- `App.tsx` padded the main scroll area by 64px to clear the fixed nav, which
+  floats at `bottom: max(14px, safe-area)`. That cleared the old ~61px
+  footprint; the new one is ~84px, so the last row of any tab without its own
+  generous bottom padding (MealsTab ends with a 16px spacer) sat under the bar.
+  Now 88.
