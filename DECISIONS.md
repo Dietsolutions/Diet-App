@@ -1812,6 +1812,14 @@ The card itself is now a narrow vertical column: kicker, litres, then the glass
 markers as full-width bars in a `column-reverse` stack so they fill bottom-up
 and read as a tube rather than a progress bar stood on its end.
 
+The markers were initially a fixed 8px tall, which left a band of dead space
+between the litres headline and the bars — they huddled at the bottom of a
+column sized to the macro band. They now take `flex: 1` and share the column's
+height, so the card fills at any glass goal: 13.9px each at a 10-glass goal
+(was 8), 8.8px at 14, and chunky blocks at 4. `minHeight: 7` keeps a large goal
+legible; there is deliberately no max, since capping the height just
+reintroduces the gap.
+
 Two edge cases handled rather than discovered later:
 
 - `MacroAchievementCard` returns `null` for a future date, which would have left

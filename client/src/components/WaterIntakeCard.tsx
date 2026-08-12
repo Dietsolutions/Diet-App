@@ -109,14 +109,18 @@ export function WaterIntakeCard({ date, onExpand }: Props) {
               }}
               style={{
                 width: '100%',
-                height: 8,
-                minHeight: 8,
-                borderRadius: 3,
+                // Share the column's height rather than taking a fixed 8px:
+                // the markers then fill the card whatever the glass goal is,
+                // instead of huddling at the bottom under a band of dead space.
+                // minHeight keeps a large goal legible; there is deliberately
+                // no max, since capping the height reintroduces the gap.
+                flex: 1,
+                minHeight: 7,
+                borderRadius: 4,
                 background: filled ? s2.ink : 'rgba(15,20,15,0.18)',
                 border: 'none',
                 padding: 0,
                 cursor: 'pointer',
-                flexShrink: 0,
                 transition: 'background 150ms',
               }}
             />
