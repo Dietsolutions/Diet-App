@@ -1815,9 +1815,11 @@ and read as a tube rather than a progress bar stood on its end.
 Two edge cases handled rather than discovered later:
 
 - `MacroAchievementCard` returns `null` for a future date, which would have left
-  a lone 96px column beside a gap. The pairing is gated on the same condition
-  the band uses (`profile && selectedDate <= todayStr()`); otherwise hydration
-  keeps the full width.
+  a lone 96px column beside a gap. Initially hydration kept the full width
+  there; on review that was still wrong — both cards are consumption summaries,
+  and a day that has not happened has nothing eaten or drunk to report. Both are
+  now hidden when `selectedDate > todayStr()`, so a future day goes straight
+  from the date header to the plan.
 - A high glass goal has to fit the band's height — the markers are
   `flexShrink: 0`, so overflow was plausible. Checked at 12 glasses; fits.
 

@@ -185,6 +185,10 @@ export function MealsTab() {
   // -1 only for dates before the plan started (genuinely no plan).
   const planDayIdx     = getPlanDayIndex(selectedDate, planWeekStartDate, planDuration);
   const isPlanDate     = planDayIdx >= 0;
+  // A plan covers days that have not happened yet. Nothing has been eaten or
+  // drunk on those, so the consumption summaries are hidden — matches
+  // MacroAchievementCard's own future-date check, which uses local time.
+  const isFutureDate   = selectedDate > todayStr();
   // planDaysFromPlan is always the authoritative source (loaded fresh from the API hook)
   const planDay        = isPlanDate ? (planDaysFromPlan[planDayIdx] ?? null) : null;
   const meals: Meal[]  = planDay?.meals || [];
@@ -433,37 +437,40 @@ export function MealsTab() {
               the lime band, while the band's own right side — past the short
               macro ticks — sat empty. Pairing them fills that space and saves
               a row of vertical scroll. `alignItems: stretch` makes the sky
-              column match the band's height whatever the macro count. */}
-          {/* MacroAchievementCard renders nothing for a future date, so pair
-              them only when the band will actually be there — otherwise a
-              future day would show a lone 96px column beside empty space. */}
-          {profile && selectedDate <= todayStr() ? (
-            <div style={{ padding: '18px 20px 0', display: 'flex', alignItems: 'stretch', gap: 10 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <ErrorBoundary>
-                  <MacroAchievementCard
-                    meals={meals}
-                    eatenMask={meals.map((_, i) => getMealEaten(i))}
-                    replacements={replacements}
-                    date={selectedDate}
-                    profile={profile}
-                    eatenCount={eatenCount}
-                    mealsPerDay={mealsPerDay}
-                    additionalMeals={additionalMeals}
-                  />
-                </ErrorBoundary>
+              column match the band's height whatever the macro count.
+
+              Both are consumption summaries, so neither belongs on a future
+              date: there is nothing eaten and nothing drunk to report yet.
+              A future day goes straight from the date header to the plan. */}
+          {!isFutureDate && (
+            profile ? (
+              <div style={{ padding: '18px 20px 0', display: 'flex', alignItems: 'stretch', gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <ErrorBoundary>
+                    <MacroAchievementCard
+                      meals={meals}
+                      eatenMask={meals.map((_, i) => getMealEaten(i))}
+                      replacements={replacements}
+                      date={selectedDate}
+                      profile={profile}
+                      eatenCount={eatenCount}
+                      mealsPerDay={mealsPerDay}
+                      additionalMeals={additionalMeals}
+                    />
+                  </ErrorBoundary>
+                </div>
+                <div style={{ width: 96, flexShrink: 0 }}>
+                  <WaterIntakeCard date={selectedDate} onExpand={() => setShowWaterDetail(true)} />
+                </div>
               </div>
-              <div style={{ width: 96, flexShrink: 0 }}>
+            ) : (
+              /* No profile — the band cannot render without targets, so
+                 hydration keeps the full width rather than sitting in a
+                 narrow column beside a gap. */
+              <div style={{ padding: '18px 20px 0' }}>
                 <WaterIntakeCard date={selectedDate} onExpand={() => setShowWaterDetail(true)} />
               </div>
-            </div>
-          ) : (
-            /* No profile, or a future date — the band renders nothing, so
-               hydration keeps the full width instead of sitting in a narrow
-               column beside a gap. */
-            <div style={{ padding: '18px 20px 0' }}>
-              <WaterIntakeCard date={selectedDate} onExpand={() => setShowWaterDetail(true)} />
-            </div>
+            )
           )}
 
           {/* ── Meal list ─────────────────────────────────────────────────── */}
