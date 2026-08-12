@@ -1799,3 +1799,31 @@ dev server boots the changed modules with no console errors. The three UI
 changes were not exercised against a live signed-in session — the only route to
 one was creating or altering an account in the production database, which is
 not worth doing for a screenshot.
+
+## 35. Hydration moved beside the macro band (2026-08-09)
+
+Hydration was a full-width horizontal card stacked above the lime macro band,
+while the band's own right side — past the macro ticks, which are short — sat
+empty. Both now share one row: the band flexes, hydration is a fixed 96px
+column beside it, and `alignItems: stretch` matches their heights whatever the
+macro count. Costs a row of vertical scroll less.
+
+The card itself is now a narrow vertical column: kicker, litres, then the glass
+markers as full-width bars in a `column-reverse` stack so they fill bottom-up
+and read as a tube rather than a progress bar stood on its end.
+
+Two edge cases handled rather than discovered later:
+
+- `MacroAchievementCard` returns `null` for a future date, which would have left
+  a lone 96px column beside a gap. The pairing is gated on the same condition
+  the band uses (`profile && selectedDate <= todayStr()`); otherwise hydration
+  keeps the full width.
+- A high glass goal has to fit the band's height — the markers are
+  `flexShrink: 0`, so overflow was plausible. Checked at 12 glasses; fits.
+
+Verified visually, not just by typecheck. Since the meals tab needs a signed-in
+session and the only route to one was creating or altering an account in the
+production database, the two components were mounted in a throwaway Vite entry
+with mock props and a seeded store — enough to check the real layout at 468px
+and at 375px mobile, at 8 and 12 glasses. Harness deleted afterwards; note that
+leaving a second `.html` at the client root would have added a Vite entry.

@@ -428,26 +428,41 @@ export function MealsTab() {
       {/* ── Plan content (only when this date has a plan) ─────────────────── */}
       {isPlanDate && (
         <>
-          {/* Water */}
-          <div style={{ padding: '18px 20px 0' }}>
-            <WaterIntakeCard date={selectedDate} onExpand={() => setShowWaterDetail(true)} />
-          </div>
-
-          {/* Macro band */}
-          {profile && (
-            <div style={{ padding: '12px 20px 0' }}>
-              <ErrorBoundary>
-                <MacroAchievementCard
-                  meals={meals}
-                  eatenMask={meals.map((_, i) => getMealEaten(i))}
-                  replacements={replacements}
-                  date={selectedDate}
-                  profile={profile}
-                  eatenCount={eatenCount}
-                  mealsPerDay={mealsPerDay}
-                  additionalMeals={additionalMeals}
-                />
-              </ErrorBoundary>
+          {/* Macro band + hydration, side by side.
+              Hydration used to be a full-width horizontal card stacked above
+              the lime band, while the band's own right side — past the short
+              macro ticks — sat empty. Pairing them fills that space and saves
+              a row of vertical scroll. `alignItems: stretch` makes the sky
+              column match the band's height whatever the macro count. */}
+          {/* MacroAchievementCard renders nothing for a future date, so pair
+              them only when the band will actually be there — otherwise a
+              future day would show a lone 96px column beside empty space. */}
+          {profile && selectedDate <= todayStr() ? (
+            <div style={{ padding: '18px 20px 0', display: 'flex', alignItems: 'stretch', gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <ErrorBoundary>
+                  <MacroAchievementCard
+                    meals={meals}
+                    eatenMask={meals.map((_, i) => getMealEaten(i))}
+                    replacements={replacements}
+                    date={selectedDate}
+                    profile={profile}
+                    eatenCount={eatenCount}
+                    mealsPerDay={mealsPerDay}
+                    additionalMeals={additionalMeals}
+                  />
+                </ErrorBoundary>
+              </div>
+              <div style={{ width: 96, flexShrink: 0 }}>
+                <WaterIntakeCard date={selectedDate} onExpand={() => setShowWaterDetail(true)} />
+              </div>
+            </div>
+          ) : (
+            /* No profile, or a future date — the band renders nothing, so
+               hydration keeps the full width instead of sitting in a narrow
+               column beside a gap. */
+            <div style={{ padding: '18px 20px 0' }}>
+              <WaterIntakeCard date={selectedDate} onExpand={() => setShowWaterDetail(true)} />
             </div>
           )}
 
