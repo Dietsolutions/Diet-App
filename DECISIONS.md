@@ -1822,6 +1822,14 @@ reintroduces the gap.
 
 Two edge cases handled rather than discovered later:
 
+- The no-profile branch rendered hydration full width. That reads as a sensible
+  fallback but is really the loading state — a plan date cannot exist without a
+  profile — so on every launch the card appeared wide for a beat and then
+  snapped into the 96px column once the fetch landed. Caught on the device, not
+  in review: the first screenshot after install showed the wide card and a
+  missing band, and the giveaway was the goal reading 2.0L (the 8-glass default)
+  instead of the profile's 2.5L. Both cards now simply wait for `profile`, so
+  the pair appears once in its final shape.
 - `MacroAchievementCard` returns `null` for a future date, which would have left
   a lone 96px column beside a gap. Initially hydration kept the full width
   there; on review that was still wrong — both cards are consumption summaries,

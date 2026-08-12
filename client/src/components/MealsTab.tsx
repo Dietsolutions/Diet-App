@@ -442,35 +442,32 @@ export function MealsTab() {
               Both are consumption summaries, so neither belongs on a future
               date: there is nothing eaten and nothing drunk to report yet.
               A future day goes straight from the date header to the plan. */}
-          {!isFutureDate && (
-            profile ? (
-              <div style={{ padding: '18px 20px 0', display: 'flex', alignItems: 'stretch', gap: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <ErrorBoundary>
-                    <MacroAchievementCard
-                      meals={meals}
-                      eatenMask={meals.map((_, i) => getMealEaten(i))}
-                      replacements={replacements}
-                      date={selectedDate}
-                      profile={profile}
-                      eatenCount={eatenCount}
-                      mealsPerDay={mealsPerDay}
-                      additionalMeals={additionalMeals}
-                    />
-                  </ErrorBoundary>
-                </div>
-                <div style={{ width: 96, flexShrink: 0 }}>
-                  <WaterIntakeCard date={selectedDate} onExpand={() => setShowWaterDetail(true)} />
-                </div>
+          {/* Both cards wait on `profile`. A full-width hydration fallback for
+              the no-profile case looked reasonable but is really the loading
+              state — a plan date cannot exist without a profile — so on every
+              launch it rendered wide for a beat and then snapped into the
+              96px column once the fetch landed. Showing the pair once, in its
+              final shape, beats a visible reflow. */}
+          {!isFutureDate && profile && (
+            <div style={{ padding: '18px 20px 0', display: 'flex', alignItems: 'stretch', gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <ErrorBoundary>
+                  <MacroAchievementCard
+                    meals={meals}
+                    eatenMask={meals.map((_, i) => getMealEaten(i))}
+                    replacements={replacements}
+                    date={selectedDate}
+                    profile={profile}
+                    eatenCount={eatenCount}
+                    mealsPerDay={mealsPerDay}
+                    additionalMeals={additionalMeals}
+                  />
+                </ErrorBoundary>
               </div>
-            ) : (
-              /* No profile — the band cannot render without targets, so
-                 hydration keeps the full width rather than sitting in a
-                 narrow column beside a gap. */
-              <div style={{ padding: '18px 20px 0' }}>
+              <div style={{ width: 96, flexShrink: 0 }}>
                 <WaterIntakeCard date={selectedDate} onExpand={() => setShowWaterDetail(true)} />
               </div>
-            )
+            </div>
           )}
 
           {/* ── Meal list ─────────────────────────────────────────────────── */}
