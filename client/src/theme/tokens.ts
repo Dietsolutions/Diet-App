@@ -5,6 +5,7 @@ export const s2 = {
   bg2:        '#FFFFFF',   // raised from page
   surface:    '#FFFFFF',   // cards
   surface2:   '#F2F1EC',   // nested raise inside a white card
+  cream:      '#ECE4D6',   // warm panel — the shopping "people" card (ref: v3.cream)
   ink:        '#0F140F',   // NEW — near-black, for dark cards and dark buttons
   ink2:       '#19201A',
   // ── Borders ──

@@ -17,6 +17,49 @@ function multiplyQuantity(qty: string, multiplier: number): string {
   return Number.isInteger(result) ? String(result) : result.toFixed(1);
 }
 
+// Category dot colours. The server emits a fixed set of seven categories
+// (see shoppingListUtils' prompt), so these are mapped by name rather than
+// cycled by index — a category keeps its colour as the list grows or shrinks.
+// The three the reference names explicitly are matched to it: Proteins peach,
+// Vegetables mint, pantry butter.
+const CATEGORY_TINTS: Record<string, string> = {
+  'proteins':         s2.peach,
+  'dairy':            s2.sky,
+  'vegetables':       s2.mint,
+  'fruits':           s2.lilac,
+  'dry goods':        s2.butter,
+  'pantry & spices':  s2.butter,
+  'supplements':      s2.lilac,
+};
+
+function categoryTint(name: string): string {
+  return CATEGORY_TINTS[name.trim().toLowerCase()] ?? s2.mint;
+}
+
+/** Round stepper for the people count. (ref: V3Shopping's Step) */
+function StepBtn({ label, onClick, disabled }: {
+  label: string; onClick: () => void; disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label === '+' ? 'Increase people count' : 'Decrease people count'}
+      style={{
+        width: 38, height: 38, borderRadius: s2.rPill,
+        background: disabled ? 'rgba(15,20,15,0.05)' : s2.surface,
+        border: disabled ? '1px solid transparent' : `1px solid ${s2.lineStrong}`,
+        color: disabled ? s2.textDimmer : s2.text,
+        fontFamily: s2.sans, fontSize: 18, fontWeight: 700,
+        cursor: disabled ? 'default' : 'pointer',
+        flexShrink: 0, lineHeight: 1,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 // ── ShoppingTab ────────────────────────────────────────────────────────────
 export function ShoppingTab() {
   const {
@@ -184,96 +227,72 @@ export function ShoppingTab() {
         />
       )}
 
-      {/* 3 px progress bar */}
+      {/* Chunky striped progress bar (ref: V3Shopping uses h=10, striped) */}
       <div style={{ padding: '12px 20px 0' }}>
-        <Bar pct={progress} color={s2.accent} h={3} />
+        <Bar pct={progress} color={s2.accentFill} h={10} striped />
       </div>
 
       <div style={{ padding: '16px 20px 0' }}>
 
-        {/* ── People stepper ───────────────────────────────────────────────── */}
+        {/* ── People stepper ─────────────────────────────────────────────────
+            Cream panel, round steppers, count between them (ref: V3Shopping).
+            Previously the count sat on the left at 34px with the buttons
+            grouped to the right, which read as two unrelated controls. */}
         {isShoppingGenerated && (
-          <Card padding={14} style={{ marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Card bg={s2.cream} radius={26} padding={16} style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
               <div>
-                <HairLabel>SHOPPING FOR</HairLabel>
+                <HairLabel color="rgba(15,20,15,0.45)">SHOPPING FOR</HairLabel>
                 <div style={{
-                  fontFamily: s2.sans,
-                  fontSize: 34,
-                  fontWeight: 300,
-                  letterSpacing: '-0.03em',
-                  lineHeight: 1,
-                  marginTop: 6,
-                  color: s2.text,
+                  fontFamily: s2.sans, fontSize: 13, fontWeight: 700,
+                  color: s2.text, marginTop: 6,
                 }}>
-                  {peopleCount}
+                  Quantities scale ×{peopleCount}
                 </div>
                 <div style={{
-                  fontFamily: s2.mono,
-                  fontSize: 9,
-                  letterSpacing: '0.22em',
-                  color: s2.textDimmer,
-                  textTransform: 'uppercase',
-                  marginTop: 4,
+                  fontFamily: s2.sans, fontSize: 11.5, fontWeight: 500,
+                  color: s2.textDim, marginTop: 2,
                 }}>
-                  {peopleCount === 1 ? 'PERSON' : 'PEOPLE'}
+                  Cooking for a family or a cook
                 </div>
               </div>
 
-              {/* − / + buttons */}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                <StepBtn
+                  label="−"
+                  disabled={peopleCount <= 1}
                   onClick={() => {
                     const newCount = Math.max(1, peopleCount - 1);
                     updatePeopleCount(newCount);
                     if (newCount !== peopleCount) track('shopping_people_count_changed', { count: newCount });
                   }}
-                  disabled={peopleCount <= 1}
-                  style={{
-                    width: 38,
-                    height: 38,
-                    border: `1px solid ${s2.lineStrong}`,
-                    background: 'transparent',
-                    color: peopleCount <= 1 ? s2.textDimmer : s2.text,
-                    fontFamily: s2.sans,
-                    fontSize: 20,
-                    cursor: peopleCount <= 1 ? 'default' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  −
-                </button>
-                <button
+                />
+                <div style={{ minWidth: 52, textAlign: 'center' }}>
+                  <div style={{
+                    fontFamily: s2.disp, fontSize: 30, fontWeight: 700,
+                    letterSpacing: '-0.04em', lineHeight: 1, color: s2.text,
+                  }}>
+                    {peopleCount}
+                  </div>
+                  <div style={{
+                    fontFamily: s2.sans, fontSize: 9, fontWeight: 700,
+                    letterSpacing: '0.1em', textTransform: 'uppercase',
+                    color: s2.textDimmer, marginTop: 3,
+                  }}>
+                    {peopleCount === 1 ? 'Person' : 'People'}
+                  </div>
+                </div>
+                <StepBtn
+                  label="+"
+                  disabled={peopleCount >= 12}
                   onClick={() => {
-                    updatePeopleCount(peopleCount + 1);
-                    track('shopping_people_count_changed', { count: peopleCount + 1 });
+                    const newCount = Math.min(12, peopleCount + 1);
+                    updatePeopleCount(newCount);
+                    if (newCount !== peopleCount) track('shopping_people_count_changed', { count: newCount });
                   }}
-                  style={{
-                    width: 38,
-                    height: 38,
-                    border: `1px solid ${s2.lineStrong}`,
-                    background: 'transparent',
-                    color: s2.text,
-                    fontFamily: s2.sans,
-                    fontSize: 20,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  +
-                </button>
+                />
               </div>
             </div>
-
-            {peopleCount > 1 && (
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${s2.line}` }}>
-                <HairLabel color={s2.accent}>QUANTITIES SCALED FOR {peopleCount}×</HairLabel>
-              </div>
-            )}
           </Card>
         )}
 
@@ -291,78 +310,89 @@ export function ShoppingTab() {
             </div>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {shoppingCategories.map((cat) => {
               const catBought = cat.items.filter((i: any) => i.bought).length;
+              const complete  = catBought === cat.items.length;
               return (
-                <div key={cat.name}>
-                  {/* Category header */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <HairLabel color={s2.textDim}>{cat.name.toUpperCase()}</HairLabel>
-                    <HairLabel>{catBought}/{cat.items.length}</HairLabel>
+                /* One soft card per category, items as hairline-separated rows.
+                   They used to be individually bordered square buttons, which
+                   read as a stack of boxes rather than a list (ref: V3Shopping
+                   uses r=26 with rows inside). */
+                <Card key={cat.name} radius={26} padding={16}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
+                    <div style={{
+                      width: 9, height: 9, borderRadius: s2.rPill,
+                      background: categoryTint(cat.name), flexShrink: 0,
+                    }} />
+                    <HairLabel color={s2.text}>{cat.name}</HairLabel>
+                    <span style={{
+                      marginLeft: 'auto', fontFamily: s2.sans, fontSize: 11, fontWeight: 700,
+                      color: complete ? s2.accent : s2.textDimmer,
+                    }}>
+                      {catBought}/{cat.items.length}
+                    </span>
                   </div>
 
-                  {/* Items */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {cat.items.map((item: any) => {
-                      const rawQty = item.quantity ? String(item.quantity) : '';
-                      const displayQty = rawQty && peopleCount > 1
-                        ? multiplyQuantity(rawQty, peopleCount)
-                        : rawQty;
-                      const qtyMultiplied = peopleCount > 1 && rawQty && displayQty !== rawQty;
+                  {cat.items.map((item: any, ii: number) => {
+                    const rawQty = item.quantity ? String(item.quantity) : '';
+                    const displayQty = rawQty && peopleCount > 1
+                      ? multiplyQuantity(rawQty, peopleCount)
+                      : rawQty;
+                    const qtyMultiplied = peopleCount > 1 && rawQty && displayQty !== rawQty;
 
-                      return (
-                        <button
-                          key={item.key}
-                          onClick={() => {
-                            if (!item.bought) {
-                              track('shopping_item_bought', { category: cat.name });
-                            }
-                            toggleItem(item.key, item.bought);
-                          }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            padding: '11px 12px',
-                            background: item.bought ? 'rgba(255,106,42,0.06)' : s2.surface,
-                            border: `1px solid ${item.bought ? s2.lineStrong : s2.line}`,
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                            width: '100%',
-                          }}
-                        >
-                          <Check on={item.bought} color={s2.accent} size={16} />
+                    return (
+                      <button
+                        key={item.key}
+                        onClick={() => {
+                          if (!item.bought) {
+                            track('shopping_item_bought', { category: cat.name });
+                          }
+                          toggleItem(item.key, item.bought);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '11px 0',
+                          background: 'transparent',
+                          border: 'none',
+                          borderBottom: ii === cat.items.length - 1 ? 'none' : `1px solid ${s2.line}`,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          width: '100%',
+                        }}
+                      >
+                        <Check on={item.bought} color={s2.accentFill} size={22} />
 
-                          {/* Name */}
-                          <div style={{
-                            flex: 1,
+                        <span style={{
+                          flex: 1,
+                          fontFamily: s2.sans,
+                          fontSize: 13.5,
+                          fontWeight: 600,
+                          color: item.bought ? s2.textDimmer : s2.text,
+                          textDecoration: item.bought ? 'line-through' : 'none',
+                        }}>
+                          {item.name}
+                        </span>
+
+                        {displayQty && (
+                          <span style={{
                             fontFamily: s2.sans,
-                            fontSize: 14,
-                            color: item.bought ? s2.textDimmer : s2.text,
-                            textDecoration: item.bought ? 'line-through' : 'none',
-                            textDecorationColor: s2.textDimmer,
+                            fontSize: 12.5,
+                            fontWeight: 700,
+                            color: item.bought
+                              ? s2.textDimmer
+                              : (qtyMultiplied ? s2.accent : s2.textDim),
+                            flexShrink: 0,
                           }}>
-                            {item.name}
-                          </div>
-
-                          {/* Quantity */}
-                          {displayQty && (
-                            <div style={{
-                              fontFamily: s2.mono,
-                              fontSize: 10,
-                              color: qtyMultiplied ? s2.accent : s2.textDimmer,
-                              letterSpacing: '0.05em',
-                              flexShrink: 0,
-                            }}>
-                              {displayQty}{item.unit ? ` ${item.unit}` : ''}
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                            {displayQty}{item.unit ? ` ${item.unit}` : ''}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </Card>
               );
             })}
           </div>

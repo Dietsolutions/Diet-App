@@ -1879,3 +1879,51 @@ have ellipsised. Checked at 360 and 375, with a long label active.
   footprint; the new one is ~84px, so the last row of any tab without its own
   generous bottom padding (MealsTab ends with a 16px spacer) sat under the bar.
   Now 88.
+
+## 37. Shop tab brought back in line with the design reference (2026-08-09)
+
+Reported: ingredients rendered as rectangular boxes where the design has soft
+corners. Worked from `design-reference/v3-screens-core.jsx` → `V3Shopping`
+rather than the screenshots, which is where the numbers below come from.
+
+The structural mismatch was bigger than the corners. The design has **one
+rounded card per category** (`r=26`) with items as hairline-separated rows
+inside it; the implementation had a bare category label followed by a stack of
+individually bordered `<button>`s with no radius at all — a column of boxes
+rather than a list. Rows now sit inside a `Card radius={26}`, carry only a
+bottom hairline (none on the last), and have no background or border of their
+own.
+
+Other drift fixed in the same pass, all against the reference:
+
+- Category header gained the 9px colour dot and the `done/total` count, which
+  turns accent when a category is complete.
+- Bought rows had a leftover Strain orange wash (`rgba(255,106,42,0.06)`).
+  Gone — the design distinguishes bought purely by the filled check, dimmed
+  text and strikethrough.
+- Checks were 16px; the reference uses 22.
+- Quantities were 10px mono; the reference uses 12.5px sans at weight 700.
+- The progress bar was a 3px hairline; the reference is `h=10` striped. Our
+  `Bar` already supported `striped` — it just was not being used.
+- The people panel was a plain white card with the count on the left at 34px
+  and the steppers grouped right, reading as two unrelated controls. It is now
+  the reference's cream panel (`r=26`) with the count between two round 38px
+  steppers, plus the "Quantities scale ×N" and "Cooking for a family or a cook"
+  lines it was missing.
+
+`s2.cream` (#ECE4D6) had to be added — the palette carried every pastel but not
+the warm panel colour the design uses here.
+
+Category tints are mapped by name, not cycled by index, so a category keeps its
+colour as the list grows: the server emits a fixed set of seven (see the prompt
+in `shoppingListUtils`), and the three the reference names explicitly are
+matched to it — Proteins peach, Vegetables mint, pantry butter.
+
+Two deliberate deviations kept, both from earlier requests in this session: the
+reset control sits in the header (§34) rather than the design's bottom, and
+share is a header pill rather than the design's full-width dark button.
+
+Verified by rendering the real `ShoppingTab` in a throwaway harness with the
+store seeded from the reference's own fixture — the tab reads from
+`appStore`, so no session was needed. Card radius confirmed at 26px and rows
+confirmed to carry only a bottom border. Harness removed.
