@@ -1972,3 +1972,40 @@ round +, wash rather than fill), plus typecheck and a clean production build.
 The remaining screens were checked by re-running the scanner to zero genuine
 hits rather than by screenshotting each one, which is weaker evidence — the
 radii are confirmed present, their visual balance on a real device is not.
+
+## 39. Track tab: day card removed, target counts lifted (2026-08-14)
+
+Two requested changes.
+
+**Removed the selected-day card** — the "Day N of 7 / Friday, 14 Aug / Meals
+logged / View plan / Mark all eaten" block. Its state went with it:
+`markAllEaten`, `allEaten`, `selectedPct` and `setActiveTab` were used by
+nothing else, so they are gone from the hook destructure too rather than left
+dangling (the client tsconfig has `noUnusedLocals: false`, so they would not
+have been flagged).
+
+**Moved UNDER TARGET / OVER TARGET** out of the monthly-macros card and up into
+a second row beneath THIS WEEK / THIS MONTH / GOAL ETA.
+
+That move needed a decision. Inside the monthly card those two tiles were
+recomputed per macro tab, so switching to PROTEIN changed them. Above the tabs
+they cannot follow a control that is off-screen, so they are now fixed to
+calories — the default tab, and the only reading that makes sense out of that
+context. `sub` says "calories below/above plan" so the basis is on the card
+rather than implied.
+
+They no longer depend on `MonthlyCalorieChart`'s internal state at all:
+TrackerTab already fetches `/api/tracker/monthly-macros`, so the counts derive
+from that with the same test the chart uses — a day with data whose calorie
+total falls either side of target. Delta is computed as
+`calories.consumed - calories.target`, since the client's `DayMacroEntry`
+carries per-macro `{consumed, target}` rather than the flat `delta` the chart
+builds internally. Hidden entirely when no day has data.
+
+`DAILY AVG` stays in the monthly card, still per macro tab, now full width
+rather than one third of a three-column grid.
+
+Verified in a harness with the monthly endpoint stubbed: a fixture of 9 under,
+3 over and 1 exactly on target rendered 9 and 3 — the on-target day correctly
+counted in neither — with the cards below the big-three row and the day card
+gone.

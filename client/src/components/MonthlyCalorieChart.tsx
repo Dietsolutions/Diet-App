@@ -395,15 +395,15 @@ export function MonthlyCalorieChart() {
           </div>
         )}
 
-        {/* Daily avg / under / over — recomputed per macro tab (ref: V3Kcal) */}
+        {/* Daily average, recomputed per macro tab (ref: V3Kcal). The under/over
+            target counts that sat beside it now live in TrackerTab, above the
+            macro tabs, where they are fixed to calories. */}
         {!noData && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 14 }}>
             {([
               { k: 'DAILY AVG',     v: cfg.unit === 'kcal' ? macroTot.dailyAvg.toLocaleString() : String(Math.round(macroTot.dailyAvg)), u: cfg.unit,  bg: s2.accentFill },
-              { k: 'UNDER TARGET',  v: String(chartData.filter(d => d.hasData && d.delta < 0).length), u: 'days', bg: s2.mint  },
-              { k: 'OVER TARGET',   v: String(chartData.filter(d => d.hasData && d.delta > 0).length), u: 'days', bg: s2.peach },
             ]).map(c => (
-              <div key={c.k} style={{ background: c.bg, borderRadius: 18, padding: '12px 10px' }}>
+              <div key={c.k} style={{ background: c.bg, borderRadius: 18, padding: '12px 14px' }}>
                 <HairLabel color="rgba(15,20,15,0.5)" style={{ fontSize: 7.5 }}>{c.k}</HairLabel>
                 <div style={{ fontFamily: s2.disp, fontSize: 22, fontWeight: 700, color: s2.ink, letterSpacing: '-0.035em', lineHeight: 1, marginTop: 7, fontVariantNumeric: 'tabular-nums' }}>
                   {c.v}

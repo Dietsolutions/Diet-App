@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { PullRefreshWrapper } from './ui/PullRefreshWrapper';
 import { format, parseISO, startOfMonth, getDaysInMonth, getDay, addDays, startOfWeek } from 'date-fns';
 import axios from 'axios';
@@ -54,9 +54,9 @@ interface DayMacroEntry {
 
 // ── TrackerTab ─────────────────────────────────────────────────────────────
 export function TrackerTab() {
-  const { weekData, stats, loadWeekData, markAllEaten } = useTracker();
+  const { weekData, stats, loadWeekData } = useTracker();
   const {
-    selectedDate, setSelectedDate, setActiveTab,
+    selectedDate, setSelectedDate,
     trackerCalendarMonth,
     mealsPerDay, planDuration, planWeekStartDate,
   } = useAppStore();
@@ -143,9 +143,19 @@ export function TrackerTab() {
   const selectedDayData  = weekDataByDate[selectedDate] ?? null;
   // Use modulo-based dayIndex so cycling plans show the correct "DAY X OF Y" label
   const selectedDayIndex = getPlanDayIndex(selectedDate, planWeekStartDate, planDuration);
+  // Days this month whose calorie total fell either side of target. Mirrors
+  // MonthlyCalorieChart's KCAL test so the two never disagree.
+  const targetDayCounts = useMemo(() => {
+    const withData = dailyMacros.filter(d => d.hasData);
+    const delta = (d: DayMacroEntry) => d.calories.consumed - d.calories.target;
+    return {
+      under: withData.filter(d => delta(d) < 0).length,
+      over:  withData.filter(d => delta(d) > 0).length,
+      total: withData.length,
+    };
+  }, [dailyMacros]);
+
   const eatenCount       = selectedDayData?.meals.filter(m => m.eaten).length ?? 0;
-  const allEaten         = eatenCount === mealsPerDay;
-  const selectedPct      = mealsPerDay > 0 ? eatenCount / mealsPerDay : 0;
 
   // ── Metric series (last 14 entries with data) ────────────────────────────
   const m = METRICS[metric];
@@ -250,6 +260,31 @@ export function TrackerTab() {
         />
         <GoalStatCard goalCountdown={goalCountdown} />
       </div>
+
+      {/* ── Under / over target days ───────────────────────────────────────
+          Moved up from inside the monthly-macros card. There they were
+          recomputed per macro tab; here they sit above the tabs, so they are
+          fixed to calories — the default tab and the only reading that makes
+          sense out of that context. Same source and the same test the chart
+          uses (a day with data whose delta falls either side of target). */}
+      {targetDayCounts.total > 0 && (
+        <div style={{ padding: '8px 20px 0', display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8 }}>
+          <StatCard
+            bg={s2.mint}
+            label="UNDER TARGET"
+            big={String(targetDayCounts.under)}
+            unit="days"
+            sub="calories below plan"
+          />
+          <StatCard
+            bg={s2.peach}
+            label="OVER TARGET"
+            big={String(targetDayCounts.over)}
+            unit="days"
+            sub="calories above plan"
+          />
+        </div>
+      )}
 
       {/* ── Metric switcher chart (dark card) ─────────────────────────────── */}
       <div style={{ padding: '12px 20px 0' }}>
@@ -378,37 +413,6 @@ export function TrackerTab() {
           </div>
         </Card>
       </div>
-
-      {/* ── Selected day detail ───────────────────────────────────────────── */}
-      {selectedDayIndex >= 0 && (
-        <div style={{ padding: '12px 20px 0' }}>
-          <Card radius={26} padding={18}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <HairLabel>DAY {selectedDayIndex + 1} OF {planDuration}</HairLabel>
-                <H size={22} style={{ marginTop: 6 }}>{format(parseISO(selectedDate), 'EEEE, d MMM')}</H>
-              </div>
-              <span style={{
-                fontFamily: s2.sans, fontSize: 11, fontWeight: 700,
-                background: s2.accentWash, color: s2.ink,
-                borderRadius: s2.rPill, padding: '6px 11px', whiteSpace: 'nowrap',
-              }}>
-                {eatenCount} / {mealsPerDay} eaten
-              </span>
-            </div>
-            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', fontFamily: s2.sans, fontSize: 11.5, fontWeight: 700, color: s2.textDim, marginBottom: 7 }}>
-              <span>Meals logged</span><span>{Math.round(selectedPct * 100)}%</span>
-            </div>
-            <Bar pct={selectedPct} h={9} />
-            <div style={{ display: 'flex', gap: 9, marginTop: 16 }}>
-              <Btn small kind="lime" onClick={() => setActiveTab('meals')}>View plan</Btn>
-              {!allEaten && selectedDate <= today && (
-                <Btn small kind="light" onClick={() => markAllEaten(selectedDate, mealsPerDay)}>Mark all eaten</Btn>
-              )}
-            </div>
-          </Card>
-        </div>
-      )}
 
       {/* ── Monthly macros chart ──────────────────────────────────────────── */}
       <div ref={monthlyChartRef} style={{ padding: '18px 20px 0' }}>
