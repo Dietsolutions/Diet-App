@@ -1927,3 +1927,48 @@ Verified by rendering the real `ShoppingTab` in a throwaway harness with the
 store seeded from the reference's own fixture — the tab reads from
 `appStore`, so no session was needed. Card radius confirmed at 26px and rows
 confirmed to carry only a bottom border. Harness removed.
+
+## 38. Profile, swap, regenerate and settings matched to the reference (2026-08-09)
+
+Follow-up to §37, same cause: the Fresh Light migration swapped colours but left
+Strain's square, bordered boxes behind on the screens it did not rebuild
+structurally. Worked from the design files, using the README's screen→file map
+and the canvas's script order to pick the authoritative definition — several
+components are defined more than once (`V3Profile` in both `-core` and
+`-profile`, `V3ReplaceSheet` in both `-flow` and `-replacer`), and the later
+script wins. So: Profile from `v3-screens-profile.jsx`, the swap flow from
+`v3-screens-replacer.jsx`, regenerate from `v3-screens-customise.jsx`.
+
+Rather than eyeball each screen, scanned every `style={{…}}` block in the ten
+relevant files for one that draws a box (visible border or non-transparent
+background) with no `borderRadius`. That found 54. Most were genuine; the rest
+were things that *should* be square — full-screen containers, the modal
+overlay, hairline dividers, a sheet's grab handle, a sticky footer — which were
+left alone.
+
+Fixed, all against the reference's own values:
+
+- **Profile**: stat tiles r=20 borderless with the target as a lime *block*;
+  data pairs r=18; nutrient tiles r=16 (they had no radius at all); the kg/lbs
+  control rebuilt as a pill segmented track with a dark active pill; plan
+  duration r=20 lime blocks with the REC chip riding the top edge as a dark
+  pill; plan history r=18; the avatar as a 50px lime circle (it was a square
+  lime box with a border); ACTIVE chip to a pill; delete/regen panels rounded.
+- **Swap**: the sheet gained rounded top corners; category buttons r=18 with a
+  1.5px border; search field and quick-picks to pills; result rows r=16; the
+  food card's "+" to a circle and its macro chips to soft tiles; CTAs to pills.
+- **Regenerate / settings**: back button and filter chips to pills, CTAs to
+  pills, error panels r=18, the notification toggle row r=18.
+
+Also corrected three instances of the fill-vs-text trap the migration warned
+about — `GoalProjectionCard`, the active plan-history row and the AI food card
+each used `accentFill` (the solid lime) as a background behind accent-coloured
+text, where the reference uses the soft `limeSoft` wash. And two leftover
+Strain oranges: the legal disclaimer's `rgba(249,115,22,…)` and several
+`rgba(255,62,62,…)` reds that predate `s2.warn`.
+
+Verified by rendering the food cards in a throwaway harness (soft corners,
+round +, wash rather than fill), plus typecheck and a clean production build.
+The remaining screens were checked by re-running the scanner to zero genuine
+hits rather than by screenshotting each one, which is weaker evidence — the
+radii are confirmed present, their visual balance on a real device is not.

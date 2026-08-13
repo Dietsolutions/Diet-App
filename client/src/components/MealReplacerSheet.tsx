@@ -90,6 +90,8 @@ export function MealReplacerSheet() {
           width: '100%',
           maxWidth: 512,
           background: s2.bg,
+          borderTopLeftRadius: 28,
+          borderTopRightRadius: 28,
           borderTop: `1px solid ${s2.lineStrong}`,
           maxHeight: '90vh',
           display: 'flex',
@@ -170,9 +172,10 @@ function CategoryPicker({
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
               style={{
-                padding: '16px 14px',
-                border: `1px solid ${active ? s2.accent : s2.line}`,
-                background: active ? s2.accentFill : s2.surface,
+                padding: '17px 15px',
+                borderRadius: 18,
+                border: `1.5px solid ${active ? s2.accent : s2.line}`,
+                background: active ? s2.accentWash : s2.surface,
                 cursor: 'pointer',
                 textAlign: 'left',
               }}
@@ -195,9 +198,10 @@ function CategoryPicker({
         onClick={onNext}
         style={{
           width: '100%',
-          padding: '14px 0',
+          padding: '15px 0',
+          borderRadius: s2.rPill,
           background: selectedCategory ? s2.accentFill : s2.surface,
-          border: `1px solid ${selectedCategory ? s2.accent : s2.line}`,
+          border: selectedCategory ? 'none' : `1px solid ${s2.line}`,
           fontFamily: s2.mono,
           fontSize: 10,
           letterSpacing: '0.2em',

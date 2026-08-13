@@ -28,6 +28,7 @@ export function MealReplacerResults({ initialQuery, onBack }: Props) {
           onClick={onBack}
           style={{
             background: 'transparent',
+            borderRadius: s2.rPill,
             border: `1px solid ${s2.lineStrong}`,
             width: 36,
             height: 36,
@@ -104,7 +105,8 @@ export function MealReplacerResults({ initialQuery, onBack }: Props) {
               onClick={() => setScreen('ai')}
               style={{
                 padding: '12px 20px',
-                background: s2.accentFill,
+                borderRadius: s2.rPill,
+                background: s2.accentWash,
                 border: `1px solid ${s2.accent}`,
                 fontFamily: s2.mono,
                 fontSize: 9,

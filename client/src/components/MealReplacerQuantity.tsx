@@ -128,6 +128,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
               key={sh}
               onClick={() => setQuantity(sh)}
               style={{
+                borderRadius: s2.rPill,
                 flex: 1,
                 padding: '9px 0',
                 border: `1px solid ${quantity === sh ? s2.accent : s2.lineStrong}`,
@@ -153,6 +154,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
             onClick={() => adjustQty(-0.5)}
             disabled={quantity <= 0.5}
             style={{
+              borderRadius: s2.rPill,
               width: 40, height: 40,
               border: `1px solid ${s2.lineStrong}`,
               background: 'transparent',
@@ -185,6 +187,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
           <button
             onClick={() => adjustQty(0.5)}
             style={{
+              borderRadius: s2.rPill,
               width: 40, height: 40,
               border: `1px solid ${s2.lineStrong}`,
               background: 'transparent',
@@ -250,7 +253,8 @@ export function MealReplacerQuantity({ onBack }: Props) {
       </HairLabel>
 
       {error && (
-        <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
+        <div style={{
+            borderRadius: 18, border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
           <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{error}</div>
         </div>
       )}
@@ -259,6 +263,7 @@ export function MealReplacerQuantity({ onBack }: Props) {
         onClick={handleSubmit}
         disabled={isSubmitting}
         style={{
+          borderRadius: s2.rPill,
           width: '100%',
           padding: '14px 0',
           background: isSubmitting ? s2.surface : s2.accentFill,

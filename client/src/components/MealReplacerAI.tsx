@@ -128,6 +128,7 @@ export function MealReplacerAI({ onBack }: Props) {
           onClick={handleEstimate}
           disabled={isEstimating || description.trim().length < 3}
           style={{
+            borderRadius: s2.rPill,
             width: '100%',
             padding: '14px 0',
             background: isEstimating || description.trim().length < 3 ? s2.surface : s2.accentFill,
@@ -154,7 +155,8 @@ export function MealReplacerAI({ onBack }: Props) {
       )}
 
       {error && (
-        <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
+        <div style={{
+            borderRadius: 18, border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
           <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{error}</div>
         </div>
       )}
@@ -203,7 +205,8 @@ export function MealReplacerAI({ onBack }: Props) {
           </HairLabel>
 
           {error && (
-            <div style={{ border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
+            <div style={{
+            borderRadius: 18, border: `1px solid rgba(255,62,62,0.5)`, background: 'rgba(255,62,62,0.08)', padding: '10px 14px' }}>
               <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{error}</div>
             </div>
           )}
@@ -213,6 +216,7 @@ export function MealReplacerAI({ onBack }: Props) {
               onClick={handleLog}
               disabled={isLogging}
               style={{
+                borderRadius: s2.rPill,
                 flex: 1,
                 padding: '13px 0',
                 background: isLogging ? s2.surface : s2.accentFill,

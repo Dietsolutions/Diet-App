@@ -104,7 +104,8 @@ export function NotificationSettings() {
   return (
     <div>
       {/* Master toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${prefs.enabled ? s2.accent : s2.line}`, background: prefs.enabled ? s2.accentFill : s2.surface, marginBottom: 2 }}>
+      <div style={{
+            borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${prefs.enabled ? s2.accent : s2.line}`, background: prefs.enabled ? s2.accentFill : s2.surface, marginBottom: 2 }}>
         <div>
           <div style={{ fontFamily: s2.sans, fontSize: 14, fontWeight: 500, color: prefs.enabled ? s2.accent : s2.text }}>
             {requesting ? 'Requesting permission…' : 'Notifications'}
@@ -147,6 +148,7 @@ export function NotificationSettings() {
               <div style={{ display: 'flex', gap: 6 }}>
                 {[1, 2, 3, 4].map((h) => (
                   <button key={h} onClick={() => handleIntervalChange(h)} style={{
+                    borderRadius: s2.rPill,
                     padding: '4px 10px', border: `1px solid ${prefs.waterIntervalHours === h ? s2.accent : s2.line}`,
                     background: prefs.waterIntervalHours === h ? s2.accentFill : 'transparent',
                     fontFamily: s2.mono, fontSize: 10, color: prefs.waterIntervalHours === h ? s2.accent : s2.textDim,

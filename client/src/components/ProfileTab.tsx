@@ -272,7 +272,7 @@ export function ProfileTab() {
             }} />
           </div>
           {error && (
-            <div style={{ marginTop: 20, border: `1px solid ${s2.warn}`, padding: 14, background: 'rgba(255,62,62,0.08)' }}>
+            <div style={{ marginTop: 20, borderRadius: 18, border: `1px solid ${s2.warn}`, padding: 14, background: 'rgba(229,72,77,0.08)' }}>
               <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.warn }}>{error}</div>
               <button
                 onClick={() => setRegenerating(false)}
@@ -328,13 +328,14 @@ export function ProfileTab() {
         <Card padding={16}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             {user?.avatar ? (
-              <img src={user.avatar} alt="" style={{ width: 48, height: 48, objectFit: 'cover', flexShrink: 0 }} />
+              <img src={user.avatar} alt="" style={{ width: 50, height: 50, borderRadius: s2.rPill, objectFit: 'cover', flexShrink: 0 }} />
             ) : (
               <div style={{
-                width: 48,
-                height: 48,
+                width: 50,
+                height: 50,
+                borderRadius: s2.rPill,
                 background: s2.accentFill,
-                border: `1px solid ${s2.accent}`,
+                border: 'none',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -363,14 +364,21 @@ export function ProfileTab() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <HairLabel>BODY STATS</HairLabel>
                 {/* Units toggle */}
-                <div style={{ display: 'flex', gap: 0 }}>
+                {/* Pill segmented control: sunken track, dark active pill with
+                    lime label (ref: V3Profile). Was two square bordered buttons. */}
+                <div style={{
+                  display: 'flex', gap: 5,
+                  background: 'rgba(15,20,15,0.06)',
+                  borderRadius: s2.rPill, padding: 3,
+                }}>
                   {(['kg', 'lbs'] as const).map((u) => (
                     <button key={u} onClick={() => setUnit(u)} style={{
-                      padding: '3px 10px', border: `1px solid ${unit === u ? s2.accent : s2.line}`,
-                      background: unit === u ? s2.accentFill : 'transparent',
-                      fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.1em',
-                      color: unit === u ? s2.accent : s2.textDim,
-                      cursor: 'pointer', textTransform: 'uppercase',
+                      border: 'none', cursor: 'pointer',
+                      borderRadius: s2.rPill, padding: '5px 13px',
+                      background: unit === u ? s2.ink : 'transparent',
+                      color: unit === u ? s2.accentFill : s2.textDim,
+                      fontFamily: s2.sans, fontSize: 9.5, fontWeight: 800,
+                      letterSpacing: '0.08em', textTransform: 'uppercase',
                     }}>{u}</button>
                   ))}
                 </div>
@@ -436,34 +444,39 @@ export function ProfileTab() {
                   key={d}
                   onClick={() => handlePlanDurationChange(d)}
                   style={{
-                    padding: '14px 12px',
-                    border: `1px solid ${active ? s2.accent : s2.line}`,
+                    borderRadius: 20,
+                    padding: '15px 14px',
+                    border: 'none',
                     background: active ? s2.accentFill : s2.surface,
                     cursor: 'pointer',
                     textAlign: 'left',
                     position: 'relative',
                   }}
                 >
+                  {/* Dark chip riding the top edge, lime label (ref: V3Profile).
+                      Was a lime-on-lime chip flush inside the border. */}
                   {d === 14 && (
                     <div style={{
                       position: 'absolute',
-                      top: -1,
-                      right: 8,
-                      background: s2.accentFill,
-                      fontFamily: s2.mono,
-                      fontSize: 7,
+                      top: -8,
+                      right: 10,
+                      background: s2.ink,
+                      borderRadius: s2.rPill,
+                      fontFamily: s2.sans,
+                      fontSize: 8,
+                      fontWeight: 800,
                       letterSpacing: '0.12em',
-                      color: s2.ink,
-                      padding: '2px 6px',
+                      color: s2.accentFill,
+                      padding: '3px 8px',
                       textTransform: 'uppercase',
                     }}>
                       REC
                     </div>
                   )}
-                  <div style={{ fontFamily: s2.sans, fontSize: 15, fontWeight: 500, color: active ? s2.accent : s2.text, marginBottom: 3 }}>
+                  <div style={{ fontFamily: s2.sans, fontSize: 15, fontWeight: 700, color: s2.ink, marginBottom: 3 }}>
                     {d}-Day Plan
                   </div>
-                  <HairLabel color={active ? s2.accentSoft : s2.textDimmer}>
+                  <HairLabel color={active ? 'rgba(15,20,15,0.5)' : s2.textDimmer}>
                     {d === 7 ? 'ONE WEEK' : 'MAX VARIETY'}
                   </HairLabel>
                 </button>
@@ -492,10 +505,10 @@ export function ProfileTab() {
         {genUsage && (
           <div>
             <div style={{
-              borderRadius: s2.rMd,
+              borderRadius: 18,
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '10px 14px',
-              background: s2.surface, border: `1px solid ${s2.line}`,
+              padding: '13px 14px',
+              background: s2.surface,
               marginBottom: 8,
             }}>
               <HairLabel>PLAN REGENERATIONS THIS MONTH</HairLabel>
@@ -511,8 +524,9 @@ export function ProfileTab() {
             {genUsage.remaining === 0 && (
               <div style={{
                 padding: '10px 14px',
-                background: 'rgba(255,62,62,0.06)',
-                border: `1px solid rgba(255,62,62,0.25)`,
+                borderRadius: 18,
+                background: 'rgba(229,72,77,0.07)',
+                border: `1px solid rgba(229,72,77,0.25)`,
                 marginBottom: 8,
                 fontFamily: s2.sans, fontSize: 12,
                 color: s2.warn, textAlign: 'center',
@@ -538,7 +552,8 @@ export function ProfileTab() {
           style={{
             width: '100%',
             background: 'transparent',
-            border: `1px solid rgba(255,62,62,0.3)`,
+            borderRadius: s2.rPill,
+            border: `1px solid rgba(229,72,77,0.3)`,
             padding: '13px 0',
             fontFamily: s2.mono,
             fontSize: 10,
@@ -556,7 +571,7 @@ export function ProfileTab() {
         {/* ── Delete Account ──────────────────────────────────────────────── */}
         {deleteConfirm ? (
           <div style={{
-            border: `1px solid rgba(255,62,62,0.3)`, padding: 14,
+            borderRadius: 18, border: `1px solid rgba(229,72,77,0.3)`, padding: 14,
             fontFamily: s2.sans, fontSize: 13, color: s2.text,
           }}>
             <div style={{ marginBottom: 10, lineHeight: 1.4 }}>
@@ -582,7 +597,7 @@ export function ProfileTab() {
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={handleDeleteAccount} disabled={deleteDeleting} style={{
-                flex: 1, padding: '10px 0', background: s2.warn, border: 'none',
+                flex: 1, padding: '10px 0', borderRadius: s2.rPill, background: s2.warn, border: 'none',
                 fontFamily: s2.mono, fontSize: 9, letterSpacing: '0.2em', color: '#fff',
                 cursor: 'pointer', opacity: deleteDeleting ? 0.6 : 1,
               }}>
@@ -687,9 +702,10 @@ export function ProfileTab() {
         <HairLabel style={{ marginTop: 8 }}>ABOUT & LEGAL</HairLabel>
         {/* ── AI & Medical Disclaimer ─────────────────────────────────────── */}
         <div style={{
-          marginBottom: 12, padding: '10px 14px',
-          border: `1px solid rgba(249,115,22,0.25)`,
-          background: 'rgba(249,115,22,0.06)',
+          marginBottom: 12, padding: '13px 14px',
+          borderRadius: 18,
+          border: `1px solid ${s2.line}`,
+          background: s2.butter + '2E',
           fontFamily: s2.sans, fontSize: 11, lineHeight: 1.55, color: s2.textDimmer,
         }}>
           <strong style={{ color: s2.accent }}>AI Disclaimer:</strong> Meal plans are
@@ -795,19 +811,24 @@ export function ProfileTab() {
 // ── Local sub-components ────────────────────────────────────────────────────
 function StatCard({ label, value, unit, accent }: { label: string; value: string; unit: string; accent?: boolean }) {
   return (
+    /* Borderless, r=20, and the target tile is a lime *block* with ink text —
+       the reference fills the card rather than just tinting the number. */
     <div style={{
- borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: '12px 10px' }}>
-      <HairLabel>{label}</HairLabel>
+      borderRadius: 20,
+      background: accent ? s2.accentFill : s2.surface,
+      padding: '13px 11px',
+    }}>
+      <HairLabel color={accent ? 'rgba(15,20,15,0.5)' : undefined}>{label}</HairLabel>
       <div style={{
-        fontFamily: s2.mono,
-        fontSize: 22,
-        fontWeight: 400,
-        color: accent ? s2.accent : s2.text,
-        letterSpacing: '-0.02em',
+        fontFamily: s2.disp,
+        fontSize: 23,
+        fontWeight: 700,
+        color: s2.ink,
+        letterSpacing: '-0.04em',
         lineHeight: 1,
-        marginTop: 6,
+        marginTop: 7,
       }}>
-        {value}<span style={{ fontSize: 11, color: accent ? s2.accentSoft : s2.textDimmer }}>{unit}</span>
+        {value}<span style={{ fontSize: 11, color: accent ? 'rgba(15,20,15,0.5)' : s2.textDimmer }}>{unit}</span>
       </div>
     </div>
   );
@@ -816,18 +837,21 @@ function StatCard({ label, value, unit, accent }: { label: string; value: string
 function DataPair({ label, value }: { label: string; value: string }) {
   return (
     <div style={{
- borderRadius: s2.rMd, border: `1px solid ${s2.line}`, background: s2.surface, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+      borderRadius: 18, background: s2.surface, padding: '13px 13px',
+      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+    }}>
       <HairLabel>{label}</HairLabel>
-      <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.text, textTransform: 'capitalize' }}>{value}</div>
+      <div style={{ fontFamily: s2.sans, fontSize: 12, fontWeight: 700, color: s2.text, textTransform: 'capitalize' }}>{value}</div>
     </div>
   );
 }
 
 function NutrientCard({ label, value, color }: { label: string; value: string | number; color: string }) {
   return (
-    <div style={{ border: `1px solid ${color}22`, background: `${color}10`, padding: '10px 6px', textAlign: 'center' }}>
-      <div style={{ fontFamily: s2.mono, fontSize: 12, fontWeight: 500, color, lineHeight: 1, marginBottom: 4 }}>{value}</div>
-      <HairLabel style={{ fontSize: 7 }}>{label}</HairLabel>
+    /* Was a square bordered box; the reference is a soft tinted tile (r=16). */
+    <div style={{ borderRadius: 16, background: `${color}14`, padding: '11px 4px', textAlign: 'center' }}>
+      <div style={{ fontFamily: s2.sans, fontSize: 12, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
+      <HairLabel style={{ fontSize: 7.5, marginTop: 5 }}>{label}</HairLabel>
     </div>
   );
 }
@@ -851,9 +875,9 @@ function PlanHistoryRow({ plan, index }: { plan: PlanHistoryItem; index: number 
 
   return (
     <div style={{
-      border: `1px solid ${isActive ? s2.accent : s2.line}`,
-      background: isActive ? s2.accentFill : s2.surface,
-      padding: '10px 14px',
+      borderRadius: 18,
+      background: isActive ? s2.accentWash : s2.surface,
+      padding: '13px 14px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -865,8 +889,10 @@ function PlanHistoryRow({ plan, index }: { plan: PlanHistoryItem; index: number 
           </HairLabel>
           {isActive && (
             <span style={{
-              fontFamily: s2.mono,
-              fontSize: 7,
+              fontFamily: s2.sans,
+              fontSize: 7.5,
+              fontWeight: 800,
+              borderRadius: s2.rPill,
               letterSpacing: '0.12em',
               background: s2.accentFill,
               color: s2.ink,

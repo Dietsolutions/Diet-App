@@ -126,6 +126,7 @@ export function SingleMealRegenerateSheet({
         flexShrink: 0,
       }}>
         <button onClick={onClose} style={{
+          borderRadius: s2.rPill,
           background: 'transparent', border: `1px solid ${s2.lineStrong}`,
           width: 36, height: 36, color: s2.text,
           cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -192,6 +193,7 @@ export function SingleMealRegenerateSheet({
                   const active = activeHints.includes(hint);
                   return (
                     <button key={hint} onClick={() => toggleHint(hint)} style={{
+                      borderRadius: s2.rPill,
                       background: active ? s2.accentFill : 'transparent',
                       border: `1px solid ${active ? s2.accent : s2.lineStrong}`,
                       color: active ? s2.accent : s2.textDim,
@@ -206,7 +208,8 @@ export function SingleMealRegenerateSheet({
             </div>
 
             {error && (
-              <div style={{ margin: '16px 20px 0', border: `1px solid rgba(255,62,62,0.4)`, background: 'rgba(255,62,62,0.07)', padding: '10px 14px' }}>
+              <div style={{
+            borderRadius: 18, margin: '16px 20px 0', border: `1px solid rgba(255,62,62,0.4)`, background: 'rgba(255,62,62,0.07)', padding: '10px 14px' }}>
                 <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.warn }}>{error}</div>
               </div>
             )}
@@ -246,6 +249,7 @@ export function SingleMealRegenerateSheet({
                   onClick={() => handleSelect(option)}
                   disabled={savingId !== null}
                   style={{
+                    borderRadius: s2.rPill,
                     width: '100%', padding: '11px 0',
                     background: savingId === option.id ? s2.accentFill : 'transparent',
                     border: `1px solid ${s2.accent}`,
@@ -262,7 +266,8 @@ export function SingleMealRegenerateSheet({
             ))}
 
             {error && (
-              <div style={{ border: `1px solid rgba(255,62,62,0.4)`, background: 'rgba(255,62,62,0.07)', padding: '10px 14px', marginBottom: 10 }}>
+              <div style={{
+            borderRadius: 18, border: `1px solid rgba(255,62,62,0.4)`, background: 'rgba(255,62,62,0.07)', padding: '10px 14px', marginBottom: 10 }}>
                 <div style={{ fontFamily: s2.sans, fontSize: 12, color: s2.warn }}>{error}</div>
               </div>
             )}
@@ -295,6 +300,7 @@ export function SingleMealRegenerateSheet({
             onClick={handleGenerate}
             disabled={isGenerating}
             style={{
+              borderRadius: s2.rPill,
               width: '100%', padding: '15px 0',
               background: isGenerating ? s2.surface : s2.accentFill,
               border: 'none',

@@ -247,6 +247,7 @@ export function MealPlanCustomiser({
         onClick={onRegenerate}
         disabled={isRegenerating || disabled}
         style={{
+          borderRadius: s2.rPill,
           width: '100%',
           padding: '14px 0',
           background: (isRegenerating || disabled) ? s2.surface2 : s2.accentFill,

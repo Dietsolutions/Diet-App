@@ -14,11 +14,13 @@ export function GoalProjectionCard() {
   });
 
   return (
+    /* The reference is a soft lime panel (limeSoft, r=24), not a lime block:
+       accent-on-accentFill is the fill-vs-text trap the migration flagged. */
     <div style={{
       marginTop: 10,
-      border: `1px solid ${s2.accent}`,
-      background: s2.accentFill,
-      padding: '12px 14px',
+      borderRadius: 24,
+      background: s2.accentWash,
+      padding: '17px 17px',
     }}>
       <HairLabel color={s2.accent} style={{ marginBottom: 10 }}>GOAL PROJECTION</HairLabel>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>

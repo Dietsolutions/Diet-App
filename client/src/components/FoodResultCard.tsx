@@ -29,7 +29,8 @@ export function FoodResultCard({ food, onSelect }: FoodResultCardProps) {
         width: '100%',
         textAlign: 'left',
         padding: '12px 14px',
-        background: isAI ? s2.accentFill : s2.surface,
+        borderRadius: 16,
+        background: isAI ? s2.accentWash : s2.surface,
         border: `1px solid ${isAI ? s2.accent : s2.line}`,
         cursor: 'pointer',
         color: s2.text,
@@ -50,6 +51,7 @@ export function FoodResultCard({ food, onSelect }: FoodResultCardProps) {
         <div style={{
           width: 28,
           height: 28,
+          borderRadius: s2.rPill,
           border: `1px solid ${s2.accent}`,
           display: 'flex',
           alignItems: 'center',
@@ -75,9 +77,9 @@ export function FoodResultCard({ food, onSelect }: FoodResultCardProps) {
           <div key={m.u} style={{
             flex: 1,
             textAlign: 'center',
-            padding: '5px 2px',
+            padding: '6px 2px',
+            borderRadius: 12,
             background: `${m.c}14`,
-            border: `1px solid ${m.c}22`,
           }}>
             <div style={{ fontFamily: s2.mono, fontSize: 10, color: m.c, fontWeight: 500 }}>{m.v}</div>
             <div style={{ fontFamily: s2.mono, fontSize: 7, color: s2.textDimmer, letterSpacing: '0.1em', textTransform: 'uppercase' }}>{m.u}</div>
