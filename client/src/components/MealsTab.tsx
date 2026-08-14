@@ -654,7 +654,7 @@ export function MealsTab() {
               </div>
             )}
 
-            {/* ── + LOG EXTRA MEAL dashed button ────────────────────────── */}
+            {/* ── Log extra meal card ──────────────────────────────────── */}
             <div style={{ marginTop: 10 }}>
               <AddMealButton date={selectedDate} />
             </div>

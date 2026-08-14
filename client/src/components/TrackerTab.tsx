@@ -3,16 +3,15 @@ import { PullRefreshWrapper } from './ui/PullRefreshWrapper';
 import { format, parseISO, startOfMonth, getDaysInMonth, getDay, addDays, startOfWeek } from 'date-fns';
 import axios from 'axios';
 import { useAppStore } from '../store/appStore';
-import { getPlanDayIndex } from '../utils/planUtils';
 import { trackPage } from '../lib/analytics';
 import { notifyPlanExpiringSoon } from '../lib/notifications';
 import { useMealReplacerStore } from '../store/mealReplacerStore';
 import { useTracker } from '../hooks/useTracker';
-import { TrackerSummary, GoalCountdown } from '../types';
+import { TrackerSummary, GoalCountdown, MonthlyMacroData, DailyMacroPoint } from '../types';
 import { ErrorBoundary } from './ErrorBoundary';
 import { MonthlyCalorieChart } from './MonthlyCalorieChart';
 import { s2 } from '../theme/tokens';
-import { HairLabel, Card, Bar, Btn, H } from './ui';
+import { HairLabel, Card, H } from './ui';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function todayStr(): string { return format(new Date(), 'yyyy-MM-dd'); }
@@ -39,26 +38,12 @@ const METRICS: Record<MetricKey, { label: string; unit: string; color: string; h
   adh:     { label: 'Adherence', unit: '%',    color: s2.lilac,      higherIsBetter: true  },
 };
 
-interface DayMacroEntry {
-  date: string;
-  hasData: boolean;
-  adherencePct?: number;
-  eaten?: number;
-  planned?: number;
-  calories: { consumed: number; target: number };
-  protein:  { consumed: number; target: number };
-  carbs:    { consumed: number; target: number };
-  fat:      { consumed: number; target: number };
-  fibre:    { consumed: number; target: number };
-}
-
 // ── TrackerTab ─────────────────────────────────────────────────────────────
 export function TrackerTab() {
   const { weekData, stats, loadWeekData } = useTracker();
   const {
     selectedDate, setSelectedDate,
     trackerCalendarMonth,
-    mealsPerDay, planDuration, planWeekStartDate,
   } = useAppStore();
   const { fetchReplacementsForWeek } = useMealReplacerStore();
 
@@ -73,7 +58,9 @@ export function TrackerTab() {
   const [monthlySummary, setMonthlySummary] = useState<TrackerSummary | null>(null);
   const [goalCountdown,  setGoalCountdown]  = useState<GoalCountdown  | null>(null);
   const [metric,         setMetric]         = useState<MetricKey>('kcal');
-  const [dailyMacros,    setDailyMacros]    = useState<DayMacroEntry[]>([]);
+  const [monthly,        setMonthly]        = useState<MonthlyMacroData | null>(null);
+  const [monthlyLoading, setMonthlyLoading] = useState(true);
+  const [monthlyError,   setMonthlyError]   = useState('');
   const [waterDays,      setWaterDays]      = useState<Record<string, number>>({});
   const [waterGoal,      setWaterGoal]      = useState(8);
   const monthlyChartRef = useRef<HTMLDivElement>(null);
@@ -107,12 +94,29 @@ export function TrackerTab() {
     });
   }, [trackerCalendarMonth]);
 
-  // Per-day macro series + adherence for the visible month (metric switcher + calendar)
+  // Per-day macro series + adherence for the visible month. One fetch serves the
+  // metric switcher, the adherence calendar, the under/over cards and the
+  // monthly macros card below — they all read the same response, so they cannot
+  // disagree, and the month's query runs once per visit rather than twice.
   useEffect(() => {
+    let cancelled = false;
+    setMonthlyLoading(true);
+    setMonthlyError('');
     axios.get('/api/tracker/monthly-macros', { params: { month: trackerCalendarMonth }, withCredentials: true })
-      .then(res => setDailyMacros(Array.isArray(res.data?.dailyData) ? res.data.dailyData : []))
-      .catch(() => setDailyMacros([]));
+      .then(res => {
+        if (cancelled) return;
+        setMonthly(res.data ?? null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMonthly(null);
+        setMonthlyError('Could not load monthly data.');
+      })
+      .finally(() => { if (!cancelled) setMonthlyLoading(false); });
+    return () => { cancelled = true; };
   }, [trackerCalendarMonth]);
+
+  const dailyMacros: DailyMacroPoint[] = Array.isArray(monthly?.dailyData) ? monthly!.dailyData : [];
 
   // Water series — rolling 14 days ending today
   useEffect(() => {
@@ -140,22 +144,17 @@ export function TrackerTab() {
   }, [selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const adherenceValue   = typeof stats?.adherence === 'number' ? stats.adherence : 0;
-  const selectedDayData  = weekDataByDate[selectedDate] ?? null;
-  // Use modulo-based dayIndex so cycling plans show the correct "DAY X OF Y" label
-  const selectedDayIndex = getPlanDayIndex(selectedDate, planWeekStartDate, planDuration);
   // Days this month whose calorie total fell either side of target. Mirrors
   // MonthlyCalorieChart's KCAL test so the two never disagree.
   const targetDayCounts = useMemo(() => {
     const withData = dailyMacros.filter(d => d.hasData);
-    const delta = (d: DayMacroEntry) => d.calories.consumed - d.calories.target;
+    const delta = (d: DailyMacroPoint) => d.calories.consumed - d.calories.target;
     return {
       under: withData.filter(d => delta(d) < 0).length,
       over:  withData.filter(d => delta(d) > 0).length,
       total: withData.length,
     };
   }, [dailyMacros]);
-
-  const eatenCount       = selectedDayData?.meals.filter(m => m.eaten).length ?? 0;
 
   // ── Metric series (last 14 entries with data) ────────────────────────────
   const m = METRICS[metric];
@@ -202,7 +201,7 @@ export function TrackerTab() {
       };
 
   // ── Adherence calendar cells ─────────────────────────────────────────────
-  const adherenceByDate: Record<string, DayMacroEntry> = {};
+  const adherenceByDate: Record<string, DailyMacroPoint> = {};
   dailyMacros.forEach(d => { adherenceByDate[d.date] = d; });
 
   const calendarMonthDate = parseISO(trackerCalendarMonth + '-01');
@@ -417,7 +416,7 @@ export function TrackerTab() {
       {/* ── Monthly macros chart ──────────────────────────────────────────── */}
       <div ref={monthlyChartRef} style={{ padding: '18px 20px 0' }}>
         <ErrorBoundary fallback={<div />}>
-          <MonthlyCalorieChart />
+          <MonthlyCalorieChart data={monthly} loading={monthlyLoading} error={monthlyError} />
         </ErrorBoundary>
       </div>
 

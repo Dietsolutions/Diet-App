@@ -2052,3 +2052,57 @@ the card's bottom edge by exactly 24px with the specified shadow; and only the
 selected pill carries a macro colour once the 180ms transition settles (an
 earlier reading caught it mid-flight and looked like two active pills).
 Typecheck and production build clean.
+
+## 41. One-shot instructions, extra-meal card, nav icons (2026-08-14)
+
+Three changes, plus a build-verification lesson that cost a whole install cycle
+to learn.
+
+**Custom meal-plan instructions now clear themselves.** The text typed into
+"Customise meal plan" survived every regeneration. The Profile tab already
+cleared its own copy on success, which made the bug hard to see: the card went
+empty, and only came back when the tab re-mounted and re-fetched
+`/api/profile`. The value on the profile row had never been cleared — the only
+clear in the codebase was in `/api/plan/confirm-review`, so the text lived on
+unless the user finished the plan-review screen, and any other exit (bottom
+nav, backgrounding the app) left it behind for good.
+
+The clear goes in `/api/ai/validate-plan`, not in the generation route. Phase 2
+re-prompts every corrected meal with the same instructions
+(`macroValidation.ts` puts them in the correction prompt), so clearing at
+generation time would let a replacement meal quietly break a rule — "no rajma"
+honoured in the original plan and violated in its correction. Both terminal
+success paths clear: the CN-disabled early return and the post-correction one.
+Failure is non-fatal and confirm-review still clears, so the two together cover
+the case where validation never runs. Both generation entry points (onboarding
+and profile regenerate) call validate-plan, so both are covered.
+
+**Log extra meal is a card, not a dashed rectangle.** Everything else on the
+Plan tab is a filled rounded block, so the dashed outline read as an unstyled
+fallback parked at the end of the day. Now ink at `rLg`, with a lime `+` badge,
+a title and a one-line subtitle ("Anything you ate outside the plan") — the
+same dark treatment as the monthly macros card.
+
+**The bottom nav has its icons.** `V3Nav` in the reference pairs every tab with
+a `V3Icon` glyph; the port had labels only. The six path strings are lifted
+verbatim from `V3_ICONS` (`v3-chrome.jsx`) into `ICON_PATHS`, split on `' M'`
+at render exactly as the reference does. The button becomes a column, 18px
+icon over the label, and the active glyph takes the reference's heavier 2.1
+stroke. Labels stay as they were — uppercase and 10.5px, per §36 — since the
+58px button has room for both and the measured legibility work still holds.
+
+**A service worker was serving the old bundle.** The APK verified clean —
+new markers present, `LOG EXTRA MEAL` gone, `server.url` absent — and the app
+still rendered the previous UI after install, force-stop and relaunch. The
+client registers a service worker (`registerSW.js` in `index.html`), and its
+precache survives both. Grepping markers inside the APK is necessary but not
+sufficient: it proves what shipped, not what the WebView will run. Clearing
+`app_webview/Default/Service Worker` and `cache/` via `run-as` before relaunch
+is what actually loads new assets, and it leaves Local Storage, cookies and
+shared_prefs alone so the session survives. `pm clear` would work too but logs
+the user out.
+
+Verified on the device: nav icons render on all six tabs, the extra-meal card
+renders in the dark treatment, and the Track tab — which crashed on the
+previous build — now renders end to end, including the monthly macros card
+with live data. Typecheck clean, 42 server tests pass.

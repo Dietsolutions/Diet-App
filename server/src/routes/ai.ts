@@ -92,6 +92,30 @@ async function refundGenerationCredit(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Custom meal-plan instructions are one-shot: the user writes "no rajma this
+ * week", a plan is built from it, and the note has done its job. Leaving it on
+ * the profile made it look permanent — the Profile tab clears its own copy on
+ * success, but re-mounting the tab re-fetches the profile and the old text
+ * comes back, so it read as text that could never be removed.
+ *
+ * Clearing happens here rather than at generation time because phase 2
+ * (validate-plan) still needs the instructions: every corrected meal is
+ * re-prompted with them, so wiping them earlier would let a replacement meal
+ * quietly break a rule the original plan honoured. Non-fatal by design —
+ * confirm-review clears it too, so a failure here is picked up there.
+ */
+async function clearCustomInstructions(userId: string): Promise<void> {
+  try {
+    await prisma.userProfile.update({
+      where: { userId },
+      data:  { mealPlanCustomInstructions: '' },
+    });
+  } catch (err) {
+    console.warn('[instructions] clear failed (non-fatal):', err instanceof Error ? err.message : err);
+  }
+}
+
 async function checkAndIncrementGenerationLimit(userId: string): Promise<{
   allowed: boolean;
   used: number;
@@ -1786,6 +1810,7 @@ router.post('/validate-plan', requireAuth, async (req: AuthRequest, res: Respons
     if (!profile) { sendEvent('error', { error: 'Profile not found' }); clearHeartbeat(); res.end(); return; }
 
     if (!CN_ENABLED) {
+      await clearCustomInstructions(userId);
       sendEvent('done', { success: true, mealPlanId: plan.id, cnChecks: 0, cnCorrections: 0, skipped: true });
       clearHeartbeat(); res.end(); return;
     }
@@ -1886,6 +1911,9 @@ router.post('/validate-plan', requireAuth, async (req: AuthRequest, res: Respons
         ))
         .catch(err => console.warn('[Recipes] Plan ingest failed:', err?.message));
     }
+
+    // Corrections are done — the instructions have now been fully applied.
+    await clearCustomInstructions(userId);
 
     sendEvent('done', {
       success:       true,

@@ -6,35 +6,20 @@
 // column states (logged bar, elapsed-but-unlogged tick, future rail) around a goal
 // line, which a Bar series cannot express.
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import axios from 'axios';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAppStore } from '../store/appStore';
 import { s2 } from '../theme/tokens';
 import { HairLabel } from './ui';
+import { MonthlyMacroData } from '../types';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type MacroKey = 'calories' | 'protein' | 'carbs' | 'fat' | 'fibre';
 
-interface MacroTotals {
-  consumed: number; target: number; delta: number; deltaPct: number; dailyAvg: number;
-}
-
-interface DailyMacroPoint {
-  day: number; date: string; hasData: boolean;
-  calories: { consumed: number; target: number; delta: number };
-  protein:  { consumed: number; target: number; delta: number };
-  carbs:    { consumed: number; target: number; delta: number };
-  fat:      { consumed: number; target: number; delta: number };
-  fibre:    { consumed: number; target: number; delta: number };
-}
-
-interface MonthlyMacroData {
-  month: string;
-  planDaysElapsed: number;
-  totalPlanDaysInMonth: number;
-  targets:   { calories: number; protein: number; carbs: number; fat: number; fibre: number };
-  totals:    { calories: MacroTotals; protein: MacroTotals; carbs: MacroTotals; fat: MacroTotals; fibre: MacroTotals };
-  dailyData: DailyMacroPoint[];
+interface Props {
+  /** Fetched by TrackerTab — see MonthlyMacroData's note on why it lives there. */
+  data: MonthlyMacroData | null;
+  loading: boolean;
+  error: string;
 }
 
 // ── Per-macro config (Strain v2 colours) ───────────────────────────────────
@@ -119,11 +104,8 @@ const MONTH_NAMES = [
 ];
 
 // ── Main Component ─────────────────────────────────────────────────────────
-export function MonthlyCalorieChart() {
+export function MonthlyCalorieChart({ data, loading, error }: Props) {
   const { trackerCalendarMonth, setTrackerCalendarMonth } = useAppStore();
-  const [data,         setData]         = useState<MonthlyMacroData | null>(null);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState('');
   const [selectedMacro, setSelectedMacro] = useState<MacroKey>('calories');
   const [fading,       setFading]       = useState(false);
   const isFirstRender                   = useRef(true);
@@ -152,24 +134,6 @@ export function MonthlyCalorieChart() {
     const t = setTimeout(() => setFading(false), 150);
     return () => clearTimeout(t);
   }, [selectedMacro]);
-
-  const fetchData = useCallback(async (month: string) => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await axios.get('/api/tracker/monthly-macros', {
-        params: { month },
-        withCredentials: true,
-      });
-      setData(res.data);
-    } catch {
-      setError('Could not load monthly data.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchData(trackerCalendarMonth); }, [trackerCalendarMonth, fetchData]);
 
   // ── useMemo hooks MUST come before conditional early returns ─────────────
   const cfg = MACRO_CONFIG[selectedMacro];

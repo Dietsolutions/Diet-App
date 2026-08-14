@@ -293,6 +293,49 @@ export interface GoalCountdown {
   currentWeight?: number;
 }
 
+/**
+ * /api/tracker/monthly-macros. Fetched once by TrackerTab and passed down to
+ * MonthlyCalorieChart — both used to fetch it independently, which meant two
+ * copies of an expensive query per visit and two views that could disagree
+ * when one of them failed.
+ */
+export interface MacroSlice {
+  consumed: number;
+  target: number;
+  delta: number;
+}
+
+export interface DailyMacroPoint {
+  day: number;
+  date: string;
+  hasData: boolean;
+  eaten?: number;
+  planned?: number;
+  adherencePct?: number;
+  calories: MacroSlice;
+  protein:  MacroSlice;
+  carbs:    MacroSlice;
+  fat:      MacroSlice;
+  fibre:    MacroSlice;
+}
+
+export interface MacroTotals {
+  consumed: number;
+  target: number;
+  delta: number;
+  deltaPct: number;
+  dailyAvg: number;
+}
+
+export interface MonthlyMacroData {
+  month: string;
+  planDaysElapsed: number;
+  totalPlanDaysInMonth: number;
+  targets: { calories: number; protein: number; carbs: number; fat: number; fibre: number };
+  totals:  { calories: MacroTotals; protein: MacroTotals; carbs: MacroTotals; fat: MacroTotals; fibre: MacroTotals };
+  dailyData: DailyMacroPoint[];
+}
+
 export interface MealPrepTask {
   instruction: string;
   usedOn: string;
