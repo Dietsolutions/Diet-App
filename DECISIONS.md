@@ -2230,3 +2230,40 @@ reads long.
 
 The 18 stored rows keep their existing text — only meals generated from here
 use the shorter prompt.
+
+## 45. Instruction prompt: duplicate clause cut, tips made conditional (2026-08-15)
+
+Follow-up to §44. Two more edits:
+
+- `"Mention what \"done\" looks like for each step"` deleted — a near-duplicate
+  of the sensory clause already removed in §44.
+- `"tip"` is now `"tip"?` in the schema sketch, with a line under the JSON
+  spelling out that it belongs only on steps where something can go wrong.
+
+The second edit is the one that mattered, and only on the simpler dish.
+Measured over the same two meals (all three columns are single runs, so
+treat ±10% as noise):
+
+| Tuna Oats | original | §44 | §45 |
+|---|---|---|---|
+| steps with a tip | 11/11 | 7/7 | **4/8** |
+| words in step tips | 335 | 208 | **87** |
+| total words on screen | 1,144 | 523 | **439** (−62%) |
+
+| Masala dosa | original | §44 | §45 |
+|---|---|---|---|
+| steps with a tip | 16/16 | 11/11 | **12/12** |
+| words in step tips | 676 | 363 | **332** |
+| total words on screen | 2,321 | 1,066 | **1,053** (−55%) |
+
+Tuna Oats now carries tips exactly where they earn their place — heating,
+adding oats, simmering, adding the tuna — and none on gathering ingredients,
+seasoning or plating. Masala dosa still tips every step; either every step of a
+dosa genuinely has a pitfall, or optionality in the schema is too weak a signal
+on a long recipe. A hard cap ("at most half the steps") is the next lever if
+that matters.
+
+Cutting the "done looks like" clause changed method length by less than
+run-to-run variance (315 → 352 words for Tuna Oats, 703 → 721 for dosa — both
+slightly *up*). It was removed because it was redundant, not because it was
+costing length; §44's sensory clause had already absorbed that effect.

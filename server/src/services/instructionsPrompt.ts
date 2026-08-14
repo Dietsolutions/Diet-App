@@ -57,7 +57,6 @@ REQUIREMENTS:
    - Include temperature settings, pan types, heat levels appropriate for ${servings === 1 ? 'a single serving' : `${servings} servings`}
    - Include timing for each step
    - Warn about common mistakes at critical steps
-   - Mention what "done" looks like for each step
 
 3. Include:
    - Prep time, cook time, total time for ${servingsLabel}
@@ -75,8 +74,10 @@ Respond ONLY with valid JSON matching this exact structure:
     { "group": string, "name": string, "quantity": string, "unit": string, "notes": string }
   ],
   "steps": [
-    { "stepNumber": number, "title": string, "instruction": string, "duration": string, "tip": string }
+    { "stepNumber": number, "title": string, "instruction": string, "duration": string, "tip"?: string }
   ],
+  // "tip" is optional — include it only on steps where something can actually
+  // go wrong. Omit the key entirely on straightforward steps.
   "tips": string[],
   "substitution": string
 }`;
