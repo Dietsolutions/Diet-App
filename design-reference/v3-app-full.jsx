@@ -8,7 +8,7 @@ window.V3AppFull = function V3AppFull({ screen: initial = 'meals' }) {
     ob1: window.V3OB1, ob2: window.V3OB2, ob3: window.V3OB3, ob4: window.V3OB4, ob5: window.V3OB5, obGen: window.V3ObGen,
     planOverview: window.V3PlanOverview, planReview: window.V3PlanReview,
     meals: window.V3Meals, meal: window.V3MealDetail, water: window.V3Water,
-    tracker: window.V3Tracker, kcal: window.V3Kcal,
+    tracker: window.V3Tracker, kcal: window.V3Kcal, kcalDark: window.V3KcalDark,
     recipes: window.V3Recipes, shopping: window.V3Shopping,
     tips: window.V3Learn, profile: window.V3Profile,
     replaceSheet: window.V3ReplaceSheet, replaceSearch: window.V3ReplaceSearch, replaceQty: window.V3ReplaceQty,
