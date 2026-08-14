@@ -486,11 +486,14 @@ export function MealDetailSheet({
             <button
               onClick={() => setCookExpanded(p => !p)}
               style={{
-                borderRadius: s2.rMd,
+                // Header and panel are one rounded card (ref: V3MealInstructions,
+                // a single r=24 card holding the whole guide). When open, only
+                // the top corners round so the two halves read as one block.
+                borderRadius: cookExpanded ? `${s2.rLg}px ${s2.rLg}px 0 0` : s2.rLg,
                 width: '100%', display: 'flex', alignItems: 'center',
                 justifyContent: 'space-between',
                 background: 'transparent', border: `1px solid ${s2.line}`,
-                padding: '10px 14px', cursor: 'pointer',
+                padding: '12px 16px', cursor: 'pointer',
               }}
             >
               <HairLabel style={{ margin: 0 }}>COOKING INSTRUCTIONS</HairLabel>
@@ -500,7 +503,13 @@ export function MealDetailSheet({
             </button>
 
             {cookExpanded && (
-              <div style={{ border: `1px solid ${s2.line}`, borderTop: 'none', background: s2.surface }}>
+              <div style={{
+                border: `1px solid ${s2.line}`,
+                borderTop: 'none',
+                borderRadius: `0 0 ${s2.rLg}px ${s2.rLg}px`,
+                overflow: 'hidden',
+                background: s2.surface,
+              }}>
 
                 {/* ── Loading skeleton ── */}
                 {cookLoading && (
@@ -657,9 +666,10 @@ export function MealDetailSheet({
                             color:         s2.textDimmer,
                           }}>LANGUAGE</span>
                           <span style={{
+                            borderRadius:  s2.rPill,
                             fontFamily:    s2.sans, fontSize: 11,
-                            color:         s2.accent,
-                            padding:       '1px 6px',
+                            color:         s2.ink,
+                            padding:       '2px 9px',
                             border:        `1px solid ${s2.accent}`,
                             background:    s2.accentFill,
                           }}>
@@ -699,10 +709,10 @@ export function MealDetailSheet({
                             setShareOpen(true);
                           }}
                           style={{
-                            borderRadius: s2.rMd,
+                            borderRadius: s2.rPill,
                             background:    'transparent',
-                            border:        `1px solid ${s2.lineStrong}`,
-                            padding:       '5px 9px',
+                            border:        `1.5px solid ${s2.lineStrong}`,
+                            padding:       '6px 11px',
                             fontFamily:    s2.mono,
                             fontSize:      8,
                             letterSpacing: '0.14em',
@@ -769,14 +779,11 @@ export function MealDetailSheet({
                               }}>
                                 {ing.quantity} {ing.unit}
                               </span>
-                              <div>
-                                <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.text }}>{ing.name}</div>
-                                {ing.notes && (
-                                  <div style={{ fontFamily: s2.sans, fontSize: 11, color: s2.textDimmer, marginTop: 2 }}>
-                                    {ing.notes}
-                                  </div>
-                                )}
-                              </div>
+                              {/* `notes` ("finely chopped", "at room temperature") is
+                                  still generated and stored, but not shown: it repeated
+                                  what the method already says, one line under every
+                                  single ingredient. */}
+                              <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.text }}>{ing.name}</div>
                             </div>
                           ))}
                         </div>
@@ -790,8 +797,9 @@ export function MealDetailSheet({
                         <div key={step.stepNumber} style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
                           {/* Step number */}
                           <div style={{
-                            width: 24, height: 24, flexShrink: 0,
-                            border: `1px solid ${s2.accent}`,
+                            width: 25, height: 25, flexShrink: 0,
+                            borderRadius: s2.rPill,
+                            border: `1.5px solid ${s2.accent}`,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontFamily: s2.mono, fontSize: 10, color: s2.accent, fontWeight: 600,
                             marginTop: 1,

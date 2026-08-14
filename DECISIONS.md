@@ -2146,3 +2146,38 @@ command quoted (`adb shell "run-as … rm -rf 'app_webview/Default/Service
 Worker'"`). Quoting only the path splits it into two non-existent arguments,
 `rm -rf` exits 0 having deleted nothing, and the old bundle keeps rendering —
 which is exactly what happened twice while verifying this change.
+
+## 43. Cooking instructions: rounded card, real play button, no ingredient notes (2026-08-15)
+
+The instructions panel had drifted from `V3MealInstructions`, which is a single
+`r=24` card holding the whole guide. The port had square corners throughout and
+outlined square glyph buttons.
+
+- Header and panel are now one rounded block: the header rounds all four
+  corners when collapsed and only the top two when open, the panel rounds the
+  bottom two and clips its children so the inner hairlines follow the curve.
+- The play control is the reference's `V3IconBtn bg=lime size=38` — a solid
+  lime disc with an ink glyph. It was a 34px outlined square, which read as a
+  secondary control when it is the primary action on that row. Stop stays
+  outlined but is now a circle, and the generate-audio CTA, the share button,
+  the language chips and the step numbers all pick up the radius they have in
+  the reference.
+- Per-ingredient `notes` are no longer rendered. They restated what the method
+  already says ("finely chopped", "at room temperature"), one line under every
+  ingredient. The field is still generated and stored, so nothing has to be
+  regenerated if it comes back.
+
+**QC of the 18 stored instruction sets.** English steps run 48–103 words each
+across 5–16 steps: ~800 words of method for a bowl of oats, 1,645 for masala
+dosa with a 151-word single step. This is not model drift, it is what the
+prompt in `meals.ts` asks for — "extremely detailed", "assume the cook has
+never made this before", "what it should look like, smell like, or feel like",
+plus a tip on every step. It produces steps like "Prepare Your Workspace and
+Gather Equipment" and "the water should smell neutral (like hot water), not
+stale or off" for boiling water.
+
+Worth noting for whoever shortens it: the audio script is already condensed to
+120–233 words, so the thing you *hear* is fine and the thing you *read* is the
+problem. The three non-English sets are far tighter (~29 words/step), which
+suggests the length is coming from the English prompt wording rather than the
+task. 5 of 10 sampled have no audio generated at all.

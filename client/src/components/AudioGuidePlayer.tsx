@@ -136,7 +136,8 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {/* Static English pill — always selected */}
             <div style={{
-              padding: '4px 10px',
+              borderRadius: s2.rPill,
+              padding: '4px 11px',
               border: `1px solid ${s2.accent}`,
               background: s2.accentWash,
               fontFamily: s2.mono, fontSize: 9, fontWeight: 600,
@@ -170,9 +171,10 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
           onClick={onGenerate}
           disabled={isGenerating}
           style={{
-            width: '100%', padding: '11px 0',
+            borderRadius: s2.rPill,
+            width: '100%', padding: '12px 0',
             background: 'transparent',
-            border: `1px solid ${isGenerating ? s2.line : s2.lineStrong}`,
+            border: `1.5px solid ${isGenerating ? s2.line : s2.lineStrong}`,
             fontFamily: s2.mono, fontSize: 9, fontWeight: 600,
             letterSpacing: '0.18em', color: isGenerating ? s2.textDimmer : s2.textDim,
             cursor: isGenerating ? 'default' : 'pointer',
@@ -251,14 +253,20 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
           {/* Play / Pause */}
           <button
             onClick={togglePlay}
+            aria-label={isPlaying ? 'Pause audio guide' : 'Play audio guide'}
             style={{
-              width: 34, height: 34, flexShrink: 0,
-              background: isPlaying ? s2.accentFill : 'transparent',
-              border: `1px solid ${s2.accent}`,
-              color: s2.accent,
-              fontFamily: s2.mono, fontSize: 13,
+              // Solid lime disc, ink glyph (ref: V3IconBtn bg=lime size=38).
+              // The outlined square read as a secondary control; this is the
+              // primary action on the row.
+              width: 38, height: 38, flexShrink: 0,
+              borderRadius: s2.rPill,
+              background: s2.accentFill,
+              border: 'none',
+              color: s2.ink,
+              fontFamily: s2.sans, fontSize: 14,
               cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
+              lineHeight: 1,
             }}
           >
             {isPlaying ? '⏸' : '▶'}
@@ -266,14 +274,17 @@ export function AudioGuidePlayer({ audioUrl, isGenerating, error, onGenerate, me
           {/* Stop */}
           <button
             onClick={handleStop}
+            aria-label="Stop audio guide"
             style={{
               width: 34, height: 34, flexShrink: 0,
+              borderRadius: s2.rPill,
               background: 'transparent',
-              border: `1px solid ${s2.lineStrong}`,
+              border: `1.5px solid ${s2.lineStrong}`,
               color: s2.textDimmer,
-              fontFamily: s2.mono, fontSize: 13,
+              fontFamily: s2.sans, fontSize: 12,
               cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
+              lineHeight: 1,
             }}
           >
             ⏹
