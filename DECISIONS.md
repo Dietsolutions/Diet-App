@@ -2181,3 +2181,52 @@ Worth noting for whoever shortens it: the audio script is already condensed to
 problem. The three non-English sets are far tighter (~29 words/step), which
 suggests the length is coming from the English prompt wording rather than the
 task. 5 of 10 sampled have no audio generated at all.
+
+## 44. Cooking instruction prompt trimmed (2026-08-15)
+
+Two words changed, one clause deleted:
+
+- "Generate **extremely detailed**, beginner-friendly cooking instructions" →
+  "Generate **detailed**, …", and the same in the step requirements.
+- `"Each step must describe exactly what to do, what it should look like,
+  smell like, or feel like when done correctly"` → `"Each step must describe
+  exactly what to do"`.
+
+Nothing else moved — same model, same 8000 max_tokens, same schema.
+
+The prompt moved out of `routes/meals.ts` into
+`services/instructionsPrompt.ts` (`buildInstructionsPrompt`). A wording change
+is only worth measuring against the real prompt, and a copy pasted into a
+one-off script drifts from the route the moment either side is edited.
+
+Measured by regenerating two of the sampled meals through `callLLM` on the real
+path, without writing to the database so the stored "before" survives:
+
+| | Tuna Oats | Masala Dosa with Sambar |
+|---|---|---|
+| steps | 11 → 7 | 16 → 11 |
+| words in method | 809 → 315 (−61%) | 1,645 → 703 (−57%) |
+| avg words/step | 74 → 45 | 103 → 64 |
+| longest step | 89 → 53 | 151 → 108 |
+
+The sensory clause was doing most of the work. Step 1 of Tuna Oats went from
+"Prepare Your Workspace and Gather Equipment" (66 words of fetching a spatula)
+to "Prepare Your Ingredients" (50 words that are all measuring and draining),
+and the boiling-water step no longer claims the water should "smell neutral
+(like hot water), not stale or off".
+
+Two things did not change, and both are structural rather than tonal:
+
+- `tip` is still non-optional in the JSON schema, so every step carries one —
+  7 of 7 and 11 of 11 in the new output. "Warn about common mistakes at
+  critical steps" says *critical*, but the schema overrides it.
+- Nothing in the prompt sets a step count or a length budget, so the range is
+  still wide (7 vs 11 steps for two dishes of very different complexity —
+  arguably correct here, but uncontrolled).
+
+`"Mention what 'done' looks like for each step"` survives and is a near
+duplicate of the clause just removed; it is the obvious next cut if this still
+reads long.
+
+The 18 stored rows keep their existing text — only meals generated from here
+use the shorter prompt.
