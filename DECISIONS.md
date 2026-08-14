@@ -2009,3 +2009,46 @@ Verified in a harness with the monthly endpoint stubbed: a fixture of 9 under,
 3 over and 1 exactly on target rendered 9 and 3 — the on-target day correctly
 counted in neither — with the cards below the big-three row and the day card
 gone.
+
+## 40. Monthly macros card — dark treatment (2026-08-14)
+
+Followed `design-reference/monthly-card-prompt.md` against `V3KcalDark` in the
+refreshed `v3-screens-monthly.jsx`. Restyle only: the fetch, month-navigation
+state (still shared with the Track calendar via `trackerCalendarMonth`), macro-
+tab state and fade transition are untouched.
+
+**The chart is now hand-built rather than Recharts.** The reference draws three
+distinct column states around a goal line — a logged bar, a 3px tick for an
+elapsed-but-unlogged day, a 2px rail for a future day — which a `<Bar>` series
+cannot express, and it plots the whole month rather than only elapsed days. So
+`recharts` is gone from this file along with the custom tooltip, the stat
+cells, the underlined tab strip and the light-card colour helpers.
+
+Losing the Recharts tooltip would have cost the per-day read-out, so each
+column carries a native `title` ("Day 9 · 90g under goal"). Same information on
+hover, no change to the visual.
+
+**Figures are derived, not read from the response's `totals`.** The endpoint
+returns a server-computed `totals` block that the light card used; the card now
+reduces over the same `dailyData` array it plots, so the headline and the bars
+cannot disagree. `consumed` sums logged days only, `target` is `goal ×
+elapsed`, and `missed` drives the " · N not logged" clause, which renders only
+when non-zero.
+
+The daily-average figure is gone entirely with the cells it lived in, so the
+divide-by-logged-not-elapsed correction in the brief no longer applies here —
+worth noting because that bug (unlogged days counted as zero, pulling the
+stated average below the lowest plotted bar) would return the moment anyone
+reinstates an average from `totals.dailyAvg`.
+
+`cOver` swaps to lilac when the selected macro is fat, so the two directions
+never share a hue. Verified in the live DOM across all five tabs: each renders
+two distinct bar colours, and the legend swatches read the same variables —
+Fat is coral under / lilac over.
+
+Also verified: card `#0F140F` at radius 32 with `paddingBottom: 38`; no
+`s2.text`/`textDim`/`textDimmer` survives on the ink card; the pop-out overlaps
+the card's bottom edge by exactly 24px with the specified shadow; and only the
+selected pill carries a macro colour once the 180ms transition settles (an
+earlier reading caught it mid-flight and looked like two active pills).
+Typecheck and production build clean.

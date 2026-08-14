@@ -1,15 +1,16 @@
-// MonthlyCalorieChart — Strain v2 visual. All fetch/hook/chart logic preserved.
+// MonthlyCalorieChart — dark treatment (ref: design-reference/v3-screens-monthly.jsx,
+// V3KcalDark). Fetch, month-navigation and macro-tab state are unchanged; this is a
+// restyle of the card around them.
+//
+// The chart is hand-built rather than Recharts: the reference draws three distinct
+// column states (logged bar, elapsed-but-unlogged tick, future rail) around a goal
+// line, which a Bar series cannot express.
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { format } from 'date-fns';
 import axios from 'axios';
-import {
-  BarChart, Bar, XAxis, YAxis, ReferenceLine,
-  ResponsiveContainer, Tooltip, Cell,
-} from 'recharts';
 import { useAppStore } from '../store/appStore';
 import { s2 } from '../theme/tokens';
-import { HairLabel, Bar as SBar } from './ui';
+import { HairLabel } from './ui';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type MacroKey = 'calories' | 'protein' | 'carbs' | 'fat' | 'fibre';
@@ -49,159 +50,66 @@ const MACRO_CONFIG: Record<MacroKey, {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function fmtAmount(n: number, unit: string): string {
-  return unit === 'kcal'
-    ? Math.abs(n).toLocaleString()
-    : Math.abs(Math.round(n)).toString();
+  const v = Math.round(Math.abs(n));
+  return unit === 'kcal' ? v.toLocaleString() : `${v}g`;
 }
 
-function getDailyBarColor(consumed: number, target: number, hasData: boolean): string {
-  if (!hasData || target === 0) return s2.line;
-  const pct = consumed / target;
-  if (pct > 1.10)  return s2.warn;
-  if (pct >= 0.80) return s2.fibre;
-  return s2.fat;
-}
-
-function getProgressColor(consumed: number, target: number): string {
-  if (target === 0) return s2.fibre;
-  const pct = consumed / target;
-  if (pct > 1.10)  return s2.warn;
-  if (pct >= 0.80) return s2.fibre;
-  return s2.fat;
-}
-
-function getMonthlyInsight(deltaPct: number, daysElapsed: number, macro: MacroKey): string {
-  if (daysElapsed === 0) return `Start logging meals to see your monthly ${MACRO_CONFIG[macro].label.toLowerCase()} progress.`;
+/**
+ * The message under the card, as tone + copy.
+ *
+ * Same thresholds and wording as the light card used — only the emoji prefix is
+ * gone, because the pop-out carries a ! / ✓ badge instead. Tone is not "is the
+ * user under target": on a cut, being under on calories, carbs or fat is the
+ * plan working, which is what `deficitGood` encodes.
+ */
+function getMonthlyNote(deltaPct: number, daysElapsed: number, macro: MacroKey): {
+  tone: 'good' | 'warn'; title: string; text: string;
+} {
   const { deficitGood, label } = MACRO_CONFIG[macro];
   const m = label.toLowerCase();
+  if (daysElapsed === 0) {
+    return { tone: 'good', title: `${label} not started`, text: `Start logging meals to see your monthly ${m} progress.` };
+  }
+
+  const under = deltaPct < 0;
+  const title = (tone: 'good' | 'warn') =>
+    tone === 'good' ? `${label} on track` : under ? `${label} deficit` : `${label} over target`;
 
   if (deficitGood) {
-    if (deltaPct < -20) return `⚠️ Significantly under your ${m} target. Check your plan adherence.`;
-    if (deltaPct < -5)  return `✅ Healthy ${m} deficit. On track for your goal.`;
-    if (deltaPct <= 5)  return `🎯 Right on your ${m} target. Great consistency.`;
-    if (deltaPct <= 15) return `⚠️ Slightly over your ${m} target. Balance the remaining days.`;
-    return `🚨 Significantly over ${m} target this month.`;
-  } else {
-    if (deltaPct < -20) return `🚨 Significantly under your ${m} target. Prioritise ${m}-rich foods.`;
-    if (deltaPct < -5)  return `⚠️ Below your ${m} target. Try to increase ${m} intake.`;
-    if (deltaPct <= 10) return `✅ ${label} intake is on target. Well done.`;
-    return `ℹ️ Slightly above ${m} target — not a concern for ${m}.`;
+    if (deltaPct < -20) return { tone: 'warn', title: title('warn'), text: `Significantly under your ${m} target. Check your plan adherence.` };
+    if (deltaPct < -5)  return { tone: 'good', title: title('good'), text: `Healthy ${m} deficit. On track for your goal.` };
+    if (deltaPct <= 5)  return { tone: 'good', title: title('good'), text: `Right on your ${m} target. Great consistency.` };
+    if (deltaPct <= 15) return { tone: 'warn', title: title('warn'), text: `Slightly over your ${m} target. Balance the remaining days.` };
+    return { tone: 'warn', title: title('warn'), text: `Significantly over ${m} target this month.` };
   }
+  if (deltaPct < -20) return { tone: 'warn', title: title('warn'), text: `Significantly under your ${m} target. Prioritise ${m}-rich foods.` };
+  if (deltaPct < -5)  return { tone: 'warn', title: title('warn'), text: `Below your ${m} target. Try to increase ${m} intake.` };
+  if (deltaPct <= 10) return { tone: 'good', title: title('good'), text: `${label} intake is on target. Well done.` };
+  return { tone: 'good', title: title('good'), text: `Slightly above ${m} target — not a concern for ${m}.` };
 }
 
-// ── Custom Tooltip ─────────────────────────────────────────────────────────
-function makeTooltip(macro: MacroKey) {
-  const { unit, label } = MACRO_CONFIG[macro];
-  return function CustomTooltip({ active, payload }: any) {
-    if (!active || !payload?.length) return null;
-    const d = payload[0].payload as DailyMacroPoint & { consumed: number; target: number; delta: number };
-    const dateLabel = (() => {
-      try { return format(new Date(d.date + 'T12:00:00'), 'd MMMM'); } catch { return d.date; }
-    })();
-    const deltaColor = d.delta > 0 ? s2.warn : d.delta < 0 ? s2.fibre : s2.textDimmer;
-    const sign = d.delta > 0 ? '+' : '';
-
-    return (
-      <div style={{
-        background: s2.surface2,
-        border: `1px solid ${s2.lineStrong}`,
-        padding: '8px 12px',
-        fontFamily: s2.sans,
-        fontSize: 10,
-        fontWeight: 600,
-        lineHeight: 1.7,
-        fontVariantNumeric: 'tabular-nums',
-        borderRadius: 12,
-      }}>
-        <div style={{ color: s2.textDim, marginBottom: 2 }}>{dateLabel}</div>
-        <div style={{ color: s2.textDim }}>
-          {label}:{' '}
-          <span style={{ color: s2.text }}>
-            {fmtAmount(d.consumed, unit)}{unit === 'g' ? 'g' : ' kcal'}
-          </span>
-        </div>
-        <div style={{ color: s2.textDim }}>
-          Target:{' '}
-          <span style={{ color: s2.text }}>
-            {fmtAmount(d.target, unit)}{unit === 'g' ? 'g' : ' kcal'}
-          </span>
-        </div>
-        <div style={{ color: s2.textDim }}>
-          Delta:{' '}
-          <span style={{ color: deltaColor }}>
-            {sign}{fmtAmount(d.delta, unit)}{unit === 'g' ? 'g' : ' kcal'}
-          </span>
-        </div>
-      </div>
-    );
-  };
+/** Local calendar date, so "future" matches the user's day rather than UTC's. */
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// ── Skeleton ───────────────────────────────────────────────────────────────
+const DIM_RAIL   = 'rgba(246,247,243,0.09)';
+const TICK_RAIL  = 'rgba(246,247,243,0.13)';
+const FUTURE_RAIL = 'rgba(246,247,243,0.05)';
+
 function Skeleton() {
   return (
-    <div style={{ background: s2.surface, borderRadius: 26, padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div style={{ width: 140, height: 10, background: s2.surface2, borderRadius: 6 }} />
-        <div style={{ width: 80, height: 10, background: s2.surface2, borderRadius: 6 }} />
+    <div style={{ background: s2.ink, borderRadius: 32, padding: 20, minHeight: 340 }}>
+      <div style={{ height: 12, width: 120, borderRadius: 6, background: DIM_RAIL }} />
+      <div style={{ display: 'flex', gap: 5, marginTop: 16 }}>
+        {[0, 1, 2, 3, 4].map(i => (
+          <div key={i} style={{ flex: 1, height: 30, borderRadius: 999, background: DIM_RAIL }} />
+        ))}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12 }}>
-        {[0, 1, 2].map(i => <div key={i} style={{ height: 56, background: s2.surface2, borderRadius: 14 }} />)}
-      </div>
-      <div style={{ height: 160, background: s2.surface2, borderRadius: 14 }} />
+      <div style={{ height: 46, width: 180, borderRadius: 10, background: DIM_RAIL, marginTop: 22 }} />
+      <div style={{ height: 148, borderRadius: 12, background: DIM_RAIL, marginTop: 22 }} />
     </div>
-  );
-}
-
-// ── StatCell ──────────────────────────────────────────────────────────────
-function StatCell({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div style={{
-      background: s2.surface2,
-      borderRadius: 18,
-      padding: '12px 8px',
-      textAlign: 'center',
-    }}>
-      <HairLabel style={{ marginBottom: 6, fontSize: 7.5 }}>{label}</HairLabel>
-      <div style={{
-        fontFamily: s2.sans,
-        fontSize: 14,
-        fontWeight: 800,
-        color: color ?? s2.text,
-        letterSpacing: '-0.02em',
-        fontVariantNumeric: 'tabular-nums',
-      }}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-// ── MacroTab ──────────────────────────────────────────────────────────────
-function MacroTab({
-  macro, label, selected, color, onClick,
-}: { macro: MacroKey; label: string; selected: boolean; color: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        flex: 1,
-        padding: '7px 4px',
-        background: selected ? 'transparent' : 'transparent',
-        border: 'none',
-        borderBottom: selected ? `2px solid ${color}` : '2px solid transparent',
-        fontFamily: s2.sans,
-        fontSize: 9,
-        fontWeight: 800,
-        letterSpacing: '0.1em',
-        color: selected ? color : s2.textDimmer,
-        cursor: 'pointer',
-        textTransform: 'uppercase',
-        transition: 'color 0.15s, border-color 0.15s',
-      }}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -264,263 +172,329 @@ export function MonthlyCalorieChart() {
   useEffect(() => { fetchData(trackerCalendarMonth); }, [trackerCalendarMonth, fetchData]);
 
   // ── useMemo hooks MUST come before conditional early returns ─────────────
-  const chartData = useMemo(() => {
-    if (!data) return [];
-    return data.dailyData.map(d => ({
-      ...d,
-      consumed: d[selectedMacro]?.consumed ?? 0,
-      target:   d[selectedMacro]?.target   ?? 0,
-      delta:    d[selectedMacro]?.delta    ?? 0,
+  const cfg = MACRO_CONFIG[selectedMacro];
+
+  /**
+   * Every figure on the card is derived here from the per-day values and the
+   * daily goal — consumed, target, delta, the missed count and the cumulative
+   * percentage are all reductions over the same array the chart plots, so the
+   * headline and the bars cannot drift apart. (The response also carries a
+   * server-computed `totals`, which the light card used; deriving instead is
+   * what keeps the two in agreement.)
+   */
+  const derived = useMemo(() => {
+    if (!data) return null;
+    const goal    = data.targets[selectedMacro] ?? 0;
+    const days    = data.dailyData;
+    const elapsed = data.planDaysElapsed;
+    const logged  = days.filter(d => d.hasData);
+
+    const consumed = logged.reduce((a, d) => a + (d[selectedMacro]?.consumed ?? 0), 0);
+    const target   = goal * elapsed;
+    const delta    = consumed - target;
+    const missed   = Math.max(0, elapsed - logged.length);
+    const pct      = target > 0 ? (consumed / target) * 100 : 0;
+    const deltaPct = target > 0 ? (delta / target) * 100 : 0;
+
+    const today = localToday();
+    const cols  = days.map(d => ({
+      day:    d.day,
+      date:   d.date,
+      future: d.date > today,
+      delta:  d.hasData ? (d[selectedMacro]?.consumed ?? 0) - goal : null,
     }));
+
+    const magnitudes = cols.map(c => (c.delta == null ? 0 : Math.abs(c.delta)));
+    const maxAbs = Math.max(...magnitudes, 1);
+    const yMax   = Math.max(Math.ceil(maxAbs / 5) * 5, 5);
+
+    return { goal, elapsed, consumed, target, delta, missed, pct, deltaPct, cols, yMax };
   }, [data, selectedMacro]);
 
-  const TooltipContent = useMemo(() => makeTooltip(selectedMacro), [selectedMacro]);
-
   if (loading) return <Skeleton />;
-  if (error || !data) return (
-    <div style={{ background: s2.surface, borderRadius: 26, padding: 16 }}>
-      <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim, textAlign: 'center' }}>
+  if (error || !data || !derived) return (
+    <div style={{ background: s2.ink, borderRadius: 32, padding: 20 }}>
+      <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.onDarkDim, textAlign: 'center' }}>
         {error || 'No data'}
       </div>
     </div>
   );
 
-  const { planDaysElapsed, totalPlanDaysInMonth, targets, totals, month } = data;
-  const cfg      = MACRO_CONFIG[selectedMacro];
-  const macroTot = totals[selectedMacro];
-  const noData   = planDaysElapsed === 0;
+  const { totalPlanDaysInMonth } = data;
+  const { goal, elapsed, consumed, target, delta, missed, pct, deltaPct, cols, yMax } = derived;
+  const noData = elapsed === 0;
+  const note   = getMonthlyNote(deltaPct, elapsed, selectedMacro);
 
-  const pctConsumed = macroTot.target > 0
-    ? Math.min((macroTot.consumed / macroTot.target) * 100, 100)
-    : 0;
-  const progressColor = getProgressColor(macroTot.consumed, macroTot.target);
+  // Over-goal must never land on the macro's own colour — on the Fat tab it
+  // would, and both directions would read as one hue.
+  const cUnder = cfg.color;
+  const cOver  = cfg.color === s2.fat ? s2.lilac : s2.fat;
 
-  const maxAbs = chartData.length > 0
-    ? Math.max(...chartData.map(d => Math.abs(d.delta)), 10)
-    : 10;
-  const yDomain = [-Math.ceil(maxAbs / 10) * 10, Math.ceil(maxAbs / 10) * 10];
+  const H = 148, half = H / 2;
+  const unitSuffix = cfg.unit === 'kcal' ? ' kcal' : 'g';
 
-  const deficitZoneLine = -(targets[selectedMacro] * 0.1);
-  const deltaSign = macroTot.delta > 0 ? '+' : '';
-  const deltaStr  = `${deltaSign}${fmtAmount(macroTot.delta, cfg.unit)}${cfg.unit === 'g' ? 'g' : ''}`;
+  // x labels: first, quarters, last of the plotted range.
+  const labelIdx = cols.length
+    ? Array.from(new Set([0, Math.floor(cols.length * 0.25), Math.floor(cols.length * 0.5), Math.floor(cols.length * 0.75), cols.length - 1]))
+    : [];
 
   return (
-    <div style={{ background: s2.surface, borderRadius: 26, padding: 16 }}>
+    <div>
+      <div style={{ background: s2.ink, borderRadius: 32, padding: 20, paddingBottom: 38 }}>
 
-      {/* ── Header with month navigator ────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <HairLabel>MONTHLY MACROS</HairLabel>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-          <button
-            onClick={() => navigateMonth(-1)}
-            style={{
-              background: 'none', border: 'none',
-              color: s2.textDim, fontSize: 16,
-              cursor: 'pointer', padding: '0 6px', lineHeight: 1,
-            }}
-          >‹</button>
-          <span style={{
-            fontFamily: s2.sans, fontSize: 10, fontWeight: 800,
-            letterSpacing: '0.1em', textTransform: 'uppercase',
-            color: s2.text, minWidth: 96, textAlign: 'center',
-          }}>
-            {MONTH_NAMES[chartM - 1]} {chartY}
-          </span>
-          <button
-            onClick={() => navigateMonth(1)}
-            disabled={isCurrentMonth}
-            style={{
-              background: 'none', border: 'none',
-              color: isCurrentMonth ? s2.textDimmer : s2.textDim,
-              fontSize: 16,
-              cursor: isCurrentMonth ? 'default' : 'pointer',
-              padding: '0 6px', lineHeight: 1,
-            }}
-          >›</button>
-        </div>
-      </div>
-
-      {/* ── Macro tab strip ────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex',
-        borderBottom: `1px solid ${s2.line}`,
-        marginBottom: 14,
-      }}>
-        {(Object.keys(MACRO_CONFIG) as MacroKey[]).map(mk => (
-          <MacroTab
-            key={mk}
-            macro={mk}
-            label={mk === 'calories' ? 'KCAL' : mk.toUpperCase()}
-            selected={selectedMacro === mk}
-            color={MACRO_CONFIG[mk].color}
-            onClick={() => setSelectedMacro(mk)}
-          />
-        ))}
-      </div>
-
-      {/* ── Reactive content (fades on macro switch) ───────────────── */}
-      <div style={{ opacity: fading ? 0 : 1, transition: 'opacity 150ms ease' }}>
-
-        {/* Stat cells */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6, marginBottom: 14 }}>
-          <StatCell
-            label="CONSUMED"
-            value={`${macroTot.consumed.toLocaleString()}${cfg.unit === 'g' ? 'g' : ''}`}
-          />
-          <StatCell
-            label="TARGET"
-            value={`${macroTot.target.toLocaleString()}${cfg.unit === 'g' ? 'g' : ''}`}
-            color={s2.textDim}
-          />
-          <StatCell
-            label="DELTA"
-            value={deltaStr}
-            color={macroTot.delta > 0 ? s2.warn : s2.fibre}
-          />
-        </div>
-
-        {/* Progress days text */}
-        {!noData && (
-          <div style={{
-            fontFamily: s2.sans,
-            fontSize: 9.5,
-            fontWeight: 700,
-            color: s2.textDimmer,
-            letterSpacing: '0.1em',
-            marginBottom: 14,
-          }}>
-            <span style={{ color: s2.text }}>{planDaysElapsed}</span> OF{' '}
-            <span style={{ color: s2.text }}>{totalPlanDaysInMonth}</span> PLAN DAYS PROGRESSED{' '}
-            ({Math.round((planDaysElapsed / totalPlanDaysInMonth) * 100)}%)
+        {/* ── Month navigator, in the card header ─────────────────────── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <HairLabel color={s2.onDarkDimmer}>MONTHLY MACROS</HairLabel>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <button
+              onClick={() => navigateMonth(-1)}
+              aria-label="Previous month"
+              style={{
+                width: 28, height: 28, borderRadius: s2.rPill, border: 'none',
+                background: DIM_RAIL, color: s2.onDark,
+                fontSize: 15, lineHeight: 1, cursor: 'pointer',
+              }}
+            >‹</button>
+            <span style={{
+              fontFamily: s2.sans, fontSize: 10, fontWeight: 800,
+              letterSpacing: '0.12em', textTransform: 'uppercase',
+              color: s2.onDark, minWidth: 88, textAlign: 'center',
+            }}>
+              {MONTH_NAMES[chartM - 1]} {chartY}
+            </span>
+            <button
+              onClick={() => navigateMonth(1)}
+              disabled={isCurrentMonth}
+              aria-label="Next month"
+              style={{
+                width: 28, height: 28, borderRadius: s2.rPill, border: 'none',
+                background: DIM_RAIL,
+                color: isCurrentMonth ? s2.onDarkDimmer : s2.onDark,
+                fontSize: 15, lineHeight: 1,
+                cursor: isCurrentMonth ? 'default' : 'pointer',
+              }}
+            >›</button>
           </div>
-        )}
+        </div>
 
-        {/* Daily average, recomputed per macro tab (ref: V3Kcal). The under/over
-            target counts that sat beside it now live in TrackerTab, above the
-            macro tabs, where they are fixed to calories. */}
-        {!noData && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 14 }}>
-            {([
-              { k: 'DAILY AVG',     v: cfg.unit === 'kcal' ? macroTot.dailyAvg.toLocaleString() : String(Math.round(macroTot.dailyAvg)), u: cfg.unit,  bg: s2.accentFill },
-            ]).map(c => (
-              <div key={c.k} style={{ background: c.bg, borderRadius: 18, padding: '12px 14px' }}>
-                <HairLabel color="rgba(15,20,15,0.5)" style={{ fontSize: 7.5 }}>{c.k}</HairLabel>
-                <div style={{ fontFamily: s2.disp, fontSize: 22, fontWeight: 700, color: s2.ink, letterSpacing: '-0.035em', lineHeight: 1, marginTop: 7, fontVariantNumeric: 'tabular-nums' }}>
-                  {c.v}
-                  <span style={{ fontFamily: s2.sans, fontSize: 10, fontWeight: 600, color: 'rgba(15,20,15,0.55)', marginLeft: 4 }}>{c.u}</span>
+        {/* ── Macro pills ─────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', gap: 5, marginTop: 16 }}>
+          {(Object.keys(MACRO_CONFIG) as MacroKey[]).map(mk => {
+            const on = mk === selectedMacro;
+            return (
+              <button
+                key={mk}
+                onClick={() => setSelectedMacro(mk)}
+                style={{
+                  flex: 1, border: 'none', cursor: 'pointer',
+                  borderRadius: s2.rPill, padding: '8px 0',
+                  background: on ? MACRO_CONFIG[mk].color : DIM_RAIL,
+                  color: on ? s2.ink : s2.onDarkDim,
+                  fontFamily: s2.sans, fontSize: 10.5, fontWeight: 700,
+                  letterSpacing: '-0.01em',
+                  transition: 'background 180ms ease-out',
+                }}
+              >
+                {mk === 'calories' ? 'Kcal' : MACRO_CONFIG[mk].label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ opacity: fading ? 0 : 1, transition: 'opacity 150ms ease' }}>
+
+          {/* ── Hero: consumed against target ─────────────────────────── */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10, marginTop: 20 }}>
+            <div style={{ minWidth: 0 }}>
+              <HairLabel color={s2.onDarkDimmer}>{cfg.label.toUpperCase()} CONSUMED</HairLabel>
+              <div style={{
+                fontFamily: s2.disp, fontSize: 42, fontWeight: 700,
+                letterSpacing: '-0.045em', color: s2.onDark, lineHeight: 1, marginTop: 8,
+              }}>
+                {cfg.unit === 'kcal' ? Math.round(consumed).toLocaleString() : Math.round(consumed)}
+                <span style={{ fontFamily: s2.sans, fontSize: 14, fontWeight: 600, color: s2.onDarkDim, marginLeft: 5 }}>
+                  {cfg.unit === 'kcal' ? 'kcal' : 'g'} / {fmtAmount(target, cfg.unit)}
+                </span>
+              </div>
+            </div>
+            <span style={{
+              flexShrink: 0,
+              fontFamily: s2.sans, fontSize: 10.5, fontWeight: 700,
+              borderRadius: s2.rPill, padding: '6px 11px', whiteSpace: 'nowrap',
+              background: delta > 0 ? 'rgba(255,138,107,0.18)' : 'rgba(198,242,78,0.16)',
+              color:      delta > 0 ? '#FFA98F' : s2.accentFill,
+            }}>
+              {delta > 0 ? '▲' : '▼'} {fmtAmount(delta, cfg.unit)} {delta > 0 ? 'over' : 'under'}
+            </span>
+          </div>
+
+          {/* ── Progress through the month ────────────────────────────── */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ height: 3, borderRadius: s2.rPill, background: 'rgba(246,247,243,0.10)', overflow: 'hidden' }}>
+              <div style={{
+                width: `${totalPlanDaysInMonth > 0 ? (elapsed / totalPlanDaysInMonth) * 100 : 0}%`,
+                height: '100%', background: 'rgba(246,247,243,0.42)',
+              }} />
+            </div>
+            <div style={{
+              fontFamily: s2.sans, fontSize: 9.5, fontWeight: 700,
+              letterSpacing: '0.1em', color: s2.onDarkDimmer, marginTop: 8, textTransform: 'uppercase',
+            }}>
+              <span style={{ color: s2.onDark }}>{elapsed}</span> of{' '}
+              <span style={{ color: s2.onDark }}>{totalPlanDaysInMonth}</span> plan days progressed
+              {' '}({totalPlanDaysInMonth > 0 ? Math.round((elapsed / totalPlanDaysInMonth) * 100) : 0}%)
+              {/* only when there is something missed — never hardcoded */}
+              {missed > 0 ? ` · ${missed} not logged` : ''}
+            </div>
+          </div>
+
+          {noData ? (
+            <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.onDarkDim }}>
+                No meal data for this month yet
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* ── Daily balance ──────────────────────────────────────── */}
+              <div style={{ marginTop: 22 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                  <HairLabel color={s2.onDarkDimmer} style={{ fontSize: 7.5 }}>
+                    DAILY {cfg.label.toUpperCase()} BALANCE
+                  </HairLabel>
+                  <span style={{
+                    fontFamily: s2.sans, fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
+                    color: s2.onDarkDimmer, textTransform: 'uppercase', whiteSpace: 'nowrap',
+                  }}>
+                    vs {Math.round(goal)}{unitSuffix} goal
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 9, marginTop: 12 }}>
+                  {/* y axis */}
+                  <div style={{ width: 24, height: H, position: 'relative', flexShrink: 0 }}>
+                    {([[0, `+${yMax}`], [half - 5, '0'], [H - 10, `−${yMax}`]] as [number, string][]).map(([top, l]) => (
+                      <span key={l} style={{
+                        position: 'absolute', top, right: 0,
+                        fontFamily: s2.sans, fontSize: 8.5, fontWeight: 700, color: s2.onDarkDimmer,
+                      }}>{l}</span>
+                    ))}
+                  </div>
+
+                  {/* plot */}
+                  <div style={{ flex: 1, height: H, position: 'relative' }}>
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: half, borderTop: '1px dashed rgba(246,247,243,0.32)' }} />
+                    <div style={{
+                      position: 'absolute', left: 0, right: 0,
+                      top: half - half * 0.18, height: half * 0.36,
+                      background: 'rgba(246,247,243,0.04)', borderRadius: 3,
+                    }} />
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', gap: 1.5, alignItems: 'stretch' }}>
+                      {cols.map((c, i) => {
+                        if (c.future) {
+                          return <div key={i} style={{ flex: 1, alignSelf: 'center', height: 2, borderRadius: 2, background: FUTURE_RAIL }} />;
+                        }
+                        if (c.delta == null) {
+                          return (
+                            <div key={i} style={{ flex: 1, position: 'relative' }} title={`Day ${c.day} · not logged`}>
+                              <div style={{ position: 'absolute', left: 0, right: 0, top: half - 1.5, height: 3, borderRadius: 2, background: TICK_RAIL }} />
+                            </div>
+                          );
+                        }
+                        const h  = Math.max((Math.abs(c.delta) / yMax) * half, 3);
+                        const up = c.delta > 0;
+                        return (
+                          <div
+                            key={i}
+                            style={{ flex: 1, position: 'relative' }}
+                            /* native tooltip keeps the per-day detail the old
+                               Recharts hover gave, without altering the visual */
+                            title={`Day ${c.day} · ${up ? '+' : '−'}${fmtAmount(c.delta, cfg.unit)} ${up ? 'over' : 'under'} goal`}
+                          >
+                            <div style={{
+                              position: 'absolute', left: 0, right: 0, height: h,
+                              top: up ? half - h : half,
+                              background: up ? cOver : cUnder, opacity: 0.9,
+                              borderRadius: up ? '3px 3px 1px 1px' : '1px 1px 3px 3px',
+                            }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  marginLeft: 33, marginTop: 8,
+                  fontFamily: s2.sans, fontSize: 8.5, fontWeight: 700, color: s2.onDarkDimmer,
+                }}>
+                  {labelIdx.map(i => <span key={i}>{cols[i]?.day ?? ''}</span>)}
+                </div>
+
+                {/* legend — reads the same two variables the bars do */}
+                <div style={{ display: 'flex', gap: 14, marginTop: 12, marginLeft: 33, flexWrap: 'wrap' }}>
+                  {([['Under goal', cUnder], ['Over goal', cOver], ['Not logged', TICK_RAIL]] as [string, string][]).map(([l, c]) => (
+                    <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 2, background: c, opacity: c.startsWith('rgba') ? 1 : 0.9 }} />
+                      <span style={{
+                        fontFamily: s2.sans, fontSize: 8.5, fontWeight: 700, letterSpacing: '0.08em',
+                        color: s2.onDarkDimmer, textTransform: 'uppercase',
+                      }}>{l}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
 
-        {/* Bar chart */}
-        {noData ? (
-          <div style={{
-            height: 120,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-            <div style={{ fontFamily: s2.sans, fontSize: 13, color: s2.textDim }}>
-              No meal data for this month yet
-            </div>
-          </div>
-        ) : (
-          <>
-            <div style={{ marginBottom: 14 }}>
-              <HairLabel style={{ marginBottom: 6, fontSize: 7 }}>
-                DAILY {cfg.label.toUpperCase()} BALANCE
-              </HairLabel>
-              <ResponsiveContainer width="100%" height={150}>
-                <BarChart data={chartData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
-                  <XAxis
-                    dataKey="day"
-                    tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}
-                    axisLine={false} tickLine={false} interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    domain={yDomain}
-                    tick={{ fontSize: 9, fill: s2.textDimmer, fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}
-                    axisLine={false} tickLine={false} tickCount={5}
-                  />
-                  <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(15,20,15,0.05)' }} />
-                  <ReferenceLine y={0} stroke={s2.lineStrong} strokeDasharray="3 3" />
-                  <ReferenceLine
-                    y={deficitZoneLine}
-                    stroke={s2.fibre} strokeDasharray="4 4" strokeOpacity={0.4}
-                    label={{ value: 'Deficit zone', position: 'insideBottomRight', fontSize: 7, fill: s2.fibre, opacity: 0.7 }}
-                  />
-                  <Bar dataKey="delta" maxBarSize={16}>
-                    {chartData.map((entry, i) => (
-                      <Cell key={i} fill={getDailyBarColor(entry.consumed, entry.target, entry.hasData)} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+              {/* ── Cumulative progress ────────────────────────────────── */}
+              <div style={{ marginTop: 22 }}>
+                <HairLabel color={s2.onDarkDimmer} style={{ fontSize: 7.5, marginBottom: 9 }}>CUMULATIVE PROGRESS</HairLabel>
+                <div style={{ height: 6, borderRadius: s2.rPill, background: 'rgba(246,247,243,0.10)', overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', borderRadius: s2.rPill, background: cfg.color }} />
+                </div>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 8,
+                  fontFamily: s2.sans, fontSize: 9.5, fontWeight: 700, color: s2.onDarkDimmer,
+                }}>
+                  <span>0</span>
+                  <span style={{ color: cfg.color, textAlign: 'center' }}>
+                    {pct.toFixed(1)}% of {cfg.label.toLowerCase()} target
+                  </span>
+                  <span>{fmtAmount(target, cfg.unit)}</span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
 
-            {/* Cumulative progress bar */}
-            <div style={{ marginBottom: 14 }}>
-              <HairLabel style={{ marginBottom: 6, fontSize: 7 }}>CUMULATIVE PROGRESS</HairLabel>
-              <SBar pct={pctConsumed / 100} color={progressColor} h={4} />
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                marginTop: 6,
-                fontFamily: s2.sans,
-                fontSize: 9.5, fontWeight: 600,
-                color: s2.textDimmer,
-              }}>
-                <span>0</span>
-                <span style={{ color: progressColor }}>
-                  {pctConsumed.toFixed(1)}% of {cfg.label.toLowerCase()} target
-                </span>
-                <span>{macroTot.target.toLocaleString()}{cfg.unit === 'kcal' ? ' kcal' : 'g'}</span>
-              </div>
-              <div style={{
-                marginTop: 6,
-                fontFamily: s2.sans,
-                fontSize: 9.5, fontWeight: 600,
-                color: macroTot.delta > 0 ? s2.warn : s2.fibre,
-                letterSpacing: '0.04em',
-              }}>
-                {fmtAmount(macroTot.delta, cfg.unit)}{cfg.unit === 'g' ? 'g' : ' kcal'}{' '}
-                {macroTot.delta > 0 ? 'OVER' : 'UNDER'} {cfg.label.toUpperCase()} TARGET
-              </div>
-              <div style={{
-                marginTop: 4,
-                fontFamily: s2.sans,
-                fontSize: 9.5, fontWeight: 600,
-                color: s2.textDimmer,
-              }}>
-                Daily avg:{' '}
-                <span style={{ color: s2.text }}>
-                  {macroTot.dailyAvg.toLocaleString()}{cfg.unit === 'g' ? 'g' : ''}
-                </span>{' '}
-                vs{' '}
-                <span style={{ color: s2.text }}>
-                  {targets[selectedMacro].toLocaleString()}{cfg.unit === 'g' ? 'g' : ''}{' '}
-                  {cfg.unit === 'kcal' ? 'kcal' : ''}
-                </span>{' '}
-                goal
-              </div>
-            </div>
-
-            {/* Insight */}
+      {/* ── The message pops out over the card's bottom edge ───────────── */}
+      <div style={{ margin: '-24px 14px 0', position: 'relative' }}>
+        <div style={{
+          background: note.tone === 'warn' ? s2.peach : s2.accentFill,
+          borderRadius: 22, padding: 15,
+          boxShadow: '0 14px 32px rgba(15,20,15,0.22)',
+        }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
             <div style={{
-              background: s2.surface2,
-              borderRadius: 16,
-              padding: '12px 14px',
-              fontFamily: s2.sans,
-              fontSize: 12,
-              color: s2.textDim,
-              lineHeight: 1.5,
+              width: 26, height: 26, borderRadius: s2.rPill, flexShrink: 0,
+              background: 'rgba(15,20,15,0.14)',
+              display: 'grid', placeItems: 'center',
+              fontFamily: s2.sans, fontSize: 13, fontWeight: 800, color: s2.ink,
             }}>
-              {getMonthlyInsight(macroTot.deltaPct, planDaysElapsed, selectedMacro)}
+              {note.tone === 'warn' ? '!' : '✓'}
             </div>
-          </>
-        )}
+            <div>
+              <HairLabel color="rgba(15,20,15,0.5)">{note.title.toUpperCase()}</HairLabel>
+              <div style={{
+                fontFamily: s2.sans, fontSize: 13.5, fontWeight: 600,
+                color: s2.ink, lineHeight: 1.45, marginTop: 6,
+              }}>
+                {note.text}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
