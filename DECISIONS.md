@@ -2106,3 +2106,43 @@ Verified on the device: nav icons render on all six tabs, the extra-meal card
 renders in the dark treatment, and the Track tab — which crashed on the
 previous build — now renders end to end, including the monthly macros card
 with live data. Typecheck clean, 42 server tests pass.
+
+## 42. 14-day plans withheld behind a flag (2026-08-14)
+
+14-day plans are no longer offered. The 14-day card in Profile carried a "REC"
+chip — it was the recommended option — which now reads "Coming soon", is
+greyed to 0.55 opacity and is genuinely inert (`disabled`, no click handler).
+Onboarding's PLAN LENGTH pair gets the same treatment.
+
+The switch is one boolean, `FOURTEEN_DAY_PLANS_ENABLED`, duplicated in
+`client/src/lib/features.ts` and `server/src/utils/features.ts` because they are
+separate builds. Nothing about generation was removed: the 14-day system
+prompt, the 32k token budget, the 180s timeout and the day-count validation all
+still branch on `planDuration`, so turning both flags back on restores the
+feature.
+
+**Hiding the option is not the same as withdrawing it.** Two server-side gaps
+would have left 14-day plans reachable:
+
+- Accounts that already saved `planDuration: 14` would have kept generating
+  14-day plans forever — the stored value outlives the UI that set it. Both
+  read sites in `ai.ts` now go through `resolvePlanDuration()` rather than
+  reading the column directly, so those accounts silently generate 7 days.
+- `PATCH /api/profile/plan-duration` still accepted 14 from an older bundle or
+  a direct call. It now 400s rather than storing a value generation would
+  ignore.
+
+The Profile tab also clamps what it *displays*: an account saved at 14 shows
+7-Day selected, which is what will actually be generated. Showing neither
+option selected — the naive result of gating on `active` alone — would have
+been worse than the bug.
+
+Verified on the device: the card is greyed with the Coming soon chip, tapping
+it changes nothing, and 7-Day is selected on an account whose profile row still
+says 14. Typecheck clean, 42 tests pass.
+
+Note for the next install: the service-worker clear needs the whole remote
+command quoted (`adb shell "run-as … rm -rf 'app_webview/Default/Service
+Worker'"`). Quoting only the path splits it into two non-existent arguments,
+`rm -rf` exits 0 having deleted nothing, and the old bundle keeps rendering —
+which is exactly what happened twice while verifying this change.

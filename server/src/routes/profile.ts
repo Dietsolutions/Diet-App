@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { FOURTEEN_DAY_PLANS_ENABLED, resolvePlanDuration } from '../utils/features';
 import prisma from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { calculateTDEE, calculateBMI } from '../utils/tdee';
@@ -155,7 +156,7 @@ router.post('/', requireAuth, perUserLimiter({ windowMs: 60_000, max: 30, keyPre
       weeklyBudget: data.weeklyBudget || null,
       budgetCurrency: validateCurrency(data.budgetCurrency) ?? 'INR',
       waterIntakeGoal: data.waterIntakeGoal || 8,
-      planDuration: data.planDuration === 14 ? 14 : 7,
+      planDuration: resolvePlanDuration(data.planDuration),
       countryCode: validateCountryCode(data.countryCode) ?? null,
       eatingWindowHours: data.eatingWindowHours ?? null,
       fastingWindowHours: data.fastingWindowHours ?? null,
@@ -233,6 +234,14 @@ router.patch('/plan-duration', requireAuth, async (req: AuthRequest, res: Respon
 
     if (planDuration !== 7 && planDuration !== 14) {
       res.status(400).json({ error: 'planDuration must be 7 or 14' });
+      return;
+    }
+
+    // The UI hides 14 while it is withheld, but the endpoint is still reachable
+    // from an older bundle or a direct call, so refuse it here rather than
+    // storing a value generation will silently ignore.
+    if (planDuration === 14 && !FOURTEEN_DAY_PLANS_ENABLED) {
+      res.status(400).json({ error: '14-day plans are not available yet' });
       return;
     }
 

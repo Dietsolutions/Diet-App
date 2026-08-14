@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { resolvePlanDuration } from '../utils/features';
 import prisma from '../lib/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { calculateBMI, calculateTDEE } from '../utils/tdee';
@@ -1009,7 +1010,7 @@ Apply these on top of their profile preferences. If an instruction
 conflicts with a dietary restriction or allergy, ignore the instruction
 and keep the restriction. Otherwise, honour these instructions precisely.` : '';
 
-  const planDays = profileAny.planDuration === 14 ? 14 : 7;
+  const planDays = resolvePlanDuration(profileAny.planDuration);
   const dayRange = planDays === 14
     ? 'Generate exactly 14 days (Day 1 through Day 14). Week 2 must use completely different meals from Week 1.'
     : 'Generate exactly 7 days (Monday through Sunday).';
@@ -1478,7 +1479,9 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     return;
   }
 
-  const planDuration: number = (profile as any).planDuration === 14 ? 14 : 7;
+  // Resolved, not read straight off the profile: accounts that saved 14 before
+  // it was withdrawn would otherwise keep generating 14-day plans.
+  const planDuration: number = resolvePlanDuration((profile as any).planDuration);
   const systemPrompt = planDuration === 14 ? SYSTEM_PROMPT_14 : SYSTEM_PROMPT_7;
   // A full plan is larger than it looks: a 7-day plan needs ~8.5k output tokens
   // (28 meals + shopping list + prep guide), a 14-day plan ~17k. The old

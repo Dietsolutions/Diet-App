@@ -7,6 +7,7 @@ import { apiUrl, getBearerToken, streamSSE } from '../lib/api';
 import { OnboardingData } from '../types';
 import { COUNTRIES, COUNTRY_CODES, ALLERGENS, ALLERGEN_ICONS, INGREDIENT_CATEGORIES, INGREDIENT_ICONS, CUISINE_OPTIONS, CUISINE_REGIONS, KITCHEN_EQUIPMENT, EQUIPMENT_ICONS, HEALTH_CONDITIONS } from '../data/onboarding';
 import { s2 } from '../theme/tokens';
+import { FOURTEEN_DAY_PLANS_ENABLED } from '../lib/features';
 import { PlanReviewScreen } from './PlanReviewScreen';
 import { track } from '../lib/analytics';
 
@@ -1678,14 +1679,34 @@ function StepGoals({ data, update, toggleArr, section }: { data: OnboardingData;
             { val: 7,  label: '7-DAY'  },
             { val: 14, label: '14-DAY' },
           ].map(o => {
-            const on = data.planDuration === o.val;
+            const locked = o.val === 14 && !FOURTEEN_DAY_PLANS_ENABLED;
+            const on = data.planDuration === o.val && !locked;
             return (
-              <div key={o.val} onClick={() => { update({ planDuration: o.val }); track('plan_duration_selected', { duration: o.val }); }} style={{
-                border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
-                background: on ? s2.accentFill : 'transparent',
-                padding: 14, cursor: 'pointer',
-              }}>
+              <div
+                key={o.val}
+                onClick={() => {
+                  if (locked) return;
+                  update({ planDuration: o.val });
+                  track('plan_duration_selected', { duration: o.val });
+                }}
+                aria-disabled={locked}
+                style={{
+                  border: `1px solid ${on ? s2.accent : s2.lineStrong}`,
+                  background: on ? s2.accentFill : 'transparent',
+                  padding: 14, cursor: locked ? 'not-allowed' : 'pointer',
+                  opacity: locked ? 0.5 : 1,
+                  position: 'relative',
+                }}
+              >
                 <div style={{ fontFamily: s2.sans, fontSize: 16, fontWeight: 500, color: on ? s2.accent : s2.text }}>{o.label}</div>
+                {locked && (
+                  <div style={{
+                    fontFamily: s2.mono, fontSize: 8, letterSpacing: '0.14em',
+                    color: s2.textDimmer, textTransform: 'uppercase', marginTop: 4,
+                  }}>
+                    Coming soon
+                  </div>
+                )}
               </div>
             );
           })}

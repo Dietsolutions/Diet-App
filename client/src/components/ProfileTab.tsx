@@ -17,6 +17,7 @@ import { WeightLogList } from './weight/WeightLogList';
 import { ErrorBoundary } from './ErrorBoundary';
 import { NotificationSettings } from './NotificationSettings';
 import { s2 } from '../theme/tokens';
+import { FOURTEEN_DAY_PLANS_ENABLED } from '../lib/features';
 import { HairLabel, Card, Btn } from './ui';
 import { track, trackPage } from '../lib/analytics';
 import { notifyNewPlanReady } from '../lib/notifications';
@@ -81,7 +82,10 @@ export function ProfileTab() {
           const saved = res.data.profile.mealPlanCustomInstructions || '';
           setMealInstructions(saved);
           instructionsRef.current = saved;
-          if (res.data.profile.planDuration === 14) setPlanDuration(14);
+          // Accounts saved at 14 before it was withdrawn show 7, which is what
+          // the server will actually generate for them — otherwise neither
+          // option looks selected.
+          if (res.data.profile.planDuration === 14 && FOURTEEN_DAY_PLANS_ENABLED) setPlanDuration(14);
           else setPlanDuration(7);
         }
       })
@@ -438,19 +442,25 @@ export function ProfileTab() {
           </HairLabel>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {([7, 14] as const).map(d => {
-              const active = planDuration === d;
+              // 14-day is built but not offered yet, so it reads as an upcoming
+              // option rather than a recommendation you cannot take.
+              const locked = d === 14 && !FOURTEEN_DAY_PLANS_ENABLED;
+              const active = planDuration === d && !locked;
               return (
                 <button
                   key={d}
-                  onClick={() => handlePlanDurationChange(d)}
+                  onClick={() => { if (!locked) handlePlanDurationChange(d); }}
+                  disabled={locked}
+                  aria-disabled={locked}
                   style={{
                     borderRadius: 20,
                     padding: '15px 14px',
                     border: 'none',
                     background: active ? s2.accentFill : s2.surface,
-                    cursor: 'pointer',
+                    cursor: locked ? 'not-allowed' : 'pointer',
                     textAlign: 'left',
                     position: 'relative',
+                    opacity: locked ? 0.55 : 1,
                   }}
                 >
                   {/* Dark chip riding the top edge, lime label (ref: V3Profile).
@@ -466,14 +476,18 @@ export function ProfileTab() {
                       fontSize: 8,
                       fontWeight: 800,
                       letterSpacing: '0.12em',
-                      color: s2.accentFill,
+                      color: locked ? s2.onDarkDim : s2.accentFill,
                       padding: '3px 8px',
                       textTransform: 'uppercase',
+                      whiteSpace: 'nowrap',
                     }}>
-                      REC
+                      {locked ? 'Coming soon' : 'REC'}
                     </div>
                   )}
-                  <div style={{ fontFamily: s2.sans, fontSize: 15, fontWeight: 700, color: s2.ink, marginBottom: 3 }}>
+                  <div style={{
+                    fontFamily: s2.sans, fontSize: 15, fontWeight: 700,
+                    color: locked ? s2.textDim : s2.ink, marginBottom: 3,
+                  }}>
                     {d}-Day Plan
                   </div>
                   <HairLabel color={active ? 'rgba(15,20,15,0.5)' : s2.textDimmer}>
