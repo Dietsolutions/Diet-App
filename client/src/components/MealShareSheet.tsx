@@ -69,14 +69,14 @@ export function MealShareSheet({
     }
 
     lines.push('');
-    lines.push('Shared via Plan Your Plate — https://diet-app-gules.vercel.app');
+    lines.push('Shared via Plan Your Plate — https://getplanyourplate.com');
     return lines.join('\n');
   }
 
   const shareText = buildShareText();
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
   const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(
-    audioUrl || 'https://diet-app-gules.vercel.app',
+    audioUrl || 'https://getplanyourplate.com',
   )}&text=${encodeURIComponent(shareText)}`;
   const supportsNativeShare = typeof navigator !== 'undefined' && !!navigator.share;
 

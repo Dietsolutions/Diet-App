@@ -68,7 +68,7 @@ function mapOpenFoodFactsProduct(p: any): FoodResult {
   };
 }
 
-const HEADERS = { 'User-Agent': 'DietPlanTracker/1.0 (https://diet-app-gules.vercel.app)' };
+const HEADERS = { 'User-Agent': 'DietPlanTracker/1.0 (https://getplanyourplate.com)' };
 const FIELDS  = 'code,product_name,brands,serving_size,nutriments';
 
 function hasCalories(p: any): boolean {

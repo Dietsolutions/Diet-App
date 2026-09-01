@@ -34,7 +34,7 @@ function llmClient(): Anthropic {
       apiKey:  openrouterKey,
       baseURL: OPENROUTER_BASE,
       defaultHeaders: {
-        'HTTP-Referer': process.env.FRONTEND_URL || 'https://dietplan.app',
+        'HTTP-Referer': process.env.FRONTEND_URL || 'https://getplanyourplate.com',
         'X-Title': 'Diet Plan & Tracker',
       },
     });

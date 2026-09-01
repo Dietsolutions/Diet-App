@@ -20,7 +20,7 @@ This is the end-to-end runbook for shipping the Android app to Google Play.
    - This protects your app signing key from being lost.
 
 ### 1.2 Hosting
-The Capacitor WebView loads `https://diet-app-gules.vercel.app` (or your domain). The Play Store requires:
+The Capacitor WebView loads `https://getplanyourplate.com` (or your domain). The Play Store requires:
 - A **public privacy policy URL** — host `/privacy` from the same domain. Already implemented in `server/src/routes/pages.ts:65` and live on Vercel.
 - A **public data-deletion endpoint** — for the Data Safety form. Same Vercel deploy already serves it (see `pages.ts:114`).
 - A **support email** — `dietplan.support@gmail.com` is set in the app.
@@ -34,8 +34,8 @@ Set these in **Vercel → Project → Settings → Environment Variables** for t
 | `DATABASE_URL` | Neon pooled URL | From Neon dashboard |
 | `DIRECT_URL` | Neon direct URL | From Neon dashboard |
 | `JWT_SECRET` | `openssl rand -base64 48` | Unique per environment |
-| `CLIENT_URL` | `https://diet-app-gules.vercel.app` | CORS allowlist |
-| `FRONTEND_URL` | `https://diet-app-gules.vercel.app` | OAuth callback |
+| `CLIENT_URL` | `https://getplanyourplate.com` | CORS allowlist |
+| `FRONTEND_URL` | `https://getplanyourplate.com` | OAuth callback |
 | `ANTHROPIC_API_KEY` | `sk-ant-…` | Claude API |
 | `SMTP_HOST` | (Resend / SES / SendGrid) | Password-reset emails |
 | `SMTP_PORT` | `587` | STARTTLS |
@@ -49,7 +49,7 @@ Set these in **Vercel → Project → Settings → Environment Variables** for t
 | `REVIEW_PASSWORD` | (long random) | |
 | `GOOGLE_CLIENT_ID` | … | Optional — Google sign-in |
 | `GOOGLE_CLIENT_SECRET` | … | Optional |
-| `GOOGLE_CALLBACK_URL` | `https://diet-app-gules.vercel.app/api/auth/google/callback` | |
+| `GOOGLE_CALLBACK_URL` | `https://getplanyourplate.com/api/auth/google/callback` | |
 | `VITE_API_URL` | (empty) | Same-origin |
 | `VITE_POSTHOG_KEY` | … | Optional analytics |
 
@@ -133,7 +133,7 @@ You need to provide these — code can't generate them:
 | **Phone screenshots** | 16:9 or 9:16, min 320 px, max 3840 px | **Minimum 2**, recommended 4–8 |
 | **Short description** | ≤ 80 chars | One-line pitch |
 | **Full description** | ≤ 4000 chars | Marketing copy |
-| **Privacy policy URL** | Public URL | `https://diet-app-gules.vercel.app/privacy` |
+| **Privacy policy URL** | Public URL | `https://getplanyourplate.com/privacy` |
 | **App category** | Health & Fitness | |
 | **Content rating** | Fill IARC questionnaire | Everyone / PEGI 3 |
 | **Target audience** | Not children | Required for health apps |
@@ -141,7 +141,7 @@ You need to provide these — code can't generate them:
 | **Government app** | No | |
 | **Ads** | No | |
 | **In-app purchases** | No (or list prices) | |
-| **Data deletion URL** | `https://diet-app-gules.vercel.app/data-deletion` | Required since app has account deletion |
+| **Data deletion URL** | `https://getplanyourplate.com/data-deletion` | Required since app has account deletion |
 
 ### 4.2 Data Safety form (the biggest submission item)
 Match the declarations to the data you actually collect. Based on `ios/App/App/PrivacyInfo.xcprivacy` and the server code:
@@ -162,7 +162,7 @@ Match the declarations to the data you actually collect. Based on `ios/App/App/P
 - ❌ Not encrypted at rest by the app itself (relies on Neon Postgres at-rest encryption)
 
 **Data deletion:**
-- Provide URL: `https://diet-app-gules.vercel.app/data-deletion`
+- Provide URL: `https://getplanyourplate.com/data-deletion`
 - The user can also trigger deletion in-app (Profile → Delete Account)
 
 **Compliance:**
@@ -184,13 +184,13 @@ adb shell am start -n com.dietplan.tracker/.MainActivity
 ### 5.2 Verify reviewer demo account
 After `NODE_ENV=production` + `REVIEW_USERNAME` + `REVIEW_PASSWORD` are set in Vercel, hitting the API should auto-create that account. Test:
 ```bash
-curl -X POST https://diet-app-gules.vercel.app/api/auth/login \
+curl -X POST https://getplanyourplate.com/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"$REVIEW_USERNAME","password":"$REVIEW_PASSWORD"}'
 ```
 
 ### 5.3 Test the WebView
-The app's WebView points to `https://diet-app-gules.vercel.app`. Make sure that:
+The app's WebView points to `https://getplanyourplate.com`. Make sure that:
 - All pages render correctly in WebView (test in Chrome DevTools mobile emulation)
 - No console errors
 - Apple/Google sign-in flows are reachable
