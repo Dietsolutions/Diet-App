@@ -968,19 +968,31 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
     const { accessToken, refreshToken } = await issueTokenPair(user.id);
     setTokenCookies(res, accessToken, refreshToken);
 
-    // For native app deep links (dietplan://), use an HTML page with JS
-    // redirect instead of an HTTP 302.  Chrome/Safari on mobile may
-    // ignore 302 redirects to custom URL schemes (especially iOS Safari).
-    // The JS-based redirect reliably triggers the OS to open the app.
-    // We also pass the token in the URL since the httpOnly cookie was set
-    // in the system browser (not the WebView), and the app needs it to
-    // authenticate on return.
+    // Native app deep link (dietplan://): hand the token back to the app. The
+    // token rides in the URL because the httpOnly cookie was set in the system
+    // browser, not the WebView. We try an automatic redirect, but Android Chrome
+    // blocks a gestureless navigation to a custom scheme — so we ALSO render a
+    // tappable button, whose tap is a user gesture the browser always honours.
     if (redirectTo.startsWith('dietplan://')) {
       const delim = redirectTo.includes('?') ? '&' : '?';
-      // JSON.stringify escapes all JS metacharacters — safe to inline in a script block
-      const safeHref = JSON.stringify(`${redirectTo}${delim}token=${encodeURIComponent(accessToken)}`);
-      res.send(`<!doctype html><html><body><script>
-window.location.href = ${safeHref};
+      const target = `${redirectTo}${delim}token=${encodeURIComponent(accessToken)}`;
+      const hrefJs = JSON.stringify(target); // safe inside <script>
+      const hrefAttr = target
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;'); // safe inside an href attribute
+      res.send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Signing you in\u2026</title></head>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#F2F1EC;color:#0F140F">
+<div style="padding:24px">
+<p style="font-size:16px;font-weight:600;margin:0 0 18px">Signing you in\u2026</p>
+<a href="${hrefAttr}" style="display:inline-block;background:#C6F24E;color:#0F140F;text-decoration:none;font-weight:700;font-size:15px;padding:14px 26px;border-radius:999px">Open Plan Your Plate</a>
+<p style="font-size:12px;color:rgba(15,20,15,0.5);margin:18px 0 0">Tap the button if the app doesn't open automatically.</p>
+</div>
+<script>
+// Auto-attempt (honoured on iOS Safari and where Android allows it); the button
+// above is the guaranteed fallback when Chrome blocks the gestureless launch.
+(function(){ var go=function(){ try { window.location.href = ${hrefJs}; } catch(e){} };
+go(); setTimeout(go, 500); })();
 <\/script></body></html>`);
       return;
     }
