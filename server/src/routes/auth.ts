@@ -284,6 +284,39 @@ function sanitizeOAuthRedirect(redirect: string): string {
   return FRONTEND_URL;
 }
 
+// OAuth state, signed rather than cookie-checked. The native Google flow hops
+// WebView → Chrome → Google → callback, and a SameSite cookie set at the start
+// does not reliably come back at the callback across that handoff — so the old
+// cookie double-submit CSRF check failed and the callback bounced to the website
+// instead of returning to the app. Signing the state with the server secret gives
+// the same protection without a cookie: the callback trusts the state only if the
+// HMAC verifies (an attacker cannot forge one) and it is fresh (<10 min).
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+function signOAuthState(redirect: string): string {
+  const body = Buffer.from(JSON.stringify({ r: redirect, t: Date.now() })).toString('base64url');
+  const sig = crypto.createHmac('sha256', JWT_SECRET).update(body).digest('base64url');
+  return `${body}.${sig}`;
+}
+
+function verifyOAuthState(state: string): { valid: boolean; redirect: string } {
+  const fail = { valid: false, redirect: '' };
+  if (!state || !state.includes('.')) return fail;
+  const [body, sig] = state.split('.');
+  if (!body || !sig) return fail;
+  const expected = crypto.createHmac('sha256', JWT_SECRET).update(body).digest('base64url');
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return fail;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
+    if (typeof payload.t !== 'number' || Date.now() - payload.t > OAUTH_STATE_TTL_MS) return fail;
+    return { valid: true, redirect: typeof payload.r === 'string' ? payload.r : '' };
+  } catch {
+    return fail;
+  }
+}
+
 function issueToken(userId: string): string {
   // 7 days, not 15m. The client has no auto-refresh, and the native build can't
   // use the refresh-token cookie at all (cross-origin WebView), so a 15-minute
@@ -811,29 +844,19 @@ router.get('/google', (req: Request, res: Response): void => {
     return;
   }
 
-  const csrfToken = crypto.randomBytes(16).toString('hex');
-  // Validate before embedding — prevents open-redirect if state is replayed
+  // Validate before embedding — prevents open-redirect if state is replayed.
+  // Accept a relative web path OR the app's own dietplan:// deep link (the app
+  // sends dietplan://auth so the callback can hand the session back into it).
   const rawRedirect = typeof req.query.redirect === 'string' ? req.query.redirect : '';
-  // Accept a relative web path OR the app's own dietplan:// deep link. The app
-  // sends dietplan://auth so the callback can hand the session back into it;
-  // the old check only allowed leading-'/' paths, silently dropping the scheme
-  // and stranding native Google logins in the system browser.
   const redirectTo =
     rawRedirect &&
     (/^\/[a-zA-Z0-9\-._~!$&'()*+,;=:@/?#%]*$/.test(rawRedirect) || APP_SCHEME_REDIRECT.test(rawRedirect))
       ? rawRedirect
       : '';
-  res.cookie('oauth_state', JSON.stringify({ state: csrfToken }), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 600_000,
-  });
 
-  // Embed the redirect URL inside the state parameter so it survives
-  // across browser contexts (e.g., Chrome opened from Capacitor WebView).
-  // Google returns this verbatim in the callback.
-  const statePayload = Buffer.from(JSON.stringify({ csrf: csrfToken, redirect: redirectTo })).toString('base64url');
+  // Signed state carries the redirect and its own integrity — no cookie needs to
+  // survive the WebView→Chrome→callback handoff. Google returns it verbatim.
+  const statePayload = signOAuthState(redirectTo);
 
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
@@ -852,25 +875,14 @@ router.get('/google', (req: Request, res: Response): void => {
 router.get('/google/callback', async (req: Request, res: Response): Promise<void> => {
   const { code, state: stateRaw } = req.query;
 
-  // Decode the state payload (JSON embedded in OAuth state parameter)
-  let csrfToken = '';
-  let redirectTo = FRONTEND_URL;
-  try {
-    const decoded = JSON.parse(Buffer.from(stateRaw as string, 'base64url').toString());
-    csrfToken = decoded.csrf || '';
-    if (decoded.redirect) redirectTo = sanitizeOAuthRedirect(decoded.redirect);
-  } catch { /* fall through — will check CSRF below */ }
-
-  // Verify CSRF from cookie (cross-check against decoded state)
-  let storedCsrf: string | undefined;
-  try { storedCsrf = JSON.parse(req.cookies?.oauth_state || 'null').state; } catch {}
-
-  if (!csrfToken || !storedCsrf || csrfToken !== storedCsrf) {
-    res.clearCookie('oauth_state');
+  // Verify the signed state (replaces the old cookie CSRF check, which failed
+  // across the native browser handoff). Reject anything not signed by us or stale.
+  const verified = verifyOAuthState(typeof stateRaw === 'string' ? stateRaw : '');
+  if (!verified.valid) {
     res.redirect(`${FRONTEND_URL}?error=invalid_state`);
     return;
   }
-  res.clearCookie('oauth_state');
+  const redirectTo = verified.redirect ? sanitizeOAuthRedirect(verified.redirect) : FRONTEND_URL;
 
   const baseRedirect = (s: string) => `${redirectTo}${s.startsWith('?') ? s : `?${s}`}`;
 
