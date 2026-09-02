@@ -259,11 +259,20 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const GOOGLE_CALLBACK_URL = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback';
 const FRONTEND_URL = process.env.FRONTEND_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:5173');
 
+// The app's own deep-link scheme (AndroidManifest android:scheme="dietplan").
+// The OS routes dietplan:// URLs only to this installed app, so accepting one
+// as an OAuth return target is NOT an open-redirect vector — and it is how the
+// native Google flow hands the session back into the app. Same character set as
+// the web-path check below; only the app scheme is allowed, not arbitrary ones.
+const APP_SCHEME_REDIRECT = /^dietplan:\/\/[a-zA-Z0-9\-._~!$&'()*+,;=:@/?#%]*$/;
+
 // Validate and sanitize OAuth post-login redirect targets.
-// Allows: relative paths (/tab, /profile) and same-origin absolute URLs.
-// Rejects: any other-origin URL (open redirect attack vector).
+// Allows: the app's dietplan:// scheme, relative paths (/tab, /profile), and
+// same-origin absolute URLs. Rejects any other-origin URL (open redirect).
 function sanitizeOAuthRedirect(redirect: string): string {
   if (!redirect) return FRONTEND_URL;
+  // App deep link — return verbatim so the native Google return reaches the app.
+  if (APP_SCHEME_REDIRECT.test(redirect)) return redirect;
   if (/^\/[a-zA-Z0-9\-._~!$&'()*+,;=:@/?#%]*$/.test(redirect)) {
     return `${FRONTEND_URL}${redirect}`;
   }
@@ -805,7 +814,15 @@ router.get('/google', (req: Request, res: Response): void => {
   const csrfToken = crypto.randomBytes(16).toString('hex');
   // Validate before embedding — prevents open-redirect if state is replayed
   const rawRedirect = typeof req.query.redirect === 'string' ? req.query.redirect : '';
-  const redirectTo = rawRedirect && /^\/[a-zA-Z0-9\-._~!$&'()*+,;=:@/?#%]*$/.test(rawRedirect) ? rawRedirect : '';
+  // Accept a relative web path OR the app's own dietplan:// deep link. The app
+  // sends dietplan://auth so the callback can hand the session back into it;
+  // the old check only allowed leading-'/' paths, silently dropping the scheme
+  // and stranding native Google logins in the system browser.
+  const redirectTo =
+    rawRedirect &&
+    (/^\/[a-zA-Z0-9\-._~!$&'()*+,;=:@/?#%]*$/.test(rawRedirect) || APP_SCHEME_REDIRECT.test(rawRedirect))
+      ? rawRedirect
+      : '';
   res.cookie('oauth_state', JSON.stringify({ state: csrfToken }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
