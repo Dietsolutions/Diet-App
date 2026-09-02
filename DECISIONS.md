@@ -2311,3 +2311,41 @@ Not exercised (need the owner's own account, not done on their behalf): a
 successful login, Google OAuth end-to-end, and a plan generation. The vercel.app
 address still works, so nothing is down; the old-domain OAuth entries and the
 temporary address can be retired later.
+
+## 47. Native Google login didn't return to the app (2026-09-02)
+
+Symptom (owner-reported, Android): tapping Google opened the system browser,
+logged in there, and never came back to the app — the user ended up
+authenticated on the website in Chrome, not in the app.
+
+The native flow was fully built and every piece was correct except two
+server-side validation gates:
+
+- The client sends `?redirect=dietplan://auth` on native (AuthScreen).
+- `/api/auth/google/callback` already had a `dietplan://` branch that returns
+  the session via a JS-redirect page appending `?token=<accessToken>`.
+- `App.tsx` already listens on Capacitor `appUrlOpen`, extracts the token, and
+  calls `authWithToken`.
+
+But both gates stripped the custom scheme before that code ran:
+
+1. `/api/auth/google` only embedded the redirect in the OAuth `state` if it
+   matched a leading-`/` path — `dietplan://auth` failed the regex and became
+   `''`.
+2. `sanitizeOAuthRedirect` (used in the callback) likewise rejected it and fell
+   back to `FRONTEND_URL`.
+
+So the callback always redirected to the website. Fix: a single
+`APP_SCHEME_REDIRECT = /^dietplan:\/\/[…]*$/` matcher, accepted at both gates in
+addition to same-origin web paths. Only the app's own scheme is allowed — the
+OS routes `dietplan://` solely to this installed app, so it is not an
+open-redirect vector, and no other scheme passes.
+
+**Server-only fix** — the client was already correct, so the installed APK
+works once the server deploys; no rebuild.
+
+Verified: polled the deployed `/api/auth/google?redirect=dietplan://auth` and
+decoded the `state` param — it went from `redirect=''` (old) to
+`redirect='dietplan://auth'` (fixed) once the deploy landed. The final leg (a
+real Google sign-in reopening the app) needs the owner's own Google account and
+was handed to them to confirm.
