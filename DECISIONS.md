@@ -2267,3 +2267,47 @@ Cutting the "done looks like" clause changed method length by less than
 run-to-run variance (315 → 352 words for Tuna Oats, 703 → 721 for dosa — both
 slightly *up*). It was removed because it was redundant, not because it was
 costing length; §44's sensory clause had already absorbed that effect.
+
+## 46. Domain migration to getplanyourplate.com (2026-09-02)
+
+Moved the production domain off the temporary `diet-app-gules.vercel.app` to
+**getplanyourplate.com** (registered on Cloudflare). Android-only; iOS deferred.
+
+Split of work:
+
+- **Cloudflare DNS:** two CNAMEs (apex `@` and `www`) → the Vercel target,
+  both **DNS-only / grey cloud**. Proxying (orange cloud) breaks Vercel's SSL —
+  the standard Cloudflare+Vercel trap.
+- **Vercel:** domain added to the project; apex set as primary, `www`
+  308-redirects to apex. `CLIENT_URL`, `FRONTEND_URL`, `GOOGLE_CALLBACK_URL`
+  updated to the new domain.
+- **Google OAuth:** `https://getplanyourplate.com/api/auth/google/callback`
+  added to the existing client's redirect URIs (kept the old vercel.app entries
+  for a safe cutover). Same client ID — not recreated.
+- **Code (commit c09cdb0):** hardcoded share links, the OpenFoodFacts UA and
+  the LLM referer default repointed. Manifest App Links comment refreshed.
+- **App:** rebuilt with `VITE_API_URL=https://getplanyourplate.com` baked in.
+
+**Canonical = bare apex.** The first Vercel setup made `www` primary with the
+apex redirecting to it. That had to be reversed: baking a *redirecting* host
+into the app breaks API calls, because a CORS preflight (OPTIONS) does not
+follow the 308 — the preflight itself fails and the real request never fires.
+So the app must point at the host that serves `200` directly. Apex was chosen
+as primary; `www` now redirects to it.
+
+Verified before shipping:
+- apex `/api/health` = 200 direct (6/6; one earlier 503 was a serverless cold
+  start), `www` 307-redirects to apex, Let's Encrypt cert valid.
+- CORS preflight from the Capacitor WebView origin (`https://localhost`,
+  Android default) is allowed on the new domain.
+- APK contains getplanyourplate.com only, zero diet-app-gules, `server.url`
+  absent (bundled app, not a remote shell).
+- On-device: a deliberately fake login returned the **server's** "Invalid
+  username or password" (a 401 from the backend), not a network/CORS error —
+  proving the full device → new-domain → backend round-trip. Since the APK
+  carries no other host, the response can only have come from getplanyourplate.com.
+
+Not exercised (need the owner's own account, not done on their behalf): a
+successful login, Google OAuth end-to-end, and a plan generation. The vercel.app
+address still works, so nothing is down; the old-domain OAuth entries and the
+temporary address can be retired later.
