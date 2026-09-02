@@ -48,6 +48,12 @@ export default defineConfig(({ mode }) => {
           // throw a build error after a successful bundle.
           maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          // The SPA navigation fallback must never serve index.html for API
+          // routes. Without this, once the SW is registered in a browser it
+          // hijacks top-level navigations to /api/* (e.g. the Google OAuth
+          // start at /api/auth/google) and returns the app shell instead of
+          // letting the request reach the server — breaking OAuth.
+          navigateFallbackDenylist: [/^\/api\//],
           runtimeCaching: [
             // ── Navigate requests: NetworkFirst ─────────────────────────────
             // CRITICAL for iOS: always fetch fresh index.html from the network
