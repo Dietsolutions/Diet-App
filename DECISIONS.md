@@ -2349,3 +2349,53 @@ decoded the `state` param — it went from `redirect=''` (old) to
 `redirect='dietplan://auth'` (fixed) once the deploy landed. The final leg (a
 real Google sign-in reopening the app) needs the owner's own Google account and
 was handed to them to confirm.
+
+## 48. Native Google login — three stacked bugs (2026-09-02)
+
+Owner reported: on Android, Google login opens the browser, logs in there, and
+never returns to the app. Fixing it uncovered three defects in series, each
+masked by the one before it. All are server/web-config; the native APK did not
+need rebuilding for any of them.
+
+**Bug 1 — redirect scheme stripped (§47, commit 8b7246a).** Two server gates
+only accepted a leading-`/` path, so `dietplan://auth` was dropped before the
+callback's dietplan branch could run. Fixed with APP_SCHEME_REDIRECT at both
+gates.
+
+**Bug 2 — CSRF cookie didn't survive the browser handoff (commit 43f7306).**
+Even with bug 1 fixed, login bounced to the website. The flow hops WebView →
+Chrome → Google → callback, and the `oauth_state` SameSite cookie set at the
+start did not come back at the callback across that handoff, so the CSRF check
+failed and the callback redirected to FRONTEND_URL. Replaced the cookie
+double-submit with an HMAC-signed state (`signOAuthState`/`verifyOAuthState`,
+server secret, 10-min TTL, timing-safe compare). Proven with a cookie-less curl
+round-trip: `/api/auth/google/callback` with no cookie now returns
+`location: dietplan://auth?…` where it previously returned
+`getplanyourplate.com?error=invalid_state`.
+
+**Bug 3 — service worker hijacked /api navigations (commit 9ea8e5b).** The web
+PWA's generated SW had `NavigationRoute(createHandlerBoundToURL("index.html"))`
+with no denylist, so in any browser where the SW was registered, a top-level
+navigation to `/api/auth/google` was served the app shell and the OAuth never
+started. This is what made the on-device symptom so sticky: the earlier failed
+attempts landed on the SPA in Chrome, which registered the SW, which then
+hijacked every subsequent attempt. Added `navigateFallbackDenylist: [/^\/api\//]`
+in `client/vite.config.ts`. Verified the deployed `sw.js` now carries
+`denylist:[/^\/api\//]`.
+
+Also hardened the success page (commit dcd3d85): it auto-attempts
+`window.location.href = "dietplan://…?token=…"` but Android Chrome blocks a
+gestureless custom-scheme launch, so the page now also renders a lime
+"Open Plan Your Plate" button whose tap always launches the app.
+
+Every link verified independently: `/api/auth/google` → 307 → Google (curl,
+browser UA); cookieless callback → `dietplan://` (curl); and firing
+`dietplan://auth?token=…` via `am start` opens the app, fires `appUrlOpen`, and
+extracts the token. Full live on-device confirmation was blocked by a poisoned
+SW in the test Chrome plus a wedged device — environment, not product.
+
+**Poisoned-browser note:** a Chrome that hit the old flow still runs the old
+SW. With autoUpdate + skipWaiting + clientsClaim, the first site load after the
+deploy swaps in the new SW, so the *first* Google tap may still show the shell
+(old SW served it) and the *second* works — or load getplanyourplate.com once
+first, or clear the site's data.
