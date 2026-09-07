@@ -16,6 +16,12 @@ export default defineConfig(({ mode }) => {
 
       VitePWA({
         registerType: 'autoUpdate',
+        // Don't auto-inject registerSW.js — it registers /sw.js with no error
+        // handler, so any registration failure becomes an unhandled rejection
+        // shown to the user. main.tsx registers the SW itself (with a .catch),
+        // which is what surfaced when www.getplanyourplate.com (a 307 redirect
+        // to the apex) tried to register a redirected /sw.js. We own registration.
+        injectRegister: null,
         includeAssets: ['icons/*.png'],
         manifest: {
           name: 'Diet Plan & Tracker',
