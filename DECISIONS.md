@@ -2425,3 +2425,32 @@ stayed on `www`; its own update fetch (`www/sw.js`) is the redirect that fails,
 so it can't self-heal. Only a manual clear of `www` site data removes it. New
 visitors are unaffected: `www` → 307 → apex → same-origin `sw.js`. Canonical URL
 to share is the bare apex. Native app unaffected (no SW in the WebView).
+
+## 50. Generation timeout + onboarding scroll position (2026-09-08)
+
+Two unrelated app bugs.
+
+**Plan generation "timed out".** Prod runs Haiku 4.5. A worst-case 7-day plan
+(5 meals/day) measured ~97s / ~11.9k output tokens streaming, but the phase-1
+`callLLM` timeout was 120s — ~23s of margin, so a slower-than-median run (API
+latency, load, or a plan filling more of the 16k budget) aborted with a
+spurious "AI generation timed out", even though the client XHR and Vercel
+`maxDuration` both allow 300s. Phase 1 only generates + saves (CN validation is
+a separate `/validate-plan` request), so it can safely use most of the 300s
+budget. Raised the ceiling: 7-day 120s→240s, 14-day 180s→270s
+([ai.ts](server/src/routes/ai.ts)). Server-only — no app rebuild; the app just
+gets a longer server-side ceiling on its next generation.
+
+Not the cause (checked and ruled out): Cloudflare is DNS-only (grey cloud),
+`server: Vercel`, no `cf-ray`, so the ~100s Cloudflare proxy timeout does not
+apply.
+
+**Onboarding opened each step scrolled to the bottom.** The onboarding column
+uses `min-height: 100dvh` (not a fixed height), so the flex `overflow:auto`
+step container never actually scrolls — on a tall step the whole PAGE scrolls
+instead. The existing reset only touched `scrollRef` (a no-op here), so the
+previous page-scroll carried into the next step. Fixed the effect to reset both
+the inner container and `window`, again after paint (rAF) to survive a layout
+shift, and to run on the summary transition too (`[step, showSummary]`)
+([Onboarding.tsx](client/src/components/Onboarding.tsx)). Client change — needs
+`cap sync` + APK rebuild to reach the native app.

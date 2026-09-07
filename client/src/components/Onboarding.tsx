@@ -155,9 +155,19 @@ export function Onboarding({ onComplete, userName }: Props) {
   const genStartRef = useRef<number>(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Land every step/summary transition at the top. The onboarding column has
+  // min-height (not a fixed height), so on tall steps it's the PAGE that
+  // scrolls, not the flex overflow:auto container — resetting only scrollRef
+  // was a no-op and the previous scroll position carried into the next screen.
+  // Reset both, and again after paint in case a layout shift nudges it.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0, behavior: 'instant' });
-  }, [step]);
+    const toTop = () => {
+      scrollRef.current?.scrollTo(0, 0);
+      window.scrollTo(0, 0);
+    };
+    toTop();
+    requestAnimationFrame(toTop);
+  }, [step, showSummary]);
 
   // Fire once on mount
   useEffect(() => { track('onboarding_started'); }, []); // eslint-disable-line react-hooks/exhaustive-deps

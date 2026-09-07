@@ -1565,11 +1565,14 @@ router.post('/generate-meal-plan', requireAuth, async (req: AuthRequest, res: Re
     const aiText = await callLLM(userPrompt, {
       system: systemPrompt,
       maxTokens: maxTokens,
-      // The full plan is a large response (~8k tokens for 7-day, ~12k for 14-day)
-      // and takes ~40-90s to write — far longer than the 30s llmClient default,
-      // which was aborting every generation. Generous ceiling, still well under
-      // the 300s Vercel function limit so macro validation has room to run after.
-      timeout: planDuration === 14 ? 180_000 : 120_000,
+      // A full plan is a large response and slow to stream. Measured worst
+      // case for 7-day: a 5-meals/day plan is ~11.9k output tokens and takes
+      // ~97s on Haiku 4.5 — so the old 120s ceiling left almost no margin and
+      // slower-than-median runs aborted with a spurious "timed out". Phase 1
+      // only generates + saves (CN validation is a SEPARATE /validate-plan
+      // request), so it can safely use most of the 300s Vercel budget; 240s
+      // gives ~2.5x the observed worst case while leaving room to save + flush.
+      timeout: planDuration === 14 ? 270_000 : 240_000,
       // Past this point the tokens are paid for, so the attempt counts even if
       // the plan later fails to parse, validate or save.
       onCostIncurred: () => { costIncurred = true; },
