@@ -2399,3 +2399,29 @@ SW. With autoUpdate + skipWaiting + clientsClaim, the first site load after the
 deploy swaps in the new SW, so the *first* Google tap may still show the shell
 (old SW served it) and the *second* works — or load getplanyourplate.com once
 first, or clear the site's data.
+
+## 49. www SW registration error — duplicate uncaught registration (2026-09-07)
+
+Owner hit, on `https://www.getplanyourplate.com/`:
+"Failed to register a ServiceWorker … The script resource is behind a redirect,
+which is disallowed."
+
+Two things combined:
+1. `www` 307-redirects everything to the apex (correct — apex is canonical), so
+   `www/sw.js` is a redirect, and SW registration refuses a redirected script.
+2. vite-plugin-pwa was auto-injecting `registerSW.js`, which registers `/sw.js`
+   with **no error handler**, on top of the already-caught registration in
+   `main.tsx`. The uncaught one turned the redirect failure into an unhandled
+   rejection surfaced to the user.
+
+Fix: `injectRegister: null` in the VitePWA config so only `main.tsx`'s
+`.catch()`-wrapped registration runs. Verified the deployed `index.html` no
+longer references `registerSW.js` and `/sw.js` still serves 200.
+
+Why the owner's browser was even on `www`: a SW registered under the `www`
+scope back when `www` was briefly the primary domain (before the apex flip). A
+registered SW serves its cached shell and intercepts navigations, so the browser
+stayed on `www`; its own update fetch (`www/sw.js`) is the redirect that fails,
+so it can't self-heal. Only a manual clear of `www` site data removes it. New
+visitors are unaffected: `www` → 307 → apex → same-origin `sw.js`. Canonical URL
+to share is the bare apex. Native app unaffected (no SW in the WebView).
