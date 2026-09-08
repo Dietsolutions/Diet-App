@@ -329,6 +329,55 @@ router.get('/forgot-password', (_req: Request, res: Response) => {
   res.send(FORGOT_PASSWORD_PAGE);
 });
 
+const DATA_DELETION = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Account &amp; Data Deletion - Plan Your Plate</title>
+<style>
+body{font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px;color:#333;line-height:1.6;font-size:15px}
+h1{font-size:22px;margin-bottom:4px}
+h2{font-size:17px;margin-top:28px;margin-bottom:8px}
+p{margin:0 0 12px}
+ol,ul{margin:0 0 12px;padding-left:22px}
+li{margin:0 0 6px}
+.updated{color:#888;font-size:13px;margin-bottom:20px}
+.app{color:#888;font-size:13px;margin-top:28px;border-top:1px solid #eee;padding-top:12px}
+</style></head>
+<body>
+<h1>Account &amp; Data Deletion</h1>
+<p class="updated">Last updated: September 8, 2026</p>
+
+<p>This page explains how to delete your <strong>Plan Your Plate</strong> account and all of the data associated with it. Plan Your Plate is developed by Diet Solutions (app ID <code>com.dietplan.tracker</code>).</p>
+
+<h2>Delete your account from inside the app</h2>
+<p>The fastest way to delete everything is from within the app:</p>
+<ol>
+<li>Open Plan Your Plate and sign in.</li>
+<li>Go to the <strong>Profile</strong> tab.</li>
+<li>Scroll to the bottom and tap <strong>Delete Account</strong>.</li>
+<li>Confirm — with your password, or (for Google/Apple sign-in) with the confirmation step shown — to permanently delete your account.</li>
+</ol>
+
+<h2>Request deletion if you can't access the app</h2>
+<p>If you can no longer sign in, email <strong>dietplan.support@gmail.com</strong> from the email address on your account with the subject <em>"Delete my account"</em>. We will verify ownership and delete your account and its data.</p>
+
+<h2>What gets deleted</h2>
+<p>Deleting your account permanently removes all data we hold about you, including:</p>
+<ul>
+<li>Your account and login (username, email, hashed password, Google/Apple identifiers).</li>
+<li>Your profile (weight, height, age, gender, activity level, dietary and cuisine preferences, allergies, health conditions, goals).</li>
+<li>All generated meal plans, cooking instructions and audio guides.</li>
+<li>All logged activity — meals, food swaps, water intake, weight history and shopping lists.</li>
+</ul>
+
+<h2>Timing</h2>
+<p>Your account and its data are removed from our live systems immediately on deletion, and from our third-party service providers within 30 days. Residual copies may remain in encrypted backups for up to 90 days before they are permanently purged. We retain nothing about you after that, except where a specific legal obligation requires it.</p>
+
+<h2>Questions</h2>
+<p>For any question about account or data deletion, contact <strong>dietplan.support@gmail.com</strong>.</p>
+
+<p class="app">Plan Your Plate · com.dietplan.tracker</p>
+</body></html>`;
+
 router.get('/privacy', (_req: Request, res: Response) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(PRIVACY_POLICY);
@@ -337,6 +386,11 @@ router.get('/privacy', (_req: Request, res: Response) => {
 router.get('/terms', (_req: Request, res: Response) => {
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(TERMS_OF_SERVICE);
+});
+
+router.get('/data-deletion', (_req: Request, res: Response) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(DATA_DELETION);
 });
 
 export default router;
