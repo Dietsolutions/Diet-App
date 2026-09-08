@@ -2454,3 +2454,27 @@ the inner container and `window`, again after paint (rAF) to survive a layout
 shift, and to run on the summary transition too (`[step, showSummary]`)
 ([Onboarding.tsx](client/src/components/Onboarding.tsx)). Client change — needs
 `cap sync` + APK rebuild to reach the native app.
+
+## 51. Legal pages were serving the SPA; data-deletion page added (2026-09-08)
+
+While adding a Play-required `/data-deletion` page, found that `/privacy` and
+`/terms` were also broken: the `pages` router is mounted at root, but
+`vercel.json` rewrote every non-`/api` path to `/index.html`, so all three
+served the SPA login screen instead of the policy. (Status-code checks returned
+200 — the SPA fallback — which masked it.) A privacy-policy URL that shows the
+app rather than the policy is a Play rejection risk.
+
+Fix: explicit `vercel.json` rewrites for `/privacy`, `/terms`, `/data-deletion`
+→ `/api/index`, before the SPA catch-all. The function preserves the original
+path (same mechanism that makes `/api/health` resolve), so the Express pages
+router matches and serves the real HTML. Verified live: each renders its own
+`<h1>` (Privacy Policy / Terms of Service / Account & Data Deletion).
+
+The new `/data-deletion` page documents in-app deletion (Profile → Delete
+Account), the email fallback, what is deleted, and timing — the URL to give
+Play for the data-deletion requirement is
+`https://getplanyourplate.com/data-deletion`.
+
+Left alone deliberately: `/reset-password` and `/forgot-password` (also root
+pages routes) still fall through to the SPA, which handles them client-side —
+not changed, to avoid breaking the working password-reset flow.
