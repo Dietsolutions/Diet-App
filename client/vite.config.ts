@@ -59,7 +59,11 @@ export default defineConfig(({ mode }) => {
           // hijacks top-level navigations to /api/* (e.g. the Google OAuth
           // start at /api/auth/google) and returns the app shell instead of
           // letting the request reach the server — breaking OAuth.
-          navigateFallbackDenylist: [/^\/api\//],
+          // Keep the SPA fallback off API routes AND the server-rendered legal
+          // pages (/privacy, /terms, /data-deletion) — otherwise the SW returns
+          // the app shell for those navigations and "Terms" opens the app again
+          // instead of the real page.
+          navigateFallbackDenylist: [/^\/api\//, /^\/privacy\b/, /^\/terms\b/, /^\/data-deletion\b/],
           runtimeCaching: [
             // ── Navigate requests: NetworkFirst ─────────────────────────────
             // CRITICAL for iOS: always fetch fresh index.html from the network
