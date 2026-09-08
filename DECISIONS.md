@@ -2478,3 +2478,18 @@ Play for the data-deletion requirement is
 Left alone deliberately: `/reset-password` and `/forgot-password` (also root
 pages routes) still fall through to the SPA, which handles them client-side —
 not changed, to avoid breaking the working password-reset flow.
+
+## 52. Legal pages also needed a SW denylist entry (2026-09-08)
+
+Follow-up to §51. After routing `/privacy`, `/terms`, `/data-deletion` to the
+server (vercel.json), "Terms" still opened the app in browsers with the service
+worker registered: the SW's SPA navigation fallback served `index.html` for
+those navigations before the request reached the network. §49's fix only
+denylisted `/api/`. Added the three legal paths to
+`navigateFallbackDenylist` in `client/vite.config.ts`; verified the deployed
+`sw.js` now carries `[/^\/api\//,/^\/privacy\b/,/^\/terms\b/,/^\/data-deletion\b/]`.
+
+Lesson: any server-rendered path needs BOTH a vercel.json rewrite (so it reaches
+the function) AND a SW `navigateFallbackDenylist` entry (so the SW doesn't shadow
+it in browsers). A poisoned browser self-heals after one more load (skipWaiting/
+clientsClaim) or a site-data clear.
