@@ -5,7 +5,11 @@
 ### Reviewer Account
 - **Username:** Set via `REVIEW_USERNAME` environment variable
 - **Password:** Set via `REVIEW_PASSWORD` environment variable
-- The review account has pre-generated meal plan data for testing.
+- The review account is fully onboarded (profile + macro targets set) but has
+  no active meal plan yet. On first login, open the Plan tab and tap Generate
+  to create one — this exercises the core AI feature. Generation needs the
+  app's AI service to be reachable (ensure the account's monthly quota and the
+  provider balance are available during the review window).
 - Credentials are **never hardcoded** — set `REVIEW_USERNAME` and `REVIEW_PASSWORD` in Vercel env vars or local `.env`. The account auto-creates on first login when both env vars are set and `NODE_ENV=production`.
 
 ### Features to Review
@@ -57,6 +61,11 @@
 ### Reviewer Account
 - **Username:** `review`
 - **Password:** `Review@2026!`
+
+**First steps for the reviewer:** log in with the credentials above (the account
+is already onboarded). Open the **Plan** tab and tap **Generate** to create a
+personalised meal plan — this is the core feature. Then explore Track, Recipes,
+Shop, Learn and Profile. Account deletion is under Profile → Delete Account.
 
 ### Data Safety Declaration
 The following data is collected:
