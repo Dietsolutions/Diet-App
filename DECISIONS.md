@@ -2493,3 +2493,29 @@ Lesson: any server-rendered path needs BOTH a vercel.json rewrite (so it reaches
 the function) AND a SW `navigateFallbackDenylist` entry (so the SW doesn't shadow
 it in browsers). A poisoned browser self-heals after one more load (skipWaiting/
 clientsClaim) or a site-data clear.
+
+## 53. Reviewer account confirmed; screenshot script rewritten (2026-09-09)
+
+**Reviewer demo account.** Already exists in prod (username `review`, created
+2026-06-12 by the `ensureReviewAccount` seeder from the Vercel
+`REVIEW_USERNAME`/`REVIEW_PASSWORD` env — creds documented in
+STORE_REVIEW_NOTES.md as `review` / `Review@2026!`). It has the "Reviewer"
+profile with real macro targets and `onboardingDone: true`, but no meal plan —
+so the reviewer generates one on first login (per the chosen approach; needs
+Anthropic quota at review time). Corrected the store-notes claim that it had
+"pre-generated meal plan data", and added explicit first-step guidance.
+Note: the seeder does NOT reset an existing account's password, so changing
+`REVIEW_PASSWORD` in env won't update it.
+
+**Screenshot script.** `take-screenshots.js` was stale (old Tailwind selectors,
+old nav labels Tracker/Shopping/Tips, and it clicked Regenerate — which would
+burn AI quota and mutate data). Rewrote it for the Fresh Light UI:
+switches to the Login tab first (the web app opens on Sign Up), navigates the
+PLAN/TRACK/RECIPES/SHOP/LEARN/PROFILE bottom nav by label, window-scrolls (the
+page scrolls, not an inner container), dismisses the "Add to Home Screen" PWA
+banner, and captures top+bottom of each tab at 360×780 @dsf3 = 1080×2340 (a
+standard Play phone size). Read-only — no generate/toggle, so it costs no quota.
+Verified end-to-end against the `review` account on a local dev server (login +
+all six tabs + correct resolution). Store-quality captures need a *populated*
+account (the review account is empty), run with `VITE_SCREENSHOT_USERNAME` /
+`VITE_SCREENSHOT_PASSWORD` against `npm run dev`.

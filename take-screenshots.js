@@ -1,16 +1,22 @@
 /**
- * Store-ready screenshots for Play Store + App Store listings.
+ * Store-ready screenshots for the Play Store (and App Store) listing.
+ *
+ * Rewritten for the Fresh Light UI (inline styles, no Tailwind class hooks,
+ * bottom nav labelled PLAN/TRACK/RECIPES/SHOP/LEARN/PROFILE). Read-only: it
+ * navigates and captures, and never taps Generate/Regenerate or toggles data,
+ * so running it costs no AI quota and mutates nothing.
  *
  * Usage:
- *   VITE_SCREENSHOT_USERNAME=your_user VITE_SCREENSHOT_PASSWORD=your_pass \
- *     node take-screenshots.js
+ *   1. Start the app locally:  npm run dev   (client on http://localhost:5173)
+ *   2. Run against an account that HAS an active plan + some logged data,
+ *      otherwise the Plan/Track tabs show empty states:
  *
- *   (or set them in .env — the script reads process.env directly)
+ *      VITE_SCREENSHOT_USERNAME='user' VITE_SCREENSHOT_PASSWORD='pass' \
+ *        node take-screenshots.js
  *
- * If no credentials are provided, the script captures only the login screen.
- * Requires the dev server running on http://localhost:5173.
+ *   With no credentials it captures the login screen only.
  *
- * Output: ./screenshots/{nn}-{name}.png
+ * Output: ./screenshots/{nn}-{name}.png  (portrait, ~1080×2340 @ dsf 3)
  */
 
 import puppeteer from 'puppeteer';
@@ -19,233 +25,154 @@ import path from 'path';
 import { mkdirSync, existsSync } from 'fs';
 
 const DIR = './screenshots';
-const BASE = 'http://localhost:5173';
+const BASE = process.env.SCREENSHOT_BASE || 'http://localhost:5173';
 const USERNAME = process.env.VITE_SCREENSHOT_USERNAME;
 const PASSWORD = process.env.VITE_SCREENSHOT_PASSWORD;
 const HAS_CREDS = Boolean(USERNAME && PASSWORD);
 
 let n = 1;
-
 if (!existsSync(DIR)) mkdirSync(DIR, { recursive: true });
 
-async function shot(page, name, waitMs = 500) {
+async function shot(page, name, waitMs = 600) {
   await sleep(waitMs);
   const file = path.join(DIR, `${String(n).padStart(2, '0')}-${name}.png`);
-  await page.screenshot({ path: file, fullPage: false });
+  await page.screenshot({ path: file });
   console.log(`  saved ${file}`);
   n++;
 }
 
-async function scrollTo(page, y) {
-  await page.evaluate((val) => {
-    const el = document.querySelector('.overflow-y-auto') || document.documentElement;
-    el.scrollTop = val;
-  }, y);
+// The app scrolls the page (its column is min-height, not a fixed height), so
+// reset by driving the window scroll. Fall back to any tall overflow container.
+async function scrollTop(page) {
+  await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    document.querySelectorAll('*').forEach((el) => {
+      const s = getComputedStyle(el);
+      if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) el.scrollTop = 0;
+    });
+  });
 }
-
 async function scrollBottom(page) {
   await page.evaluate(() => {
-    const el = document.querySelector('.overflow-y-auto');
-    if (el) el.scrollTop = el.scrollHeight;
+    window.scrollTo(0, document.body.scrollHeight);
+    document.querySelectorAll('*').forEach((el) => {
+      const s = getComputedStyle(el);
+      if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) el.scrollTop = el.scrollHeight;
+    });
   });
 }
 
-function findButton(page, textMatch) {
-  return page.evaluate((match) => {
-    const btns = Array.from(document.querySelectorAll('button'));
-    return btns.find(b => b.textContent.trim().includes(match))?.textContent.trim() || null;
-  }, textMatch);
-}
-
-function clickButton(page, textMatch) {
-  return page.evaluate((match) => {
-    const btns = Array.from(document.querySelectorAll('button'));
-    const target = btns.find(b => b.textContent.trim().includes(match));
+// Click a bottom-nav tab by its visible label (PLAN, TRACK, RECIPES, …).
+async function clickNav(page, label) {
+  const ok = await page.evaluate((lbl) => {
+    const btns = Array.from(document.querySelectorAll('nav button, button'));
+    const target = btns.find((b) => b.textContent && b.textContent.trim().toUpperCase() === lbl);
     if (target) { target.click(); return true; }
     return false;
-  }, textMatch);
+  }, label.toUpperCase());
+  if (!ok) console.warn(`  ! nav button "${label}" not found`);
+  return ok;
 }
 
-function clickBottomNav(page, tabName) {
-  return page.evaluate((name) => {
-    const allBtns = Array.from(document.querySelectorAll('button'));
-    const bottomBtns = allBtns.filter(b => {
-      const rect = b.getBoundingClientRect();
-      return rect.top > window.innerHeight - 80;
-    });
-    const target = bottomBtns.reverse().find(b => b.textContent.includes(name));
-    if (target) { target.click(); return true; }
-    const fallback = allBtns.reverse().find(b => b.textContent.includes(name));
-    if (fallback) { fallback.click(); return false; }
-    return false;
-  }, tabName);
+// Dismiss the green "Add to Home Screen" PWA banner so it doesn't sit atop
+// the store screenshots.
+async function dismissBanner(page) {
+  await page.evaluate(() => {
+    const label = Array.from(document.querySelectorAll('span'))
+      .find((el) => (el.textContent || '').includes('Add to Home Screen'));
+    if (!label) return;
+    let banner = label.parentElement;
+    for (let i = 0; i < 4 && banner; i++) {
+      const x = Array.from(banner.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === '\u00d7');
+      if (x) { x.click(); return; }
+      banner = banner.parentElement;
+    }
+  });
 }
 
-async function setTextarea(page, text) {
-  await page.evaluate((val) => {
-    const ta = document.querySelector('textarea');
-    if (!ta) return false;
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-    setter.call(ta, val);
-    ta.dispatchEvent(new Event('input', { bubbles: true }));
-    ta.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  }, text);
+async function tabShots(page, navLabel, baseName) {
+  const found = await clickNav(page, navLabel);
+  if (!found) return;
+  await sleep(1400);
+  await scrollTop(page);
+  await shot(page, `${baseName}-top`);
+  await scrollBottom(page);
+  await shot(page, `${baseName}-bottom`);
 }
 
 (async () => {
-  console.log(`Starting screenshot capture${HAS_CREDS ? ` (user: ${USERNAME})` : ' (no credentials — login screen only)'}`);
-  console.log(`Output: ${DIR}/\n`);
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox'],
-    protocolTimeout: 60000,
-  });
+  console.log(`Screenshots${HAS_CREDS ? ` (user: ${USERNAME})` : ' (no creds — login only)'} → ${DIR}/\n`);
+  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'], protocolTimeout: 60000 });
   const page = await browser.newPage();
-  await page.setViewport({ width: 375, height: 812, deviceScaleFactor: 2 });
+  // 360×780 logical @ dsf 3 → 1080×2340, a standard Android phone size.
+  await page.setViewport({ width: 360, height: 780, deviceScaleFactor: 3 });
 
-  // 1. Login screen
   console.log('1. Login screen');
   await page.goto(BASE, { waitUntil: 'networkidle2', timeout: 30000 });
-  await shot(page, 'login-screen');
+  await sleep(1400);
+  await dismissBanner(page);
+  await shot(page, 'login');
 
   if (!HAS_CREDS) {
-    console.log('\nNo VITE_SCREENSHOT_USERNAME/PASSWORD set. Captured login screen only.');
+    console.log('\nNo VITE_SCREENSHOT_USERNAME/PASSWORD — captured login only.');
     await browser.close();
     return;
   }
 
-  // 2. Login form filled
-  console.log('2. Login form filled');
-  const usernameInput = await page.$('input[placeholder="harshit"], input[type="text"], input[name="username"]');
-  if (usernameInput) {
-    await usernameInput.click();
-    await usernameInput.type(USERNAME, { delay: 15 });
-  }
-  const passwordInput = await page.$('input[type="password"]');
-  if (passwordInput) {
-    await passwordInput.click();
-    await passwordInput.type(PASSWORD, { delay: 10 });
-  }
-  await shot(page, 'login-filled');
-
-  // 3. Submit login
-  console.log('3. Logging in...');
-  await page.click('button[type="submit"]');
-  await sleep(3000);
-
-  // 4. Meals tab — Monday top
-  console.log('4. Meals tab — Monday');
-  await scrollTo(page, 0);
-  await shot(page, 'meals-monday-top', 1000);
-
-  // 5. Meals tab — Monday bottom (scroll)
-  await scrollBottom(page);
-  await shot(page, 'meals-monday-bottom');
-
-  // 6. Meals tab — Tuesday
-  await scrollTo(page, 0);
-  await clickButton(page, 'Tue');
-  await shot(page, 'meals-tuesday');
-
-  // 7. Meals tab — toggle a meal eaten
-  console.log('5. Meal interaction');
-  await scrollTo(page, 0);
-  await sleep(500);
+  console.log('2. Switch to Login and sign in');
+  // The web app opens on the Sign Up tab — switch to Login first, or we'd fill
+  // the signup form and never authenticate.
   await page.evaluate(() => {
-    const all = document.querySelectorAll('.rounded-full');
-    for (const el of all) {
-      const w = el.clientWidth;
-      if (el.classList.contains('border') && w >= 20 && w <= 32) {
-        el.click();
-        break;
-      }
-    }
+    const t = Array.from(document.querySelectorAll('button'))
+      .find((b) => (b.textContent || '').trim().toUpperCase() === 'LOGIN');
+    if (t) t.click();
   });
-  await shot(page, 'meal-eaten-toggled');
+  await sleep(700);
+  const uInput = await page.$('input:not([type="password"])');
+  if (uInput) { await uInput.click({ clickCount: 3 }); await uInput.type(USERNAME, { delay: 20 }); }
+  const pInput = await page.$('input[type="password"]');
+  if (pInput) { await pInput.click(); await pInput.type(PASSWORD, { delay: 20 }); }
+  await sleep(300);
+  await page.evaluate(() => {
+    const b = document.querySelector('form button[type="submit"]') ||
+      document.querySelector('button[type="submit"]');
+    if (b) b.click();
+  });
 
-  // 8. Tracker tab
-  console.log('6. Tracker tab');
-  clickBottomNav(page, 'Tracker');
-  await shot(page, 'tracker-tab', 1500);
-
-  // 9. Tracker scrolled
-  await scrollBottom(page);
-  await shot(page, 'tracker-tab-bottom');
-
-  // 10. Shopping tab
-  console.log('7. Shopping tab');
-  clickBottomNav(page, 'Shopping');
-  await shot(page, 'shopping-tab', 1500);
-
-  // 11. Shopping bottom
-  await scrollBottom(page);
-  await shot(page, 'shopping-tab-bottom');
-
-  // 12. Tips tab
-  console.log('8. Tips tab');
-  clickBottomNav(page, 'Tips');
-  await shot(page, 'tips-tab', 1500);
-
-  // 13. Tips bottom
-  await scrollBottom(page);
-  await shot(page, 'tips-tab-bottom');
-
-  // 14. Profile tab — top
-  console.log('9. Profile tab');
-  clickBottomNav(page, 'Profile');
+  // Wait for the app shell (bottom nav) to appear.
+  console.log('3. Waiting for app to load');
+  try {
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll('button')).some((b) => (b.textContent || '').trim().toUpperCase() === 'TRACK'),
+      { timeout: 25000 },
+    );
+  } catch { console.warn('  ! app shell (bottom nav) not detected — login may have failed'); }
   await sleep(1500);
-  await scrollTo(page, 0);
-  await shot(page, 'profile-top');
 
-  // 15. Profile — stats section
-  await scrollTo(page, 300);
-  await shot(page, 'profile-stats');
-
-  // 16. Profile — customiser empty
-  await scrollTo(page, 600);
-  await shot(page, 'profile-customiser');
-
-  // 17. Profile — bottom (regen + logout)
+  await dismissBanner(page);
+  console.log('4. Plan tab');
+  await clickNav(page, 'PLAN');
+  await sleep(1400);
+  await scrollTop(page);
+  await shot(page, 'plan-top');
   await scrollBottom(page);
-  await shot(page, 'profile-bottom');
+  await shot(page, 'plan-bottom');
 
-  // 18. Type custom instructions
-  console.log('10. Custom instructions');
-  await scrollTo(page, 550);
-  await sleep(300);
-  await setTextarea(page, 'Add more eggs to breakfast, include at least one soup every day');
-  await shot(page, 'customiser-typed', 800);
+  console.log('5. Track tab');
+  await tabShots(page, 'TRACK', 'track');
 
-  // 19. Click suggestion chip
-  await clickButton(page, '+ Quick recipes');
-  await shot(page, 'customiser-chip-added', 500);
+  console.log('6. Recipes tab');
+  await tabShots(page, 'RECIPES', 'recipes');
 
-  // 20. Show regenerate button
-  await scrollBottom(page);
-  await shot(page, 'customiser-regen-button');
+  console.log('7. Shop tab');
+  await tabShots(page, 'SHOP', 'shop');
 
-  // 21. Confirmation dialog with instructions
-  console.log('11. Confirmation dialogs');
-  await clickButton(page, 'Regenerate with My Changes');
-  await shot(page, 'confirm-with-instructions', 500);
+  console.log('8. Learn tab');
+  await tabShots(page, 'LEARN', 'learn');
 
-  // 22. Cancel
-  await clickButton(page, 'Cancel');
-  await sleep(300);
+  console.log('9. Profile tab');
+  await tabShots(page, 'PROFILE', 'profile');
 
-  // 23. Clear and show no-instructions dialog
-  await clickButton(page, 'Clear');
-  await sleep(500);
-  await scrollBottom(page);
-  await shot(page, 'customiser-cleared');
-  await clickButton(page, 'Regenerate Meal Plan');
-  await shot(page, 'confirm-no-instructions', 500);
-
-  console.log(`\nDone! ${n - 1} screenshots saved to ${DIR}/`);
+  console.log(`\nDone — ${n - 1} screenshots in ${DIR}/`);
   await browser.close();
-})().catch(err => {
-  console.error('Screenshot capture failed:', err);
-  process.exit(1);
-});
+})().catch((e) => { console.error('screenshot run failed:', e.message); process.exit(1); });
